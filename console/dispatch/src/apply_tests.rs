@@ -7007,6 +7007,7 @@ fn site_handles(site: &impl tehas_ports::Site) -> Handles {
         tickets: site.tickets(&by, c).unwrap(),
         blueprints: site.blueprints(&by, c).unwrap(),
         code_host: site.code_host(&by, c).unwrap(),
+        board: site.board(&by, c).unwrap(),
     }
 }
 

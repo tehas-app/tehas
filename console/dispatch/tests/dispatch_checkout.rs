@@ -150,6 +150,14 @@ fn an_index_that_runs_as_its_own_unit_holds_the_cycles_until_the_poll_after_it()
 #[test]
 fn the_poll_after_the_index_run_says_how_it_ended_and_starts_the_cycles() {
     let w = World::new("co-index-after");
+    // The marks the poll reads and keeps as pins, as a running host has
+    // them: an empty answer would keep an empty pins file and refuse the
+    // application below. The name is the one `LABELLED` applies.
+    let named: serde_json::Value = serde_json::from_str(LABELLED).unwrap();
+    w.fx(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": named[0]["label"]["name"]}]).to_string(),
+    );
     index_unit(&w);
     let base = git(&w.checkout(), &["rev-parse", "origin/main"]);
     w.home_file(
@@ -303,7 +311,9 @@ fn an_outside_edit_after_the_label_is_not_approved_though_an_allowed_account_edi
 }
 
 // The list may name a GitHub account called unknown: a change by no account is
-// still nobody's. The rename variant is a fixture of approval.json.
+// still nobody's. The board adapter names an editor GitHub no longer gives
+// ghost, so the line says ghost and that account is on no list either way.
+// The rename variant is a fixture of approval.json.
 #[test]
 fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_edit_variant() {
     let w = World::new("co-unknown-edit");
@@ -319,7 +329,7 @@ fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_e
         r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":null}}}}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
-    has(&r.out, "skip #7: its text was changed by 'unknown'");
+    has(&r.out, "skip #7: its text was changed by 'ghost'");
     lacks(&r.out, "would run a cycle");
     has(&w.gh(), "userContentEdits(last: 100)");
 }

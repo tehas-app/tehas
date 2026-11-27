@@ -788,6 +788,45 @@ fn tickets_several_carries_each_closer() {
 }
 
 #[test]
+fn tickets_several_lists_merged_as_closed_since() {
+    for w in both() {
+        let b = first_blueprint(&w) + 1;
+        let n = first_change(&w);
+        let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
+        let w = w
+            .ticket(1, |t| t.title("open"))
+            .ticket(2, |t| {
+                t.title("closed").closed_by(CloseReason::Done, commit)
+            })
+            .change(n, "work", |c| {
+                c.title("merged").closes(b).state(ChangeState::Merged {
+                    at: At::new(5),
+                    by: None,
+                    commit: None,
+                })
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), w.key(2)];
+        ok(laws::tickets::several_lists_merged_as_closed_since(
+            h.as_mut(),
+            &keys,
+            Bound::new(10).unwrap(),
+        ));
+        let answers = h.several_with_closers(&keys);
+        assert!(answers[0].1.as_ref().unwrap().merged.is_empty());
+        let two = answers[1].1.as_ref().unwrap();
+        assert!(matches!(two.closer, Some(Closer::Commit(_))));
+        let merged: Vec<u64> = two.merged.iter().map(|c| c.no.get()).collect();
+        let want: Vec<u64> = match w.key(1) {
+            TicketKey::Number(_) => vec![n],
+            TicketKey::Key(_) => Vec::new(),
+        };
+        assert_eq!(merged, want);
+    }
+}
+
+#[test]
 fn code_host_updated_is_at_or_after_every_time() {
     for w in both() {
         let n = first_change(&w);

@@ -1,7 +1,8 @@
-//! What a snapshot asks of GitHub: the open issues in pages of 25 with
-//! everything the rules read of each, the marks on closed issues and pull
+//! What a snapshot asks of GitHub: the marks on closed issues and pull
 //! requests, and the reads the bash makes of one issue at a time, in the
-//! shapes the bash dispatcher read them.
+//! shapes the bash dispatcher read them. The queue's own page moved onto the
+//! ports (`read::board`, `read::build::queue`); what is left here shapes
+//! what the board's answer already holds.
 
 use super::run::{Calls, GhFail};
 use serde_json::{json, Map, Value};
@@ -17,122 +18,8 @@ use tehas_core::events::Events;
 ///
 /// `host/labels.tsv` is where the label is created and described, and
 /// `console/dispatch/src/finish.rs`, `console/cycle/src/report.rs`,
-/// `console/ops/src/stop.rs` and `console/ops/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites, and the two
-/// tests below tie it to the queue's page and the guard's exemption.
+/// `console/ops/src/stop.rs` and `console/ops/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites. The test below ties it to the guard's exemption; the queue's read asks for it through the ports, as `Mark::State(State::Running)`.
 pub const RUNNING: &str = "tehas:running";
-
-/// The open issues one page asks for. A page over GitHub's budget for nested
-/// items comes back with its timelines cut short and no error, so the size is
-/// load-bearing for correctness, and the page count rather than the points is
-/// what the poll pays in: each page is one `gh` process run before any
-/// decision. `tests/dispatch_poll.rs` pins the number in the query, so a
-/// change has to be a deliberate one.
-const ISSUE_PAGE: usize = 25;
-
-/// The queue's page. `{ISSUE_PAGE}` is filled in from the constant above by
-/// `page_query`, so the number lives in one place.
-const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    nameWithOwner
-    issues(states: OPEN, first: {ISSUE_PAGE}, after: $cursor) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        number title body createdAt author { login ...on User { databaseId } ...on Bot { databaseId } } lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
-        labels(first: 50) { nodes { name } }
-        subIssuesSummary { total completed }
-        issueDependenciesSummary { blockedBy }
-        parent { number }
-        timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
-          nodes {
-            __typename
-            ... on LabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { id name } }
-            ... on UnlabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { id name } }
-            ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
-          }
-        }
-        closedByPullRequestsReferences(first: 20) { nodes { url state isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } } }{TYPE}
-      }
-    }
-    closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
-  }
-}"#;
-
-/// The repository's `tehas:` labels with their node ids, on the first page
-/// alone: what `crate::pins` compares with the ids it pinned.
-const TEHAS_LABELS: &str = r#"
-    tehasLabels: labels(first: 100, query: "tehas:") { nodes { id name } }"#;
-
-/// What the hold of rule 6 reads of an open pull request. `body` is read
-/// whole, and it is the one field of the page that a description can make
-/// long. The author and head repository are what `build::own_pull` reads.
-macro_rules! open_pull_fields {
-    () => {
-        "number body isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner }"
-    };
-}
-
-/// The open pull requests, on the first page: the hold of rule 6 that reads a
-/// body for a closing keyword needs no call of its own while they fit in one
-/// list. Last in the page, and small, for the budget `ISSUE_PAGE` names. More
-/// than one list are read on with `MORE_OPEN_PULLS`.
-const OPEN_PULLS: &str = concat!(
-    r#"
-    openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      pageInfo { hasNextPage endCursor }
-      nodes { "#,
-    open_pull_fields!(),
-    " }\n    }"
-);
-
-/// The open pull requests after the first list of the queue's page.
-const MORE_OPEN_PULLS: &str = concat!(
-    r#"query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) {
-      openPulls: pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
-        pageInfo { hasNextPage endCursor }
-        nodes { "#,
-    open_pull_fields!(),
-    " } } } }"
-);
-
-/// The most lists of 100 a read of the open pull requests goes on to. A
-/// repository with more open is a read that failed.
-const PULL_PAGES: usize = 50;
-
-// The page above names `tehas:running` inside a GraphQL string, where the
-// constant cannot reach it; this test is what ties the word in the query to
-// `RUNNING`.
-
-/// With `TEHAS_ISSUE_TYPES` mapping improvement: each issue's type.
-const TYPE: &str = "\n        issueType { name }";
-
-/// With `TEHAS_ISSUE_TYPES` mapping improvement, on the first page: the issue
-/// types of the repository's owner.
-const OWNER_TYPES: &str = "\n    issueTypes(first: 50) { nodes { name } }";
-
-/// The queue's page as it is sent, its page size filled in from `ISSUE_PAGE`.
-#[cfg(test)]
-fn page_query(first: bool) -> String {
-    page_query_typed(first, false)
-}
-
-/// The same, and with `types` each issue's type and, on the first page, the
-/// owner's types.
-fn page_query_typed(first: bool, types: bool) -> String {
-    let owner_types = if first && types { OWNER_TYPES } else { "" };
-    PAGE.replace("{ISSUE_PAGE}", &ISSUE_PAGE.to_string())
-        .replace("{TYPE}", if types { TYPE } else { "" })
-        .replace(
-            "{OPEN_PULLS}",
-            &format!(
-                "{}{owner_types}",
-                if first {
-                    format!("{OPEN_PULLS}{TEHAS_LABELS}")
-                } else {
-                    String::new()
-                }
-            ),
-        )
-}
 
 /// What a comment read asks of one issue: the one-issue query and the chunked
 /// one ask the same fields, so an issue's answer is the same either way. A
@@ -329,9 +216,9 @@ fn comments_query(chunk: &[u64]) -> String {
 pub const EDIT_CHUNK: usize = 25;
 
 /// One aliased query for the body edits of a chunk of issues: `i{n}`
-/// answers #n. The queue's page asks only for the last edit, as its size is
-/// load-bearing (`ISSUE_PAGE`); `edit_holds` judges every edit after an
-/// approval, so the issues a rule may start read their history here.
+/// answers #n. The board's page of the queue asks only for the last edit;
+/// `edit_holds` judges every edit after an approval, so the issues a rule
+/// may start read their history here.
 fn edits_query(chunk: &[u64]) -> String {
     let mut q = String::from(
         "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
@@ -417,161 +304,27 @@ pub struct Open {
 }
 
 /// The open issues, the repository's name, the closed issues still marked
-/// tehas:running and the open pull requests, as the first page gave them.
+/// tehas:running and the open pull requests: the queue's shapes, as
+/// `read::board` maps the board's answer and `read::build::queue` fills what
+/// the board does not answer.
 pub struct Queue {
-    pub repo: Option<String>,
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
-    /// The nodes of `openPulls` as the first page gave them: None when the page
-    /// answered no such list, which is how a page cut short of GitHub's nested
-    /// budget reads as nothing known rather than nothing open. Only the first
-    /// page asks for the list, so a page after the first says nothing about it.
+    /// The open pull requests as nodes the hold of rule 6 reads: None when
+    /// the code host was not wired, which reads as nothing known rather
+    /// than nothing open.
     pub open_pulls: Option<Value>,
     /// The issue types of the repository's owner, when the queue asked for
-    /// them and the first page answered the repository: empty for an owner
-    /// with none.
+    /// them: empty for an owner with none.
     pub issue_types: Option<Vec<String>>,
-    /// The nodes of `tehasLabels` as the first page gave them, or None.
+    /// The repository's `tehas:` labels with their ids, as `crate::pins`
+    /// compares them with the ids it pinned, or None.
     pub labels: Option<Value>,
-}
-
-fn names(v: Option<&Value>) -> Vec<String> {
-    v.and_then(|l| l.get("nodes"))
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn split(repo: &str) -> (String, String) {
     let (o, n) = repo.split_once('/').unwrap_or((repo, ""));
     (format!("owner={o}"), format!("name={n}"))
-}
-
-/// The open issues, page by page. `types` asks for the issue types too.
-pub fn queue(calls: &mut Calls, repo: &str, types: bool) -> Result<Queue, GhFail> {
-    let (owner, name) = split(repo);
-    let mut q = Queue {
-        repo: None,
-        open: Vec::new(),
-        closed_running: Vec::new(),
-        open_pulls: None,
-        issue_types: None,
-        labels: None,
-    };
-    let mut cursor: Option<String> = None;
-    loop {
-        let query = format!("query={}", page_query_typed(cursor.is_none(), types));
-        let cur = cursor.as_ref().map(|c| format!("cursor={c}"));
-        let mut args = vec!["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        if let Some(c) = cur.as_deref() {
-            args.extend(["-f", c]);
-        }
-        let v = calls.gh(&args)?;
-        let r = v
-            .pointer("/data/repository")
-            .cloned()
-            .unwrap_or(Value::Null);
-        q.repo = r
-            .get("nameWithOwner")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        for n in r
-            .pointer("/issues/nodes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some(number) = n.get("number").and_then(Value::as_u64) else {
-                continue;
-            };
-            q.open.push(Open {
-                number,
-                labels: names(n.get("labels")),
-                node: n.clone(),
-            });
-        }
-        if cursor.is_none() && types && r.is_object() {
-            q.issue_types = Some(names(r.get("issueTypes")));
-        }
-        if cursor.is_none() {
-            q.open_pulls = rest_of(&r, "/openPulls", |c| {
-                let cur = format!("cursor={c}");
-                let query = format!("query={MORE_OPEN_PULLS}");
-                calls
-                    .gh(&[
-                        "api", "graphql", "-F", &owner, "-F", &name, "-f", &query, "-f", &cur,
-                    ])
-                    .map(|v| {
-                        v.pointer("/data/repository")
-                            .cloned()
-                            .unwrap_or(Value::Null)
-                    })
-            })?;
-            q.labels = r.pointer("/tehasLabels/nodes").cloned();
-            q.closed_running = r
-                .pointer("/closedRunning/nodes")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|x| x.get("number").and_then(Value::as_u64))
-                        .collect()
-                })
-                .unwrap_or_default();
-        }
-        let more = r.pointer("/issues/pageInfo/hasNextPage") == Some(&json!(true));
-        let next = r
-            .pointer("/issues/pageInfo/endCursor")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        match (more, next) {
-            (true, Some(n)) => cursor = Some(n),
-            _ => break,
-        }
-    }
-    Ok(q)
-}
-
-/// The nodes of a list read on to its last page: `first` is the answer that
-/// holds the first list at `at`, and `more` reads the list after a cursor,
-/// answering what holds it at the same `at`. None when an answer holds no
-/// list, which is nothing known rather than nothing there.
-fn rest_of(
-    first: &Value,
-    at: &str,
-    mut more: impl FnMut(&str) -> Result<Value, GhFail>,
-) -> Result<Option<Value>, GhFail> {
-    let mut page = first.clone();
-    let mut nodes = Vec::new();
-    for _ in 0..PULL_PAGES {
-        let Some(list) = page
-            .pointer(&format!("{at}/nodes"))
-            .and_then(Value::as_array)
-        else {
-            return Ok(None);
-        };
-        nodes.extend(list.iter().cloned());
-        let next = page
-            .pointer(&format!("{at}/pageInfo"))
-            .filter(|p| p.get("hasNextPage") == Some(&json!(true)))
-            .and_then(|p| p.get("endCursor"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let Some(cursor) = next else {
-            return Ok(Some(Value::Array(nodes)));
-        };
-        page = more(&cursor)?;
-    }
-    Err(GhFail {
-        line: format!(
-            "ERROR: more than {} open pull requests to read",
-            PULL_PAGES * 100
-        ),
-        ran: None,
-    })
 }
 
 /// The label events of an issue as the REST events list gives them.
@@ -890,8 +643,6 @@ mod tests {
     fn the_one_pull_request_asks_the_refresh_rules_fields() {
         let fields = pull_fields!();
         assert!(PULL.contains(&format!("{{ state {fields} }}")));
-        assert!(OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
-        assert!(MORE_OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
         let args = [
             "api".to_string(),
             "graphql".to_string(),
@@ -903,54 +654,15 @@ mod tests {
         assert!(crate::read::run::gh_reads(&args));
     }
 
-    fn list(nodes: &[u64], next: Option<&str>) -> Value {
-        json!({"l": {"pageInfo": {"hasNextPage": next.is_some(), "endCursor": next},
-            "nodes": nodes.iter().map(|n| json!({"number": n})).collect::<Vec<_>>()}})
-    }
-
-    #[test]
-    fn a_list_of_more_than_one_page_is_read_to_its_end() {
-        let mut asked = Vec::new();
-        let all = rest_of(&list(&[1, 2], Some("a")), "/l", |c| {
-            asked.push(c.to_string());
-            Ok(match c {
-                "a" => list(&[3], Some("b")),
-                _ => list(&[4], None),
-            })
-        });
-        assert_eq!(asked, ["a", "b"]);
-        assert_eq!(
-            all.ok().flatten(),
-            Some(json!([{"number": 1}, {"number": 2}, {"number": 3}, {"number": 4}]))
-        );
-    }
-
-    #[test]
-    fn a_list_that_one_page_does_not_answer_is_not_known() {
-        let all = rest_of(&list(&[1], Some("a")), "/l", |_| Ok(json!({})));
-        assert_eq!(all.ok(), Some(None));
-        let failed = rest_of(&list(&[1], Some("a")), "/l", |_| {
-            Err(GhFail {
-                line: "ERROR: gh failed".into(),
-                ran: None,
-            })
-        });
-        assert!(failed.is_err());
-        let endless = rest_of(&list(&[1], Some("a")), "/l", |_| Ok(list(&[1], Some("a"))));
-        assert!(endless.is_err());
-    }
-
     #[test]
     fn every_account_a_query_reads_comes_with_its_user_id() {
         // tehas_core::accounts counts a listed login only with its recorded id.
         let with_id = "{ login ...on User { databaseId } ...on Bot { databaseId } }";
         for q in [
-            page_query(true),
             COMMENTS.to_string(),
             comments_query(&[7, 8]),
             comment_edits_query(&["IC_a".to_string()]),
             PULL.to_string(),
-            MORE_OPEN_PULLS.to_string(),
         ] {
             assert_eq!(
                 q.matches("login").count(),
@@ -1053,8 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn an_issue_names_its_epic_and_the_page_asks_for_it() {
-        assert!(PAGE.contains("parent { number }"));
+    fn an_issue_names_its_epic() {
         let o = |node: Value| Open {
             number: 7,
             labels: vec![],
@@ -1068,13 +779,12 @@ mod tests {
         assert!(alone["work"].get("parent").is_none());
     }
 
-    /// The page asks how many open issues block each one through a native
-    /// blocked-by link, and the issue's REST-shaped answer carries the count.
+    /// How many open issues block each one through a native blocked-by link,
+    /// as the issue's REST-shaped answer carries it.
     /// A forge answer without the field, or with one that is no count, carries
     /// nothing, so no link holds the issue.
     #[test]
-    fn an_issue_carries_its_open_blocked_by_links_and_the_page_asks_for_them() {
-        assert!(PAGE.contains("issueDependenciesSummary { blockedBy }"));
+    fn an_issue_carries_its_open_blocked_by_links() {
         let o = |node: Value| Open {
             number: 7,
             labels: vec![],
@@ -1366,47 +1076,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_page_asks_for_the_open_pull_requests() {
-        assert!(page_query(true).contains("openPulls: pullRequests(states: OPEN"));
-        assert!(!page_query(false).contains("pullRequests"));
-        assert!(!page_query(false).contains("{OPEN_PULLS}"));
-    }
-
-    #[test]
-    fn the_issue_types_are_asked_only_with_the_setting_and_the_owners_on_the_first_page() {
-        for first in [true, false] {
-            let off = page_query(first);
-            assert!(!off.contains("issueType") && !off.contains("{TYPE}"));
-            let on = page_query_typed(first, true);
-            assert!(on.contains("issueType { name }"));
-            assert_eq!(on.contains("issueTypes(first: 50)"), first);
-        }
-    }
-
-    #[test]
-    fn the_page_asks_for_the_page_size_the_guard_rests_on() {
-        // `first:` is not a tuning number: a page over GitHub's budget for
-        // nested items answers with timelines cut short and no error. An edit
-        // to the constant is caught here and in the shell poll test.
-        let q = page_query(true);
-        assert!(
-            q.contains(&format!("first: {ISSUE_PAGE}, after: $cursor")),
-            "the queue's page does not ask for ISSUE_PAGE: {q}"
-        );
-        assert!(
-            !q.contains("{ISSUE_PAGE}"),
-            "the page size was not filled in"
-        );
-    }
-
-    #[test]
-    fn the_running_mark_the_page_selects_is_the_mark_the_guard_exempts() {
-        // The queue's page names the mark inside a GraphQL string the
-        // compiler cannot check, so the exemption and the query could drift
-        // apart: the page would go on selecting the closed marks while the
-        // guard exempted a name no issue carries, and every running issue
-        // would pay a paginated read on every poll with nothing failing.
-        assert!(PAGE.contains(&format!("labels: [\"{RUNNING}\"]")));
+    fn the_running_mark_the_guard_exempts_is_the_one_the_table_spells() {
+        // The queue's page used to name the mark inside a GraphQL string the
+        // compiler could not check; the read now asks it as a typed mark, and
+        // the guard's exemption stays tied to the table's word for it.
         assert_eq!(RUNNING, "tehas:running");
     }
 }

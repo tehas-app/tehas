@@ -605,6 +605,35 @@ pub mod tickets {
         Ok(())
     }
 
+    /// `several_with_closers` lists a closed ticket's merged changes as
+    /// `closed_since` lists them, and none of an open one. The fixture
+    /// holds `keys`, closed and open, every closed ticket within `bound`.
+    pub fn several_lists_merged_as_closed_since(
+        h: &mut dyn Tickets,
+        keys: &[TicketKey],
+        bound: Bound,
+    ) -> Law {
+        const LAW: &str = "tickets::several_lists_merged_as_closed_since";
+        let since = got(LAW, "closed_since", h.closed_since(At::new(0), bound))?.into_items();
+        for (k, answer) in h.several_with_closers(keys) {
+            let with = got(LAW, "several_with_closers", answer)?;
+            let listed = since.iter().find(|c| c.digest.key == k);
+            hold(
+                listed.is_some() || with.digest.state == TicketState::Open,
+                LAW,
+                || format!("{k:?} is closed and closed_since does not list it"),
+            )?;
+            let want = listed.map(|c| c.merged.clone()).unwrap_or_default();
+            hold(with.merged == want, LAW, || {
+                format!(
+                    "{k:?}'s merged changes are {:?}, closed_since lists {want:?}",
+                    with.merged
+                )
+            })?;
+        }
+        Ok(())
+    }
+
     /// Taking off a mark a ticket does not carry is done, and leaves it
     /// without the mark. The fixture's ticket must not carry `mark`.
     pub fn removing_an_absent_mark_is_done(
