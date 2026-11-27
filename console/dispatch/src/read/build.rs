@@ -240,7 +240,7 @@ fn queue(src: &mut Sources, c: &Settings) -> Result<(github::Queue, Vec<u64>), G
     // A repository that carries no marks of ours is as if its labels were
     // not read: the pins of state/labels pin nothing from an empty list, as
     // the page that named no `tehasLabels` key never did.
-    m.queue.labels = (!labels.is_empty()).then(|| Value::Array(labels));
+    m.queue.labels = (!labels.is_empty()).then_some(Value::Array(labels));
     Ok((m.queue, unread))
 }
 
