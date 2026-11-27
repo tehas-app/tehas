@@ -11,7 +11,7 @@
 //! them at T4.7.
 
 use super::{sha256, Found, Handles};
-use tehas_ports::{AccountKind, At, Body, Comment, Write};
+use tehas_ports::{AccountKind, At, Body, Comment, Depth, TicketState, Write};
 use tehas_ports::{Bound, Window};
 
 /// A comment made this long before the row still counts: the host's clock
@@ -87,6 +87,25 @@ pub fn read(write: &Write, h: &mut Handles, since: At, bound: Bound) -> Option<F
         Write::Mark { ticket, .. } | Write::Unmark { ticket, .. } => {
             let (_, digest) = h.tickets.several(std::slice::from_ref(ticket)).pop()?;
             by_marks(write, &digest.ok()?.marks)
+        }
+        Write::Close { ticket, .. } => {
+            // Closed is the state this write asks for; whose hand moved it
+            // is not asked, as the mark rules ask it neither. Open now: not
+            // sent, or sent and opened again since, and the row is no more
+            // ours to call landed than a mark put back by hand. One read
+            // carries the state, the site's time of the close and its
+            // reason: the raiser of `ticket.closed` keys on all three.
+            let t = h
+                .tickets
+                .ticket(ticket, Depth::Cut { notes: 0 }, None)
+                .ok()?;
+            Some(match t.digest.state {
+                TicketState::Closed(reason) => Found::Closed {
+                    at: t.closed,
+                    reason,
+                },
+                TicketState::Open => Found::NotSent,
+            })
         }
         Write::TicketNote { ticket, .. } => {
             let notes = match ticket.same_item() {
@@ -384,11 +403,28 @@ mod tests {
             Some(Found::NotSent)
         );
 
-        // A kind no rule reads yet stays unknown.
+        // A close is read by the ticket's state: closed is landed, whoever
+        // closed it, with the site's time and reason of it in the answer,
+        // and open is not sent.
         let close = Write::Close {
             ticket: ticket(),
             reason: CloseReason::Done,
         };
-        assert_eq!(read(&close, &mut h, since, bound), None);
+        assert_eq!(read(&close, &mut h, since, bound), Some(Found::NotSent));
+        h.writes.send(&close, &NoBlobs).unwrap();
+        assert!(
+            matches!(
+                read(&close, &mut h, since, bound),
+                Some(Found::Closed {
+                    reason: CloseReason::Done,
+                    ..
+                })
+            ),
+            "the close reads landed with the site's reason"
+        );
+
+        // A kind no rule reads yet stays unknown.
+        let reopen = Write::Reopen { ticket: ticket() };
+        assert_eq!(read(&reopen, &mut h, since, bound), None);
     }
 }

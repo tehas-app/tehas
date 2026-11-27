@@ -2,6 +2,8 @@
 //! vX.Y.Z-alpha.N, vX.Y.Z-beta.N or vX.Y.Z-rc.N. The release workflow, the
 //! tag step and the update read versions through this one parser.
 
+use crate::grammar::all_digits;
+
 /// The stage of a prerelease, in the order they come: an alpha before a beta
 /// before a release candidate, and all of them before the release.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -27,10 +29,6 @@ impl Stage {
     }
 }
 
-fn digits(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
-}
-
 /// The version before a prerelease suffix, its stage and its number N:
 /// `v1.0.0-beta.2` is (`v1.0.0`, Beta, `2`). None without such a suffix.
 /// The part before is not checked; [`is_tag`] checks the whole.
@@ -38,7 +36,7 @@ pub fn prerelease(version: &str) -> Option<(&str, Stage, &str)> {
     let (base, pre) = version.rsplit_once('-')?;
     let (stage, n) = pre.split_once('.')?;
     let stage = Stage::parse(stage)?;
-    digits(n).then_some((base, stage, n))
+    all_digits(n).then_some((base, stage, n))
 }
 
 /// vX.Y.Z, each part one or more digits.
@@ -47,7 +45,7 @@ pub fn is_release(tag: &str) -> bool {
         return false;
     };
     let parts: Vec<&str> = rest.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| digits(p))
+    parts.len() == 3 && parts.iter().all(|p| all_digits(p))
 }
 
 /// A release, or a prerelease of one.

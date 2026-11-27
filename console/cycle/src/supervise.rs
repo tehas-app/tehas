@@ -55,6 +55,8 @@ pub struct Given {
     pub console: String,
     /// The handles the report's writes go through.
     pub handles: crate::apply::HandlesOf,
+    /// The site's time of a merged change, for the raise of `change.merged`.
+    pub merge_at: crate::apply::MergeAtOf,
 }
 
 /// What a number is, as GitHub answers for it. The factory works on open issues
@@ -271,7 +273,7 @@ fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i
 fn raise_short(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispatcher) {
     let wrote = serde_json::from_str::<EndAnswer>(answer).is_ok_and(|a| !a.already);
     if let (true, Ok(issue), Ok(attempt)) = (wrote, n.parse(), attempt.parse()) {
-        crate::events::raise_ended(events, home, issue, attempt, Writer::Short);
+        crate::events::raise_ended(events, home, issue, attempt, Writer::Short, &mut |_| None);
     }
 }
 
@@ -448,7 +450,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let start: Option<StartRow> = serde_json::from_value(answer.clone()).ok();
     // The record this start ended as lost: its line is this start's.
     if let Some(lost) = start.as_ref().and_then(|s| s.replaced) {
-        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short);
+        crate::events::raise_ended(events, home, g.issue, lost, Writer::Short, &mut |_| None);
     }
     match start.as_ref().and_then(tehas_core::raise::started) {
         Some(p) => crate::events::raise(events, p),
@@ -487,11 +489,11 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     }
     let started = time::now();
     let restart = wants_restart(&issue);
-    let cycles = Home::new(home).cycles_dir();
+    let at = Home::new(home);
     // The notes of an earlier cycle, killed outright before it could report. A
     // freeze left by one would pause this cycle the moment it starts.
     for note in cycle_notes::started() {
-        let _ = fs::remove_file(cycles.join(format!("{n}.{note}")));
+        let _ = fs::remove_file(at.cycle_note(g.issue, note));
     }
     // The driver's record of the cycle before this one, had it kept one. Its
     // one reader was that cycle's run of the analytics, and a start comes here
@@ -499,7 +501,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     // this is where the note goes. Left behind it would be read as this
     // cycle's own steps, the analytics read the file by its issue alone, and
     // it would hold the place this cycle's copy needs.
-    let _ = fs::remove_file(cycles.join(format!("{n}.{}", apply::LEAN_STATE)));
+    let _ = fs::remove_file(at.cycle_note(g.issue, cycle_notes::Note::LeanState));
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [
         signal_hook::consts::SIGTERM,
@@ -540,7 +542,10 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     };
     let reported = apply::reported(home, &start, g.handles);
     let attempt = u32::try_from(start.attempt).unwrap_or(0);
-    crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report);
+    // The merged change's site time is asked of the code-host port once, for
+    // the merged line of this report, never per poll.
+    let mut site_at = (g.merge_at)(home);
+    crate::events::raise_ended(events, home, g.issue, attempt, Writer::Report, &mut site_at);
     reported.rc
 }
 

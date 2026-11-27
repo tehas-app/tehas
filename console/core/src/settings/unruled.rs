@@ -176,6 +176,7 @@ pub const FAMILIES: &[(&str, &str)] = &[
 fn ruled(name: &str) -> bool {
     name.starts_with(rules::MODEL_KEY)
         || name.starts_with(crate::plugin::GRANTS)
+        || name.starts_with(rules::PLUGIN_ORIGINS)
         || rules::TABLE
             .iter()
             .chain(rules::HOST)
@@ -324,6 +325,9 @@ mod tests {
         assert!(known("TEHAS_MODEL_KEY_MAIN"));
         assert!(known("TEHAS_HOME"));
         assert!(known("TEHAS_OWNER"));
+        assert!(known("TEHAS_ADAPTER"));
+        assert!(known("TEHAS_ADAPTER_UPSTREAM_CERT_KEY"));
+        assert!(known("TEHAS_PLUGIN_ORIGINS_FLOORPLAN"));
         assert_eq!(
             installed_rust("a\n#[cfg(test)]\nmod tests { \"TEHAS_X\" }"),
             "a\n"

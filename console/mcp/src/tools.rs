@@ -828,6 +828,70 @@ pub fn known(name: &str) -> bool {
     CALLED.contains(&name)
 }
 
+/// The served tool names, in the order the table holds them. The surface
+/// guard reads the tool lines of api/surface-2.0.txt from here, so the
+/// table has one owner.
+pub fn called() -> &'static [&'static str] {
+    &CALLED
+}
+
+/// One tool as the public surface names it: its name, the names of its
+/// arguments, and the answer lines its output schema holds, each a full
+/// `tool <name> answer <path>` line, dotted and an array's items written
+/// `[]`. The surface guard reads these instead of the table's JSON, so no
+/// untyped document leaves this crate.
+#[derive(Debug)]
+pub struct ToolSurface {
+    pub name: &'static str,
+    pub args: Vec<String>,
+    pub answers: Vec<String>,
+}
+
+/// The surface of every served tool, in the order the table holds them. The
+/// input and output schemas of `build_entries` are the one owner of what an
+/// argument and an answer are; this only reads them out.
+pub fn surface() -> Vec<ToolSurface> {
+    entries()
+        .iter()
+        .filter_map(|t| {
+            let name = t["name"].as_str()?;
+            let args = t["inputSchema"]["properties"]
+                .as_object()
+                .map(|m| m.keys().cloned().collect())
+                .unwrap_or_default();
+            let prefix = format!("tool {name} answer");
+            let mut answers = Vec::new();
+            let mut stack: Vec<(String, &Value)> = vec![(String::new(), &t["outputSchema"])];
+            while let Some((path, node)) = stack.pop() {
+                if let Some(props) = node["properties"].as_object() {
+                    for (key, sub) in props {
+                        let next = if path.is_empty() {
+                            format!("{prefix} {key}")
+                        } else {
+                            format!("{path}.{key}")
+                        };
+                        answers.push(next.clone());
+                        stack.push((next, sub));
+                    }
+                }
+                if node["items"].is_object() {
+                    let arr = if path.is_empty() {
+                        prefix.clone()
+                    } else {
+                        format!("{path}[]")
+                    };
+                    stack.push((arr, &node["items"]));
+                }
+            }
+            Some(ToolSurface {
+                name,
+                args,
+                answers,
+            })
+        })
+        .collect()
+}
+
 /// The tools of a `tools/list` for a key of this scope: every one of them for
 /// a full key, as it has always been, and the three of `DASHBOARD` in the order
 /// the catalog gives them for a dashboard key. The entries are the same
@@ -1192,7 +1256,7 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
         &st["generatedAt"],
     ]
     .into_iter()
-    .filter_map(|t| t.as_str().and_then(epoch))
+    .filter_map(|t| t.as_str().and_then(tehas_core::time::from_iso))
     .min();
     if let Some(t) = oldest {
         out.insert("stale".into(), json!(now() - t > STALE_SECS));
@@ -1251,8 +1315,14 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
 fn report(live: &Path, health: &Value) -> Option<Value> {
     let (report, _) = tehas_core::file::read_regular(&live.join(DISPATCH_FILE), HOLD_BOUND).ok()?;
     let report = serde_json::from_slice::<Value>(&report).ok()?;
-    let at = report.get(hold::KEY_TIME)?.as_str().and_then(epoch)?;
-    let reference = health["time"].as_str().and_then(epoch).unwrap_or_else(now);
+    let at = report
+        .get(hold::KEY_TIME)?
+        .as_str()
+        .and_then(tehas_core::time::from_iso)?;
+    let reference = health["time"]
+        .as_str()
+        .and_then(tehas_core::time::from_iso)
+        .unwrap_or_else(now);
     (reference - at <= STALE_SECS).then_some(report)
 }
 
@@ -1541,16 +1611,11 @@ pub(crate) fn word(args: &Args, key: &str) -> Result<Option<String>, ToolError> 
     }
 }
 
-/// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files
-/// use. Core's strict reader, kept as the name the other MCP modules call.
-pub(crate) fn epoch(t: &str) -> Option<i64> {
-    tehas_core::time::from_iso(t)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tehas_core::testdir::TestDir;
+    use tehas_core::time::from_iso as epoch;
 
     // `issues` keeps the spec keys that are stages, and the spec names the
     // lists by the core's constants: a stage missing from `STAGES` would drop

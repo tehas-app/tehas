@@ -10,8 +10,8 @@ pub mod settle;
 use crate::read_only;
 use serde_json::{json, Value};
 use tehas_ports::{
-    Blobs, Blueprints, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256, Tickets,
-    Write, Writes,
+    At, Blobs, Blueprints, CodeHost, Got, Outcome, Passing, Receipt, Refusal, Sent, Sha256,
+    Tickets, Write, Writes,
 };
 
 /// How a poll's journaled write ended, as its caller logs it.
@@ -37,6 +37,12 @@ pub enum Journaled {
     /// answer that could not be read. The row is left unknown, never sent
     /// again on it: the caller's read settles it with [`Journal::settle`].
     Unknown { answer: Outcome, row: RowId },
+    /// The site answered and the settle did not reach the store: the row
+    /// stays open, and the poll's settle reads the site and takes it from
+    /// there. The caller says what the answer was and raises nothing of it,
+    /// so a fact is raised once, by the process that proved it, never by
+    /// the answer and the later read both.
+    AnsweredUnrecorded(Receipt),
     /// Not sent: the journal could not record it.
     Unrecorded,
 }
@@ -49,10 +55,18 @@ pub struct RowId(String);
 
 /// What the caller's read found of a write left unknown, by the settle rule
 /// of its kind (the ports spec, "How a row left unknown is settled").
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Found {
     /// The write is there: the row is done.
     Landed,
+    /// The close landed: the site's own time of it and the reason it
+    /// holds, read while settling. None time where the site names none,
+    /// and the raiser of `ticket.closed` then raises nothing, as at the
+    /// send.
+    Closed {
+        at: Option<At>,
+        reason: tehas_ports::CloseReason,
+    },
     /// It is not: the row is closed as not sent, and the caller decides
     /// afresh from the same read. Nothing is replayed from the row.
     NotSent,
@@ -175,12 +189,16 @@ impl Journal<'_> {
                 | Outcome::Spent { .. },
             ) => "read-failed",
         };
-        let _ = store(&["journal-settle", "--action", &id, "--result", result]);
+        let recorded = store(&["journal-settle", "--action", &id, "--result", result]).is_ok();
         match answer {
             Err(answer) if result == "unknown" => Journaled::Unknown {
                 answer,
                 row: RowId(id),
             },
+            // An answer the store did not take leaves the row open: the
+            // poll's settle reads the site and raises the fact, once. The
+            // answer itself raises nothing here.
+            Ok(receipt) if !recorded => Journaled::AnsweredUnrecorded(receipt),
             answer => Journaled::Answered(answer),
         }
     }
@@ -192,7 +210,7 @@ impl Journal<'_> {
     pub fn settle(store: Store, row: RowId, found: Found) -> bool {
         let RowId(id) = row;
         let end: &[&str] = match found {
-            Found::Landed => &["--result", "ok"],
+            Found::Landed | Found::Closed { .. } => &["--result", "ok"],
             Found::NotSent => &["--abandoned"],
         };
         let mut asked = vec!["journal-settle", "--action", &id];
@@ -250,11 +268,7 @@ pub fn summed(args: &[String], input: Option<&str>) -> Option<Value> {
 
 /// The sha-256 of a text, in lower-case hex.
 fn sha256(text: &str) -> String {
-    use sha2::Digest;
-    sha2::Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|x| format!("{x:02x}"))
-        .collect()
+    crate::sum::sha256_hex(text.as_bytes())
 }
 
 #[cfg(test)]

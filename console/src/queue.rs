@@ -57,7 +57,7 @@
 //! however it was started.
 
 use crate::commands;
-use crate::holds::{epoch, REASON};
+use crate::holds::REASON;
 use crate::jq::{obj, J};
 use crate::platform;
 use crate::publish::{log, Analytics};
@@ -420,7 +420,7 @@ fn no_resources(file: &Path, now: i64) -> bool {
         d.get("why").as_str() == Some("resources")
             && d.get("time")
                 .as_str()
-                .and_then(epoch)
+                .and_then(time::from_iso_jq)
                 .is_some_and(|t| now - t < POLL_KEEP)
     })
 }
@@ -431,7 +431,11 @@ fn before(file: &Path, now: i64) -> J {
     let doc = fs::read_to_string(file).ok().and_then(|t| J::parse(&t));
     match doc {
         Some(d @ J::Obj(_)) => {
-            let at = d.get("generatedAt").as_str().and_then(epoch).unwrap_or(0);
+            let at = d
+                .get("generatedAt")
+                .as_str()
+                .and_then(time::from_iso_jq)
+                .unwrap_or(0);
             if now - at < BEFORE_KEEP {
                 d
             } else {
@@ -654,7 +658,7 @@ fn events(now_snapshot: &J, was: &J, issues: &J, issue_control: &str, now: i64) 
         issue
             .get("closedAt")
             .as_str()
-            .and_then(epoch)
+            .and_then(time::from_iso_jq)
             .filter(|t| *t >= now - EVENT_WINDOW)
     };
     let mut out = Vec::new();
@@ -1036,12 +1040,12 @@ mod tests {
         let s = obj(vec![("paused", J::Bool(false))]);
         assert_eq!(with_read_only(s.clone(), None), s);
         let start = serde_json::json!({"issue": 7, "how": "cycle", "at": "2026-11-06T10:00:00Z",
-            "pr": {"title": "Fix", "branch": "feature/issue-7", "body": "b"}});
+            "change": {"title": "Fix", "branch": "feature/issue-7", "body": "b"}});
         let r = with_read_only(s, Some(vec![start]));
         assert_eq!(r.at(&["readOnly", "on"]), &J::Bool(true));
         assert_eq!(
             r.get("readOnly").get("starts").items()[0]
-                .at(&["pr", "branch"])
+                .at(&["change", "branch"])
                 .as_str(),
             Some("feature/issue-7")
         );

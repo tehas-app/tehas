@@ -17,7 +17,6 @@
 //! `factory_decisions` answers.
 
 use crate::decide::{base_approver, base_stands, record_base};
-use crate::read::host::epoch;
 use crate::settings::account;
 use crate::text::body_sha256;
 use crate::Settings;
@@ -28,6 +27,7 @@ use tehas_core::events::{
     Events, LabelState,
 };
 use tehas_core::text::disarm;
+use tehas_core::time::from_iso;
 use tehas_ports::{BlueprintNo, FinishMarker, FinishResult, Marker};
 
 /// The label of the ask.
@@ -135,11 +135,14 @@ pub enum Verdict {
         by: String,
         why: String,
     },
-    /// The finish runs.
+    /// The finish runs. `at` is the moment the asker's label event says:
+    /// the key of `ticket.acted`, which a consumer compares against its
+    /// own record of the ask.
     Finish {
         by: String,
         how: &'static str,
         reason: String,
+        at: String,
     },
 }
 
@@ -158,7 +161,7 @@ fn reason_of(a: &Ask, who: &str, at: &str) -> Result<String, String> {
         return Err(String::new());
     };
     let mark = marker(a.n);
-    let since = epoch(at).map(|t| t - WINDOW).unwrap_or(i64::MAX);
+    let since = from_iso(at).map(|t| t - WINDOW).unwrap_or(i64::MAX);
     let newest = nodes
         .iter()
         .filter(|c| account(s(c, "/author/login")) == account(who))
@@ -169,7 +172,7 @@ fn reason_of(a: &Ask, who: &str, at: &str) -> Result<String, String> {
         })
         .filter(|c| {
             let created = s(c, "/createdAt");
-            created <= at && epoch(created).is_some_and(|t| t >= since)
+            created <= at && from_iso(created).is_some_and(|t| t >= since)
         })
         .max_by(|x, y| s(x, "/createdAt").cmp(s(y, "/createdAt")));
     let Some(c) = newest else {
@@ -270,6 +273,7 @@ pub fn judge(c: &Settings, a: &Ask) -> Verdict {
         by: who,
         how,
         reason,
+        at,
     }
 }
 
@@ -278,6 +282,10 @@ pub fn judge(c: &Settings, a: &Ask) -> Verdict {
 pub trait Hands {
     /// `tehas:finish` off the issue; false when it did not come off.
     fn unlabel(&mut self, n: u64) -> bool;
+    /// Record the person's ask as `ticket.acted`, keyed on the moment their
+    /// label event says. Called once, of an ask the step took, before the
+    /// finish runs.
+    fn acted(&mut self, n: u64, by: &str, at: &str);
     /// The draft's URL, or the one line of why not.
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String>;
     fn say(&mut self, n: u64, reply: Reply);
@@ -360,9 +368,21 @@ pub fn step(c: &Settings, asks: &[Ask], hands: &mut dyn Hands) {
                     hands.say(n, refused(n, &why));
                 }
             }
-            Verdict::Finish { by, how, reason } => {
+            Verdict::Finish {
+                by,
+                how,
+                reason,
+                at,
+            } => {
                 if !hands.unlabel(n) {
                     continue;
+                }
+                // The person's ask is a recorded act of theirs, once, of
+                // the moment their label event says. The millwright's own
+                // ask is the factory acting, not a person, and raises
+                // nothing (T11.9).
+                if how == "label" {
+                    hands.acted(n, &by, &at);
                 }
                 match hands.finish(n, &reason) {
                     Ok(url) => {

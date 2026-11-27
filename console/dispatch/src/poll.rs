@@ -216,9 +216,7 @@ fn old_record(home: &Path) -> Option<String> {
 
 /// tehas_store_ready: the store installed and its file a plain one.
 fn store_ready(home: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    let bin = std::fs::metadata(home.join("libexec/store"))
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let bin = tehas_core::file::runnable(&home.join("libexec/store"));
     let db = std::fs::symlink_metadata(Home::new(home).state(State::StoreDb))
         .is_ok_and(|m| m.file_type().is_file());
     bin && db
@@ -1026,6 +1024,18 @@ impl crate::finish::Hands for FinishHands<'_> {
             say(l);
         }
         off && done.exit.is_none()
+    }
+
+    fn acted(&mut self, n: u64, by: &str, at: &str) {
+        // `ticket.acted` of the ask the step took, keyed on the moment the
+        // asker's label event says (T11.9).
+        let mut log = Vec::new();
+        if let Some(t) = tehas_core::time::from_iso_jq(at) {
+            self.w.raise_finish(n, by, t, &mut log);
+        }
+        for l in log {
+            say(&l);
+        }
     }
 
     fn finish(&mut self, n: u64, reason: &str) -> Result<String, String> {

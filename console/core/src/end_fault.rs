@@ -16,6 +16,7 @@
 //! A handoff comment that failed is recorded, but the poll finishes nothing for
 //! it: the pull request is open or there is no change to deliver.
 
+use crate::cycle_notes::Note;
 use crate::home::Home;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
@@ -92,7 +93,7 @@ pub enum Due {
 
 /// The file of `issue` under a tehas home.
 pub fn path(home: &Path, issue: u64) -> PathBuf {
-    Home::new(home).cycle_note(issue, "end-failed.json")
+    Home::new(home).cycle_note(issue, Note::EndFailed)
 }
 
 fn one_line(t: &str) -> String {

@@ -36,8 +36,10 @@
 # The analytics report left core in 2.0 (TF-B50): its island and the
 # "Last 10 days" style went, which lowers the dashboard to 85587 31393 and
 # the manual to 23838.
-page dashboard 85587 31393
-page manual 0 23838
+# The Topaz credit left the layout's footer, which lowers the dashboard to
+# 85587 31182 and the manual to 23627.
+page dashboard 85587 31182
+page manual 0 23627
 island factory/tehas-factory-console 4156
 island factory/parts 847
 island factory/tehas-factory-issues 3728

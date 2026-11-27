@@ -18,7 +18,6 @@
 
 use super::timed;
 use std::env;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::mask::mask;
@@ -87,8 +86,7 @@ fn tehasbot(home: &Path) -> PathBuf {
 /// tehasbot that makes the token: TEHAS_WORK_REPO, as the settings gave it.
 pub(crate) fn product(home: &Path) -> Option<PathBuf> {
     let tree = PathBuf::from(env::var_os("TEHAS_WORK_REPO").filter(|t| !t.is_empty())?);
-    let bot = std::fs::metadata(tehasbot(home));
-    let runs = bot.is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let runs = tehas_core::file::runnable(&tehasbot(home));
     (runs && tree.join(".git").exists()).then_some(tree)
 }
 

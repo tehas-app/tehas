@@ -1,9 +1,13 @@
-//! The gate's rules, one case each, with GitHub, the catalog and the runner
-//! stubbed.
+//! The gate's rules, one case each, with GitHub, the sign-in and the
+//! catalog and the runner stubbed. The sign-in is a fake of the ports'
+//! `Identity`: it answers the link and the person, and counts the trades.
 
 use super::catalog::Facts;
 use super::github::{AccountId, Permission};
-use tehas_ports::{Got, Outcome, Passing, Sent};
+use tehas_ports::{
+    Account, AccountKind, Got, Identity, Login, Outcome, Passing, ProjectName, Realm, Refusal,
+    Report, Reports, Scope, Secret, Sent, Standing, Token, WebLink,
+};
 
 fn down() -> Outcome {
     Outcome::Unavailable {
@@ -31,6 +35,12 @@ struct Hub {
     other_id: Option<&'static str>,
     permission_calls: usize,
     token_calls: usize,
+    // The state the sign-in link was last asked for.
+    link_state: Option<String>,
+    // Whether the signed-in person's account carries no id.
+    no_id: bool,
+    // Whether the sign-in link answers an error instead of the page.
+    link_fails: bool,
 }
 
 #[derive(Clone, Default)]
@@ -47,19 +57,6 @@ impl Stub {
 }
 
 impl GitHub for Stub {
-    fn token(&self, code: &str) -> Got<String> {
-        lock(&self.0).token_calls += 1;
-        (code == "good")
-            .then(|| "person-token".to_string())
-            .ok_or(Outcome::Forbidden)
-    }
-    fn user(&self, token: &str) -> Got<Person> {
-        assert_eq!(token, "person-token");
-        Ok(Person {
-            id: AccountId::new("7"),
-            login: "alice".to_string(),
-        })
-    }
     fn permission(&self, login: &str) -> Got<Permission> {
         assert_eq!(login, "alice");
         let mut h = lock(&self.0);
@@ -73,6 +70,82 @@ impl GitHub for Stub {
     }
     fn public(&self) -> Got<bool> {
         Ok(lock(&self.0).public)
+    }
+}
+
+/// The sign-in as the adapter's `Identity` answers it: `sign_in_link` is
+/// GitHub's page for the client, carrying the state it was given, and
+/// `signed_in` is the person 7 `alice` for the code `good` and no one for
+/// any other. Every other question of the port is `Refused(Unsupported)`:
+/// the gate signs people in and asks nothing as the factory.
+#[derive(Clone, Default)]
+struct SignIn(Stub);
+
+impl Reports for SignIn {
+    fn take_reports(&mut self) -> Vec<Report> {
+        Vec::new()
+    }
+}
+
+impl Identity for SignIn {
+    fn me(&mut self) -> Got<Account> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn standing(&mut self, _: &AccountId) -> Got<Standing> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn account(&mut self, _: &AccountId) -> Got<Account> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn account_by_login(&mut self, _: &Login) -> Got<Account> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn is_organisation(&mut self, _: &Login) -> Got<bool> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn assignable(&mut self, _: &AccountId) -> Got<bool> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn token(&mut self, _: Scope) -> Got<Token> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn token_over(&mut self, _: Scope, _: &[ProjectName]) -> Got<Token> {
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    fn sign_in_link(&self, state: &SignInState) -> Got<WebLink> {
+        if lock(&self.0 .0).link_fails {
+            return Err(Outcome::Refused(Refusal::Invalid));
+        }
+        lock(&self.0 .0).link_state = Some(state.as_str().to_string());
+        WebLink::new(format!(
+            "https://github.example/login/oauth/authorize?client_id=Iv1.client\
+             &redirect_uri=https%3A%2F%2Fplugins.example.org%2F_auth%2Fcallback&state={}",
+            state.as_str()
+        ))
+        .map_err(|_| Outcome::Refused(Refusal::Invalid))
+    }
+    fn signed_in(&mut self, code: &SignInCode) -> Got<(Account, Secret)> {
+        lock(&self.0 .0).token_calls += 1;
+        if code.as_str() != "good" {
+            return Err(Outcome::Forbidden);
+        }
+        let mut who = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+        if !lock(&self.0 .0).no_id {
+            who.id = Some(AccountId::new("7"));
+        }
+        Ok((who, Secret::new("person-token")))
+    }
+}
+
+/// The sign-in factory of the tests: each request gets its own handle, a
+/// clone of the same fake, as the production factory makes its own from
+/// the adapter's site.
+#[derive(Clone)]
+struct SigninFactory(SignIn);
+
+impl Signins for SigninFactory {
+    fn handle(&self) -> Got<Box<dyn Identity + Send>> {
+        Ok(Box::new(self.0.clone()))
     }
 }
 
@@ -157,10 +230,9 @@ fn fixture_of(
             plugins: vec!["floorplan".into(), "specs".into()],
             access,
             home: dir.to_path_buf(),
-            client_id: "Iv1.client".into(),
-            web: "https://github.example".into(),
         },
         Box::new(hub.clone()),
+        Box::new(SigninFactory(SignIn(hub.clone()))),
         catalog,
         Box::new(runner.clone()),
     );
@@ -249,6 +321,14 @@ fn sign_in_full(f: &Fix, host: &str, now: u64) -> (String, String) {
     assert_eq!(pass.status, 303, "{}", location(&pass));
     let github = location(&pass);
     assert!(github.starts_with("https://github.example/login/oauth/authorize?client_id=Iv1.client&redirect_uri=https%3A%2F%2Fplugins.example.org%2F_auth%2Fcallback&state="), "{github}");
+    // The link is the one the sign-in was asked for, carrying this flow's
+    // state: the gate hands the state to `Identity` and sends the browser
+    // where the answer says.
+    assert_eq!(
+        lock(&f.hub.0).link_state.as_deref(),
+        Some(q(&github, "state").as_str())
+    );
+    assert!(auth::is_id(&q(&github, "state")), "{github}");
     let signin = set(&pass, auth::SIGNIN).unwrap();
     let back = format!("/_auth/callback?code=good&state={}", q(&github, "state"));
     let cb = f
@@ -450,6 +530,11 @@ fn one_level_names_join_the_label_with_a_dash() {
         "plugin-floorplan-demo.example.org"
     );
     assert_eq!(f.gate.signin_host(), "plugins-demo.example.org");
+    // The address GitHub is told to come back to is that name's callback.
+    assert_eq!(
+        signin_callback("demo.example.org", true),
+        format!("https://{}/_auth/callback", f.gate.signin_host())
+    );
     let r = f.gate.answer(
         &nav("plugins-demo.example.org", "/_auth/start?for=floorplan", ""),
         T0,
@@ -787,6 +872,42 @@ fn only_the_same_account_id_keeps_a_session() {
     }
 }
 
+/// Authorisation is by the account's id: a sign-in whose account carries
+/// no id is refused before any ask, and no session opens. The gate says so
+/// as a GitHub it could not read from, and reads no permission.
+#[test]
+fn an_account_with_no_id_is_refused_before_any_ask() {
+    let f = fixture();
+    f.hub.set(|h| h.no_id = true);
+    let ask = f.gate.answer(&nav(P, "/_auth/ask?back=/", ""), T0);
+    let pass = f.gate.answer(&nav(S, &target(&location(&ask)), ""), T0);
+    let signin = set(&pass, auth::SIGNIN).unwrap();
+    let state = q(&location(&pass), "state");
+    let cb = f.gate.answer(
+        &nav(
+            S,
+            &format!("/_auth/callback?code=good&state={state}"),
+            &format!("{}={signin}", auth::SIGNIN),
+        ),
+        T0,
+    );
+    assert_eq!(cb.status, 503);
+    // One trade, and no permission asked: the account named no one.
+    assert_eq!(f.hub.calls(), (1, 0));
+}
+
+/// The link is the adapter's answer: when it answers an error the pass
+/// fails closed with a 500 and sets no sign-in cookie.
+#[test]
+fn a_failing_sign_in_link_gives_a_500_and_no_cookie() {
+    let f = fixture();
+    f.hub.set(|h| h.link_fails = true);
+    let ask = f.gate.answer(&nav(P, "/_auth/ask?back=/", ""), T0);
+    let pass = f.gate.answer(&nav(S, &target(&location(&ask)), ""), T0);
+    assert_eq!(pass.status, 500);
+    assert!(set(&pass, auth::SIGNIN).is_none());
+}
+
 #[test]
 fn losing_access_signs_out_every_session_of_the_person() {
     let f = fixture();
@@ -804,6 +925,23 @@ fn losing_access_signs_out_every_session_of_the_person() {
             .status,
         401
     );
+}
+
+#[test]
+fn an_account_without_an_id_is_nobody_to_the_session_book() {
+    // The gate refuses an account without an id before any ask; the book
+    // holds the rule behind it: only two ids are one person, so an
+    // account without one checks no session and ends none.
+    let mut book = auth::Memory::default();
+    let mut alice = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+    alice.id = Some(AccountId::new("7"));
+    let id = book.open(Site::SignIn, alice.clone(), T0, T0).unwrap();
+    let nobody = Account::new(Realm::CodeHost, Login::new("alice"), AccountKind::Person);
+    book.checked(&nobody, T0 + 60);
+    book.end(&nobody);
+    assert!(book.session(&id, &Site::SignIn, T0 + 60).is_some());
+    book.end(&alice);
+    assert!(book.session(&id, &Site::SignIn, T0 + 60).is_none());
 }
 
 #[test]

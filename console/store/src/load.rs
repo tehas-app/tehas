@@ -151,7 +151,7 @@ fn ready(from: &str, side: &Path, now: i64) -> Result<(i64, i64), Fail> {
         return Err(bad(
             from,
             format!(
-                "holds schema {schema}, older than v0.30.0 wrote; load it into a v0.30 release first"
+                "holds schema {schema}, older than v1.4 wrote; load it into a v1.4 release first"
             ),
         ));
     }
