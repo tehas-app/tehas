@@ -11,7 +11,7 @@
 
 use super::{text, word, Writer, Wrote};
 use crate::decide::{in_window, iso, window_order};
-use crate::read::host::{epoch, held};
+use crate::read::host::held;
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
 use serde_json::{json, Map, Value};
@@ -19,8 +19,11 @@ use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
+use tehas_core::time::from_iso;
+use tehas_core::units;
 use tehas_ports::{TicketKey, Write};
 
 /// What a claim answers when a poll before T4.7 made it whole: its parts
@@ -899,7 +902,7 @@ impl Writer {
         // an act is keyed on it, so a fall-back to now() names no act.
         let label_at = match given.as_str() {
             "refresh" | "outage-retry" => None,
-            _ => epoch(&given_at),
+            _ => from_iso(&given_at),
         }
         .filter(|t| (1..100_000_000_000).contains(t));
         let at = label_at.unwrap_or_else(tehas_core::time::now);
@@ -1231,7 +1234,7 @@ impl Writer {
     /// `tehas start`, and this poll recorded onto that row: it stays, so the
     /// next poll tries the start again.
     fn withdraw(&mut self, n: u64, a: &Value, recorded: i64, log: &mut Vec<String>) {
-        if text(a, "given") == crate::decide::HOST && epoch(text(a, "at")) == Some(recorded) {
+        if text(a, "given") == crate::decide::HOST && from_iso(text(a, "at")) == Some(recorded) {
             log.push(format!(
                 "the host's approval of #{n} stays on record: the next poll tries it again"
             ));
@@ -1368,11 +1371,7 @@ impl Writer {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, bound),
             None => run_quiet(
                 &self.host.systemctl,
-                &[
-                    "--user".into(),
-                    "start".into(),
-                    format!("tehas-cycle@{n}.service"),
-                ],
+                &["--user".into(), "start".into(), units::cycle(n)],
                 None,
                 bound,
             ),
@@ -1413,7 +1412,7 @@ impl Writer {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
-        if held(&Home::new(&self.home).cycle_note(n, "lock")) {
+        if held(&Home::new(&self.home).cycle_note(n, Note::Lock)) {
             log.push(format!(
                 "WARN: the cycle for #{n} holds its lock but did not say so in {wait}s; taking it as started"
             ));
@@ -1432,11 +1431,7 @@ impl Writer {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(30)),
             None => run_quiet(
                 &self.host.systemctl,
-                &[
-                    "--user".into(),
-                    "stop".into(),
-                    format!("tehas-cycle@{n}.service"),
-                ],
+                &["--user".into(), "stop".into(), units::cycle(n)],
                 None,
                 Duration::from_secs(30),
             ),

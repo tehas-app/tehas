@@ -7,7 +7,9 @@
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::GhRunner;
 use tehas_github::GitHub;
-use tehas_ports::{AccountId, AccountKind, Bound, ChangeFilter, CodeHost, Login, Outcome, Unread};
+use tehas_ports::{
+    AccountId, AccountKind, Bound, ChangeFilter, CodeHost, Login, Outcome, Relation, Unread,
+};
 
 struct Page {
     out: String,
@@ -84,6 +86,45 @@ fn a_change_whose_answer_lacks_its_head_repository_is_unread() {
     assert_eq!(
         read(page(&[node(1, false, "", ALICE)])),
         Err(Outcome::Unread(Unread::Malformed))
+    );
+}
+
+#[test]
+fn an_author_association_gives_the_relation_and_its_absence_gives_none() {
+    let here = r#","headRepository":{"databaseId":7001}"#;
+    let with = |no: u64, word: Option<&str>| match word {
+        Some(w) => node(no, false, here, ALICE).replace(
+            r#""author":"#,
+            &format!(r#""authorAssociation":"{w}","author":"#),
+        ),
+        None => node(no, false, here, ALICE),
+    };
+    let got = read(page(&[
+        with(1, Some("OWNER")),
+        with(2, Some("MEMBER")),
+        with(3, Some("COLLABORATOR")),
+        with(4, Some("CONTRIBUTOR")),
+        with(5, Some("NONE")),
+        with(6, Some("FIRST_TIMER")),
+        with(7, Some("MANNEQUIN")),
+        with(8, Some("ODD")),
+        with(9, None),
+    ]))
+    .unwrap();
+    let relations: Vec<Option<Relation>> = got.iter().map(|d| d.author_relation).collect();
+    assert_eq!(
+        relations,
+        [
+            Some(Relation::Owner),
+            Some(Relation::Member),
+            Some(Relation::Collaborator),
+            Some(Relation::Outside),
+            Some(Relation::Outside),
+            Some(Relation::Outside),
+            Some(Relation::Outside),
+            Some(Relation::Unknown),
+            None,
+        ]
     );
 }
 

@@ -1310,6 +1310,85 @@ fn a_comment_deleted_between_the_read_and_the_write_is_gone() {
     assert_eq!(calls.lock().unwrap().len(), 2, "no settling read");
 }
 
+/// The window the port promises to state (ports spec, open question 6):
+/// GitHub cannot compare and write a comment in one step, so an edit that
+/// lands after the read answers and before the `PATCH` is overwritten.
+/// The window is the read's answer to the `PATCH`, with no request
+/// between them; an edit before the read is a conflict.
+#[test]
+fn an_edit_between_the_read_and_the_patch_is_overwritten_the_window_the_port_names() {
+    struct Between {
+        body: Arc<Mutex<String>>,
+        theirs: Option<String>,
+        calls: Calls,
+    }
+    impl GhRunner for Between {
+        fn run(&mut self, args: &[&str]) -> Result<String, String> {
+            self.calls.lock().unwrap().push(Call {
+                args: args.iter().map(|a| a.to_string()).collect(),
+                input: None,
+            });
+            let answer = comment_with(&self.body.lock().unwrap());
+            // Another account's edit lands as soon as the read has answered.
+            if let Some(theirs) = self.theirs.take() {
+                *self.body.lock().unwrap() = theirs;
+            }
+            Ok(answer)
+        }
+        fn run_input(&mut self, args: &[&str], input: &str) -> Result<String, String> {
+            self.calls.lock().unwrap().push(Call {
+                args: args.iter().map(|a| a.to_string()).collect(),
+                input: Some(input.to_string()),
+            });
+            let v: Value = serde_json::from_str(input).map_err(|_| "no JSON".to_string())?;
+            *self.body.lock().unwrap() = v["body"].as_str().ok_or("no body")?.to_string();
+            Ok(comment_with(&self.body.lock().unwrap()))
+        }
+    }
+    let read = sample(QUESTION);
+    let asked = "Which defaults: the shipped ones or the site's?";
+    let theirs = raw_body(&read).replace(asked, "A maintainer's words.");
+    let ours_text = "Which defaults: the shipped ones.";
+    let body = Arc::new(Mutex::new(raw_body(&read)));
+    let calls = Calls::default();
+    let runner = Between {
+        body: Arc::clone(&body),
+        theirs: Some(theirs.clone()),
+        calls: Arc::clone(&calls),
+    };
+    let mut gh = ours(Box::new(runner), Some(BOT_ID));
+    let since = comment_revision_of(&read);
+    let got = gh.edit_comment(&question_id(), ours_text, &MarkerEdit::default(), &since);
+    assert_eq!(
+        got.map(|l| l.as_str().to_string()),
+        Ok("https://github.com/acme/widget/issues/7#issuecomment-2501230002".into()),
+        "the overwrite is not seen: the write answers made"
+    );
+    let calls = calls.lock().unwrap().clone();
+    assert_eq!(calls.len(), 2, "the read, then the PATCH, nothing between");
+    assert_eq!(calls[0].args, args(&["api", QUESTION_PATH]));
+    assert_eq!(calls[1].args, patch_of(QUESTION_PATH));
+    let now = body.lock().unwrap().clone();
+    assert!(!now.contains("A maintainer's words."), "their edit is lost");
+    assert_eq!(
+        tehas_github::markers::read(&now, Some(no(7))).text,
+        ours_text
+    );
+
+    // The same edit landing before the read is the conflict the revision
+    // catches, with nothing sent.
+    let calls = Calls::default();
+    let runner = Between {
+        body: Arc::new(Mutex::new(theirs)),
+        theirs: None,
+        calls: Arc::clone(&calls),
+    };
+    let mut gh = ours(Box::new(runner), Some(BOT_ID));
+    let got = gh.edit_comment(&question_id(), ours_text, &MarkerEdit::default(), &since);
+    assert_eq!(got, Err(Outcome::Conflict(Lost::Changed)));
+    assert_eq!(calls.lock().unwrap().len(), 1, "the read alone");
+}
+
 #[test]
 fn a_comment_on_a_pull_request_or_of_another_comment_is_not_edited() {
     let read = sample(QUESTION);

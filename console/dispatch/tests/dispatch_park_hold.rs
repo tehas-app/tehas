@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{has, lacks, park_body, Run, World};
+use common::{has, lacks, park_body, Run, World, READY_MARK};
 use serde_json::{json, Value};
 use std::fs;
 use std::process::{Command, Stdio};
@@ -62,6 +62,13 @@ fn park_comments(w: &World, notes: Value) {
 /// with `body`.
 fn parked_again(w: &World, body: &str, reason: &str, by: &str) {
     w.parked(reason, by);
+    // The repository's marks, as a running host has them: the marks read
+    // answers with the ready mark's node id, so its applications keep
+    // counting once the pins of state/labels are kept.
+    w.fx_json(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": READY_MARK}]),
+    );
     // The hold of no resources is asked before a candidate is read.
     w.mesh(Some(r#"{"data":[{"id":"test-model"}]}"#));
     w.mesh_curl();
@@ -70,11 +77,12 @@ fn parked_again(w: &World, body: &str, reason: &str, by: &str) {
     w.fx_json(
         "work-7.json",
         &json!({"number": 7, "state": "open", "body": body,
-            "labels": [{"name": "needs-human-attention"}, {"name": "tehas:question"}, {"name": "tehas:ready"}]}),
+            "labels": [{"name": "needs-human-attention"}, {"name": "tehas:question"}, {"name": READY_MARK}]}),
     );
-    w.fx(
+    w.fx_json(
         "ready.json",
-        r#"[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]"#,
+        &json!([{"number": 7, "labels": [{"name": READY_MARK},
+            {"name": "needs-human-attention"}, {"name": "tehas:question"}]}]),
     );
 }
 

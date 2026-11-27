@@ -32,13 +32,9 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use tehas_core::file::{write_atomic, Temp};
+use tehas_core::file::{runnable, write_atomic, Temp};
 
 const USAGE: &str = "console update programs: usage: <home> release|build|lab <tree> <program>... | stamp <installed program> release|<source sum>";
-
-fn executable(path: &Path) -> bool {
-    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
 
 fn file_sum(path: &Path) -> Result<String, String> {
     fs::read(path)
@@ -70,7 +66,7 @@ fn judge(
     stamp: &str,
     want: impl FnOnce() -> Result<String, String>,
 ) -> Result<Option<String>, String> {
-    if executable(to) && stamp_of(to) == want()? {
+    if runnable(to) && stamp_of(to) == want()? {
         return Ok(None);
     }
     let state = if to.is_file() { "differs" } else { "missing" };
@@ -84,7 +80,7 @@ fn due(home: &Path, kind: &str, tree: &Path, names: &[String]) -> Result<Vec<Str
         "release" => {
             for name in names {
                 let from = tree.join("libexec").join(name);
-                if !executable(&from) {
+                if !runnable(&from) {
                     lines.push(format!("absent {name}"));
                     continue;
                 }

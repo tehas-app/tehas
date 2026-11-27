@@ -8,6 +8,7 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use tehas_core::verb::Verb;
 
 /// What this release can do. A feature is added here in the release that
 /// brings it, and taken out only with the feature itself. The shipped features
@@ -206,8 +207,8 @@ pub fn main(given: &[String]) -> u8 {
     let version = version_text(&home.join("docs/version.txt"));
     let flags = tehas_core::features::flags();
     if json {
-        let now = tehas_core::time::now().to_string();
-        let read = store::line(&home, &["poll-show", "--api", "--now", &now])
+        let api_now = Some(tehas_core::time::now());
+        let read = store::line(&home, &Verb::PollShow { api_now })
             .ok()
             .and_then(|text| J::parse(&text))
             .map_or((J::Null, J::Null), |answer| {
@@ -215,7 +216,7 @@ pub fn main(given: &[String]) -> u8 {
             });
         tehas_core::outln!("{}", object(&version, &repo, &login, &flags, read).dump());
     } else {
-        let poll = store::call(&home, &["poll-show"]).ok();
+        let poll = store::call(&home, &Verb::PollShow { api_now: None }).ok();
         let line = poll.as_ref().and_then(|v| v["line"].as_str()).unwrap_or("");
         for line in lines(&version, &repo, &login, &flags, line) {
             tehas_core::outln!("{line}");

@@ -8,7 +8,6 @@
 
 use super::exec::{Cmd, Exec, Git};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_core::file::{write_atomic, Temp};
@@ -17,12 +16,7 @@ use tehas_core::plugin::manifest::{self, Manifest};
 use tehas_core::plugin::state::{State, Word};
 use tehas_core::plugin::{compare, dockerfile, skill, Grants, Pin};
 
-pub(super) fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
+pub(super) use tehas_core::sum::sha256_hex as sha256;
 
 /// `~/tehas/plugins`.
 pub fn root(home: &Path) -> PathBuf {

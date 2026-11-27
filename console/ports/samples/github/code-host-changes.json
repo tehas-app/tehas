@@ -1091,7 +1091,7 @@
       "Ours": "Full"
     },
     "project": "acme/forbidden",
-    "fixture": "The actor may not read acme/forbidden.",
+    "fixture": "GitHub answers a bare 403 to the question: a bad minute of the site.",
     "filter": {
       "states": "Open",
       "author": null,
@@ -1104,7 +1104,12 @@
     },
     "bound": 10,
     "answer": {
-      "Err": "Forbidden"
+      "Err": {
+        "Unavailable": {
+          "why": "Server",
+          "sent": "Maybe"
+        }
+      }
     }
   },
   {
@@ -1438,7 +1443,7 @@
       "Ours": "Full"
     },
     "project": "acme/locked",
-    "fixture": "The actor may not read acme/locked's pull requests: the question answers an error, the list answers 403.",
+    "fixture": "The actor may not read acme/locked's pull requests: the question answers an error, the list answers a 403 naming its permission, a refusal.",
     "filter": {
       "states": "Open",
       "author": null,

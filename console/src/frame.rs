@@ -192,7 +192,7 @@ pub fn frame(snapshot: &J, cols: usize, rows: usize) -> Vec<String> {
     let now = s
         .get("generatedAt")
         .as_str()
-        .and_then(crate::holds::epoch)
+        .and_then(tehas_core::time::from_iso_jq)
         .unwrap_or_else(tehas_core::time::now);
     let objects = |v: &J| -> Vec<J> {
         v.items()
