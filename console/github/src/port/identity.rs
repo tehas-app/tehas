@@ -104,9 +104,9 @@ impl Identity for GitHub {
 
     /// GitHub's account of a numeric id: no program of tehas asks one,
     /// which asks by login asks [`Identity::account_by_login`]. The fake
-    /// answers it and the laws drive it there; the adapter refuses it
-    /// before any request, as the test holds. The port method stays:
-    /// nothing leaves a port after the freeze of 2026-11-30.
+    /// answers it and the identity tests drive it there; the adapter
+    /// refuses it before any request, as the test holds. The port method
+    /// stays: nothing leaves a port after the freeze of 2026-11-30.
     fn account(&mut self, _: &AccountId) -> Got<Account> {
         unsupported()
     }
@@ -193,7 +193,7 @@ impl Identity for GitHub {
         unsupported()
     }
 
-    /// See [`Identity::token`].
+    /// See [`Self::token`].
     fn token_over(&mut self, _: Scope, _: &[ProjectName]) -> Got<Token> {
         unsupported()
     }

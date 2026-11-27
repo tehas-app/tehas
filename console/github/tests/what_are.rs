@@ -287,8 +287,8 @@ fn an_answer_that_is_no_answer_fails_every_number() {
 fn a_failed_question_is_its_outcome_for_every_number() {
     for (state, want) in [
         ("server-error", SERVER),
-        // A GraphQL question draws on the priced pool: the reset GitHub
-        // gave with the 429 stands, only the pool is the priced one.
+        // A GraphQL question draws on the priced pool: the recording
+        // gives no reset, so the budget is held at rate.rs's 60 s floor.
         (
             "rate-limited",
             Outcome::Spent {
