@@ -9,9 +9,7 @@
 //! which holds at most 128 KiB and is seen by every process on the host.
 //! It reads the issue first, so a pull request's number is `NotFound` with
 //! nothing sent. A mark, an unmark and a label made read nothing first.
-//! Every write confirms the repository first, once a handle
-//! (`GitHub::confirm_here`): a REST answer names its repository by name
-//! alone.
+//! Every write confirms the repository first (`GitHub::confirm_here`).
 
 use super::blueprint_writes::{read_comment, revision, text_revision};
 use super::named::Named;

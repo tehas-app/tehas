@@ -4,9 +4,9 @@
 //! The open pull requests of the head are read first,
 //! `repos/<repo>/pulls?state=open&head=<owner>:<branch>`: one there is
 //! `Refused(Exists)` with nothing sent, as the fake answers, so a change is
-//! never opened twice. An empty list names no repository, so the
-//! repository is confirmed next (`GitHub::confirm_here`): one moved to
-//! another owner is `Unread(Inconsistent)` with nothing sent. Then one
+//! never opened twice. Then the repository is confirmed
+//! (`GitHub::confirm_here`): one that is not this project's is
+//! `Unread(Inconsistent)` with nothing sent. Then one
 //! `POST repos/<repo>/pulls`, its title, head,
 //! base, body and `draft` as JSON on gh's standard input, sent once, never
 //! again.

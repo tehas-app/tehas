@@ -1875,11 +1875,11 @@ fn the_operators_handle_edits_not_even_the_bots_comment() {
     assert!(calls.lock().unwrap().is_empty(), "no request, no PATCH");
 }
 
-/// An open reads nothing first that names the repository: it confirms
-/// the repository by the question of its name, once a handle, and
-/// refuses one moved to another owner with nothing posted.
+/// An open confirms the repository by the question of its name, the
+/// next open asks nothing, and one under another owner is refused with
+/// nothing posted.
 #[test]
-fn an_open_confirms_the_repository_once_and_refuses_one_moved_to_another_owner() {
+fn an_open_confirms_the_repository_and_refuses_one_under_another_owner() {
     let (mut gh, calls) = scripted(vec![
         Ok(HERE.into()),
         Ok(sample("issue-created.json")),
@@ -1891,7 +1891,7 @@ fn an_open_confirms_the_repository_once_and_refuses_one_moved_to_another_owner()
     assert_eq!(
         kinds(&calls.lock().unwrap()),
         ["name", "call", "call"],
-        "asked once"
+        "confirmed once"
     );
     let moved = HERE.replace("acme/widget", "mallory/widget");
     let (mut gh, calls) = scripted(vec![Ok(moved), Ok(sample("issue-created.json"))]);
@@ -1902,19 +1902,16 @@ fn an_open_confirms_the_repository_once_and_refuses_one_moved_to_another_owner()
     assert_eq!(kinds(&calls.lock().unwrap()), ["name"], "nothing posted");
 }
 
-/// A comment's read is held by name alone, a REST answer carrying no
-/// repository id: the old name made again as another repository, while
-/// the handle lives, reads as here. The id the name question answers is
-/// not the one the handle learned, and the comment is refused.
+/// An id unlike the one the handle read earlier refuses the comment.
 #[test]
-fn a_comment_on_a_repository_made_again_under_the_old_name_is_refused() {
+fn a_comment_whose_repository_id_is_not_the_one_the_handle_read_is_refused() {
     // A read of the open changes, none, with the repository's id.
     let read = r#"{"data":{"repository":{"databaseId":7001,"pullRequests":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}"#;
-    let again = HERE.replace("7001", "7002");
+    let other_id = HERE.replace("7001", "7002");
     let (mut gh, calls) = scripted(vec![
         Ok(read.into()),
         Ok(issue_7("t", "b")),
-        Ok(again),
+        Ok(other_id),
         Ok(sample("comment-created.json")),
     ]);
     let filter = tehas_ports::ChangeFilter::default();

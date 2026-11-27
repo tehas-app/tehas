@@ -7,10 +7,9 @@
 //! Each write to a change reads the pull request first, `repos/<repo>/pulls/<n>`, which
 //! answers 404 for an issue's number: an issue, or a number that is
 //! nothing, is `NotFound` with nothing sent. A status has no read before
-//! it. Before every write the handle confirms the repository once
-//! (`GitHub::confirm_here`): one moved to another owner, or the old name
-//! made again as another repository, is `Unread(Inconsistent)` with
-//! nothing sent. Each write is then one request
+//! it. Every write confirms the repository first
+//! (`GitHub::confirm_here`): one that is not this project's is
+//! `Unread(Inconsistent)` with nothing sent. Each write is then one request
 //! to this adapter's own repository, sent once, never again. A comment's
 //! body goes as JSON on gh's standard input, never in an argument. A mark is
 //! its label from `table.rs`, written through the issues path as the

@@ -483,10 +483,10 @@ fn a_cite_is_githubs_reference_and_a_new_ticket_link_its_page() {
     );
 }
 
-/// A mark, an unmark and a label made have no read before them that names
-/// the repository: the first write of a handle confirms it, once.
+/// A mark, an unmark and a label made confirm the repository: the first
+/// write of a handle asks, and the writes after it ask nothing.
 #[test]
-fn a_handles_first_mark_asks_the_repository_once() {
+fn a_handles_first_mark_confirms_the_repository_and_the_next_writes_ask_nothing() {
     let (mut gh, asked) = adapter_in("acme/widget", vec![Ok(HERE), Ok(""), Ok(""), Ok("")]);
     let pause = Mark::Act(Act::Pause);
     assert_eq!(gh.mark(&key(7), &pause), Ok(()));
@@ -509,13 +509,12 @@ fn a_handles_first_mark_asks_the_repository_once() {
     );
 }
 
-/// A repository moved to another owner, or the old name made again as
-/// another repository while the handle lives, gets no mark, no unmark
-/// and no label: only GitHub's redirect would decide where they land.
+/// A repository under another owner, or an id unlike the one the handle
+/// read earlier, gets no mark, no unmark and no label.
 #[test]
 fn a_mark_unmark_or_label_on_a_repository_that_is_not_this_projects_is_refused() {
     let moved = HERE.replace("acme/widget", "mallory/widget");
-    let again = HERE.replace("7001", "7002");
+    let other_id = HERE.replace("7001", "7002");
     let pause = Mark::Act(Act::Pause);
     let spec = MarkSpec {
         name: MarkName::new("area-ui").unwrap(),
@@ -538,12 +537,12 @@ fn a_mark_unmark_or_label_on_a_repository_that_is_not_this_projects_is_refused()
         // The handle learned 7001 from a read of the ticket's parent.
         let (mut gh, asked) = adapter_in(
             "acme/widget",
-            vec![Ok(ISSUE), Ok(PARENT), Ok(&again), Ok("")],
+            vec![Ok(ISSUE), Ok(PARENT), Ok(&other_id), Ok("")],
         );
         assert!(gh.several(&[key(7)]).remove(0).1.is_ok());
-        assert_eq!(write(&mut gh, &pause, &spec), refused, "{what} made again");
+        assert_eq!(write(&mut gh, &pause, &spec), refused, "{what} other id");
         let asked = asked.lock().unwrap();
-        assert_eq!(asked.len(), 3, "{what} made again: nothing written");
+        assert_eq!(asked.len(), 3, "{what} other id: nothing written");
         assert!(is_name_question(&asked[2]));
     }
 }

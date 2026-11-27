@@ -5,7 +5,7 @@
 //! title and body go as JSON on gh's standard input, never in an argument,
 //! which holds at most 128 KiB and is seen by every process on the host.
 //! `edit` and `comment` read the issue first, `edit_comment` the comment,
-//! and every write confirms the repository first, once a handle
+//! and every write confirms the repository first
 //! (`GitHub::confirm_here`).
 //!
 //! Every write goes to this adapter's own repository, named by its typed

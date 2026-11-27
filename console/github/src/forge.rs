@@ -344,14 +344,12 @@ impl GitHub {
     }
 
     /// Before a write: the repository the configured name resolves to is
-    /// this project's. A REST answer names its repository by name alone, and
-    /// a write sent by name lands where GitHub's redirect takes it, so the
-    /// question of the name is asked once a handle, or its answer taken where
-    /// the handle asked it already. Its id must be the one the handle
-    /// learned, and its name have the configured owner: a repository moved
-    /// to another owner, or the old name made again as another repository,
-    /// is `Unread(Inconsistent)` with nothing sent. A failure of the
-    /// question is its outcome, the write not sent.
+    /// this project's. Its name must have the configured owner, and its id
+    /// be the one the handle holds: `Unread(Inconsistent)` with nothing sent
+    /// otherwise. The question of the name is asked unless the handle has
+    /// its answer already; once a write confirms, the handle's later writes
+    /// ask nothing. A failure of the question is its outcome, the write not
+    /// sent, and the next write asks again.
     pub(crate) fn confirm_here(&mut self) -> tehas_ports::Did {
         if self.confirmed {
             return Ok(());

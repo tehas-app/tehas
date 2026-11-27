@@ -822,10 +822,11 @@ fn is_name_question(c: &Call) -> bool {
             .any(|a| a.contains("databaseId nameWithOwner"))
 }
 
-/// With no open pull request of the head, nothing read names the
-/// repository: the open confirms it first, by the question of its name.
+/// With no open pull request of the head, the open confirms the
+/// repository by the question of its name before its post; the next open
+/// asks nothing.
 #[test]
-fn an_open_asks_the_repository_once_a_handle_before_its_post() {
+fn an_open_confirms_the_repository_before_its_post_and_the_next_asks_nothing() {
     let (mut gh, calls) = adapter_of(
         PROJECT,
         vec![
@@ -850,10 +851,9 @@ fn an_open_asks_the_repository_once_a_handle_before_its_post() {
     assert_eq!(calls.iter().filter(|c| is_name_question(c)).count(), 1);
 }
 
-/// A repository moved to another owner gets no pull request: only
-/// GitHub's redirect would decide where the `POST` lands.
+/// A repository under another owner gets no pull request.
 #[test]
-fn an_open_on_a_project_transferred_to_another_owner_is_refused_with_nothing_posted() {
+fn an_open_on_a_repository_under_another_owner_is_refused_with_nothing_posted() {
     let moved = HERE.replace("acme/widget", "mallory/widget");
     let (mut gh, calls) = adapter_of(
         PROJECT,

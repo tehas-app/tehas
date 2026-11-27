@@ -1046,15 +1046,14 @@ fn a_runner_that_takes_no_input_sends_no_status() {
     );
 }
 
-/// The same answer once the repository moved to another owner: GitHub
-/// resolves the old name to the new one.
+/// The same answer for a repository under another owner.
 const MOVED: &str =
     r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"mallory/widget"}}}"#;
 
-/// A status confirms the repository first, by the question of its name:
-/// it has no read before it that names the repository.
+/// A status confirms the repository first, by the question of its name;
+/// once confirmed, the handle's next status asks nothing.
 #[test]
-fn a_status_asks_the_repository_once_a_handle_then_posts() {
+fn a_status_confirms_the_repository_then_posts_and_the_next_asks_nothing() {
     use tehas_ports::StatusState as S;
     let (mut gh, calls) = adapter_of(
         PROJECT,
@@ -1071,14 +1070,13 @@ fn a_status_asks_the_repository_once_a_handle_then_posts() {
         );
     }
     let calls = taken(&calls);
-    assert_eq!(kinds(&calls), ["name", "call", "call"], "asked once");
+    assert_eq!(kinds(&calls), ["name", "call", "call"], "confirmed once");
     assert!(calls[1..].iter().all(|c| c.input.is_some()));
 }
 
-/// A repository moved to another owner gets no status: GitHub's redirect
-/// would decide where the `POST` lands.
+/// A repository under another owner gets no status.
 #[test]
-fn a_status_on_a_project_transferred_to_another_owner_is_refused_with_nothing_posted() {
+fn a_status_on_a_repository_under_another_owner_is_refused_with_nothing_posted() {
     use tehas_ports::StatusState as S;
     let (mut gh, calls) = adapter_of(PROJECT, vec![Ok(MOVED.into()), Ok(created("success"))]);
     assert_eq!(
@@ -1103,11 +1101,9 @@ fn a_status_whose_repository_question_fails_sends_nothing() {
     }
 }
 
-/// A comment and a mark are held by name alone, REST answers carrying no
-/// repository id: they confirm the repository too, and refuse one moved
-/// to another owner.
+/// A comment, a mark and an unmark confirm the repository too.
 #[test]
-fn a_comment_or_a_mark_on_a_project_transferred_to_another_owner_is_refused() {
+fn a_comment_or_a_mark_on_a_repository_under_another_owner_is_refused() {
     let refused = Err(Outcome::Unread(Unread::Inconsistent));
     let (mut gh, calls) = adapter_of(
         PROJECT,
@@ -1129,17 +1125,16 @@ fn a_comment_or_a_mark_on_a_project_transferred_to_another_owner_is_refused() {
     assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing removed");
 }
 
-/// The old name made again under the same owner, while a handle lives, is
-/// another repository: its id is not the one the handle learned.
+/// An id unlike the one the handle read earlier refuses the write.
 #[test]
-fn a_status_on_a_repository_made_again_under_the_old_name_is_refused() {
+fn a_status_whose_repository_id_is_not_the_one_the_handle_read_is_refused() {
     use tehas_ports::StatusState as S;
     // A read of the open changes, none, with the repository's id.
     let read = r#"{"data":{"repository":{"databaseId":7001,"pullRequests":{"totalCount":0,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}"#;
-    let again = HERE.replace("7001", "7002");
+    let other_id = HERE.replace("7001", "7002");
     let (mut gh, calls) = adapter_of(
         PROJECT,
-        vec![Ok(read.into()), Ok(again), Ok(created("success"))],
+        vec![Ok(read.into()), Ok(other_id), Ok(created("success"))],
     );
     let filter = tehas_ports::ChangeFilter::default();
     let bound = tehas_ports::Bound::new(5).unwrap();
