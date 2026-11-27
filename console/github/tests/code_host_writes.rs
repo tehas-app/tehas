@@ -211,14 +211,14 @@ fn not_sent(why: Passing) -> Outcome {
 fn spent_writes() -> Outcome {
     Outcome::Spent {
         pool: Pool::Writes,
-        until: tehas_ports::At::new(now()),
+        until: tehas_ports::At::new(now() + 60),
     }
 }
 
 fn spent_calls() -> Outcome {
     Outcome::Spent {
         pool: Pool::Calls,
-        until: tehas_ports::At::new(now()),
+        until: tehas_ports::At::new(now() + 60),
     }
 }
 

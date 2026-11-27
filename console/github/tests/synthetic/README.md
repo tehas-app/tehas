@@ -28,6 +28,23 @@ numbers count from 0 in `data.repository.pullRequest.events.nodes`.
 | `activity/no-page-info/events-whole-first.json` | `events` has no `pageInfo` |
 | `activity/no-cursor/events-whole-first.json` | `pageInfo` is `{"hasNextPage": true, "endCursor": null}`: more follows, no cursor to it |
 
+## Releases: one fault in a live recording
+
+Source: `console/github/tests/recorded/releases/fixture/`, the live
+answers about `tehas-app/tehas-rec-releases` (kit run #1, 2026-11-26).
+
+| File | Changed from the recording |
+| --- | --- |
+| `releases/fixture/ref-v7.json` | Nothing: `ref-v1.0.0.json` as it is, the answer about `v1.0.0` given when `v7` is asked |
+| `releases/fixture/release-v6.json` | Nothing: `release-v1.2.0.json` as it is, the answer about `v1.2.0` given when `v6` is asked |
+| `releases/bad/latest.json` | From `latest.json`: `prerelease` is `true`, a prerelease named latest |
+| `releases/bad/releases-1.json` | From `releases-1.json`: the draft `v1.3.0` has `published_at` `2026-11-26T14:10:01Z` (its `created_at`), not `null` |
+| `releases/down/latest.fail` | From `releases/none/latest.fail`: `HTTP 502`, not `HTTP 404` |
+| `releases/lying/download-tehas-v1.1.0-linux-x86_64.tar.gz.sha256.bin` | From `download-tehas-v1.1.0-linux-x86_64.tar.gz.sha256.bin`: its last byte (the newline) cut, 98 bytes of a file listed at 99. The case reads `fixture/release-v1.1.0.json` for the release |
+| `releases/refused/download-tehas-v1.1.0-linux-x86_64.tar.gz.sha256.fail` | From `release-v9.fail`: `HTTP 403`, not `HTTP 404`. The case reads `fixture/release-v1.1.0.json` for the release |
+| `releases/short/tags.json` | From `tags.json`: the node of `v1.2.0` taken out, so 3 nodes where `totalCount` says 4 |
+| `releases/tree/tags.json` | From `tags.json`: `v1.0.0`'s target has `__typename` `Tree`, not `Commit` |
+
 ## One fault in a live aliased question
 
 Each starts from a live answer of the same question and changes only what
@@ -100,3 +117,23 @@ does not parse. Source: none, each is made by hand.
 | `what/garbled/from-3.json` | A GraphQL answer cut off after its first alias |
 | `what/failed-garbled/from-3.answer.json` | An HTML page, `<html>bad gateway</html>`, printed beside the failure in `from-3.fail` |
 | `what/failed-garbled/from-3.fail` | The failure that HTML page came with, `: HTTP 502` |
+
+## anonymous/
+
+Read by `tests/anonymous.rs` through `Stub::synthetic(<case>)`, before
+`recorded/anonymous/`, and `json-asset/` by `tests/anonymous_download.rs`. Each is made from a live answer to an anonymous
+reader (kit run #1, 2026-11-26) under
+`console/github/tests/recorded/anonymous/`, named in the second column.
+
+| File | Source | Changed from the recording |
+| --- | --- | --- |
+| `anonymous/no-location/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | A redirect with no place to go, which GitHub cannot be made to send: the status `200` is `302`, no `location` header, the release body kept |
+| `anonymous/chain/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | The first of two redirects, which GitHub cannot be made to send: the status is `302`, and a `location: https://api.github.com/repositories/1473248788/releases/latest` header follows it |
+| `anonymous/chain/repositories_1473248788_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | The second redirect: the status is `302`, and a `location: https://api.github.com/repos/tehas-app/tehas-rec-releases/releases/latest` header follows it |
+| `anonymous/pre/repos_tehas_app_tehas_rec_releases_releases_latest` | `repos_tehas_app_tehas_rec_releases_releases_latest` | GitHub never answers `latest` with a prerelease: `"prerelease":false` is `"prerelease":true` |
+| `anonymous/spent/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A spent budget, which cannot be made on demand: the status `200` is `403`, `x-ratelimit-remaining` `37` is `0`, `x-ratelimit-used` `23` is `60`, the body is GitHub's rate-limit message and `content-length` its 275 bytes |
+| `anonymous/busy/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A 429 with no reset time and no `retry-after`, which cannot be made on demand: as `spent/`, with the status `429` and the `x-ratelimit-reset` line taken out |
+| `anonymous/json-asset/repos_tehas_app_tehas_rec_releases_releases_assets_796197977` | `repos_tehas_app_tehas_rec_releases_releases_tags_v1_1_0` | The API's JSON for the asset in place of its bytes, which GitHub cannot be made to send: the release's headers kept, the body only its first asset's object as the release gives it, `content-length` its 1469 bytes |
+| `anonymous/no-reset/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A spent budget with no reset time, which cannot be made on demand: as `spent/`, with the `x-ratelimit-reset` line taken out |
+| `anonymous/bad-reset/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A spent budget whose reset is not a number: as `spent/`, with `x-ratelimit-reset: 1795704168` changed to `x-ratelimit-reset: soon` |
+| `anonymous/secondary/repos_tehas_app_tehas_rec_releases_releases_per_page_100` | `repos_tehas_app_tehas_rec_releases_releases_per_page_100` | A secondary limit with its `retry-after` as a date, which cannot be made on demand: the status `200` is `403`, a `retry-after: Thu, 26 Nov 2026 14:15:16 GMT` header follows it, the body is GitHub's secondary-limit message and `content-length` its 235 bytes; `x-ratelimit-remaining` stays `37` |

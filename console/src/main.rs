@@ -502,8 +502,9 @@ mod wiring {
 
     /// The code host handle of `tehas update` on tehas's own release
     /// project `repo`, a site of its own (Decided 23), acting as `by`:
-    /// `Actor::Operator` asks through gh as the operator's gh is signed in,
-    /// each call in `bound`; `Actor::Anonymous` through curl with no
+    /// `Actor::Ours(Scope::Read)` asks through the gh the host finds, which
+    /// acts as the factory's App where host/env.sh is loaded, each call in
+    /// `bound`; `Actor::Anonymous` through curl with no
     /// credential, its budget kept in the home's ledger. No account of that
     /// project is the factory's.
     pub(crate) fn releases(

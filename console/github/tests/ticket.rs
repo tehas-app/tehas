@@ -634,7 +634,7 @@ fn a_question_gh_gives_no_reason_for_is_settled_by_the_issues_read() {
             ": secondary rate limit",
             Outcome::Spent {
                 pool: Pool::Calls,
-                until: tehas_ports::At::new(1_767_225_600),
+                until: tehas_ports::At::new(1_767_225_660),
             },
         ),
         (
