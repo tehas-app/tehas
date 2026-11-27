@@ -1,5 +1,6 @@
 //! The branch's check, through the code host port: the head commit of the
-//! branch, then the checks of that name on it, as the adapter folds them.
+//! branch and the checks of that name on it, one read, as the adapter
+//! folds them.
 //! The fold is the adapter's alone; this reads what it adds up to.
 
 use crate::snapshot::Check;
@@ -38,14 +39,12 @@ pub fn read(
     let (Some(host), Ok(at)) = (host, Branch::new(branch)) else {
         return Check::Unreadable;
     };
-    let head = host.branch(&at);
-    seen(head.as_ref().err());
-    let Ok(Some(head)) = head else {
+    let read = host.branch_checks(&at, Some(name));
+    seen(read.as_ref().err());
+    let Ok(Some((head, checks))) = read else {
         return Check::Unreadable;
     };
-    let checks = host.checks(&head, Some(name));
-    seen(checks.as_ref().err());
-    let (Ok(checks), Some(short)) = (checks, head.as_str().get(..12)) else {
+    let Some(short) = head.as_str().get(..12) else {
         return Check::Unreadable;
     };
     let short = short.to_string();

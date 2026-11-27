@@ -85,6 +85,9 @@ struct Viewer {
 pub(crate) struct Aliased<T> {
     pub(crate) nodes: Vec<Got<T>>,
     pub(crate) viewer_id: Option<u64>,
+    /// The outcome a whole question failed with: its every node carries it,
+    /// and no item's own error is read. None when every node stood alone.
+    pub(crate) whole: Option<Outcome>,
 }
 
 /// Where the items of a question of several lie: under the repository,
@@ -238,7 +241,8 @@ impl GitHub {
     }
 
     /// [`GitHub::ask_aliased`], with the `viewer`'s `databaseId` where the
-    /// question asks it: None where it fails whole.
+    /// question asks it: None where it fails whole, and the outcome of a
+    /// whole failure beside the nodes.
     pub(crate) fn ask_aliased_beside<T: DeserializeOwned>(
         &mut self,
         call: &str,
@@ -269,6 +273,7 @@ impl GitHub {
         let all = |o: Outcome| Aliased {
             nodes: (0..asked).map(|_| Err(o.clone())).collect(),
             viewer_id: None,
+            whole: Some(o),
         };
         let (owner, name) = self.owner_name();
         let query = format!("query={question}");
@@ -339,6 +344,7 @@ impl GitHub {
         Aliased {
             nodes: answered,
             viewer_id,
+            whole: None,
         }
     }
 

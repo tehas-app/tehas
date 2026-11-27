@@ -1361,6 +1361,16 @@ impl<H: Blueprints + ?Sized> Blueprints for Wrap<H> {
             h.body_edits_of(nos, bound)
         })
     }
+    /// As `body_edits_of`, under its `Op`; a fault fails the read.
+    fn body_edits_together(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>> {
+        self.call(Op::Blueprints(B::BodyEditsOf), Err, |h| {
+            h.body_edits_together(nos, bound)
+        })
+    }
     fn comment_edits_of(
         &mut self,
         ids: &[CommentId],

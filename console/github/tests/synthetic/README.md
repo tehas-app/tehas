@@ -40,6 +40,16 @@ give these.
 | --- | --- |
 | `blockers/malformed/as-blockers-found.json` | Issue `n1`'s `state` is `MERGED`, pull request `n3`'s is `DRAFT`, and `n5` has no `state`; `n2` and `n4` are the recording's |
 
+## A run of another name in the branch checks question
+
+Source: `console/github/tests/recorded/branch-checks/live/question-main.json`,
+the live answer of the branch checks question for `main` of
+tehas-app/tehas-rec-branch-checks (kit run #1, step f, 2026-11-26).
+
+| File | Changed from the recording |
+| --- | --- |
+| `branch-checks/case-folded/question-main.json` | Run 139972228367's `name` is `Verify`, not `verify`: a run the `checkName` filter gave whose name is not the one asked |
+
 ## Releases: one fault in a live recording
 
 Source: `console/github/tests/recorded/releases/fixture/`, the live

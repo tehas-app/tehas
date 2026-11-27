@@ -311,6 +311,19 @@ case "$1 $2" in
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
+      # The head commit of a branch and the checks of a name on it, in the
+      # one question the code host adapter asks: checks-question.json, else
+      # no checks (tests/synthetic/branch-checks/). A refused read answers
+      # GitHub's FORBIDDEN, and the adapter asks the long way, the REST
+      # reads below.
+      *"checkSuites"*)
+        [ ! -e "$T/fx/checks-fails" ] || exit 1
+        [ ! -e "$T/fx/checks-hangs" ] || exec sleep 20
+        if [ -e "$T/fx/checks-refused" ] || [ -e "$T/fx/runs-refused" ]; then
+          echo "{\"data\":null,\"errors\":[{\"type\":\"FORBIDDEN\"}]}"
+          cat "$T/fx/checks-refused" "$T/fx/runs-refused" >&2 2>/dev/null; exit 1
+        fi
+        cat "$T/fx/checks-question.json" 2>/dev/null || cat "$T/branch-checks-none.json" ;;
       # The head commit of a branch, as the code host adapter asks it.
       *"qualifiedName"*) b=$(printf "%s\n" "$@" | sed -n "s|^ref=refs/heads/||p")
         cat "$T/fx/branch.json" 2>/dev/null ||
@@ -355,18 +368,23 @@ case "$1 $2" in
       # body histories of the issues below, whose query holds the same words.
       *"nodes(ids:"*) [ ! -e "$T/fx/comment-edits-fail" ] || exit 1
         cat "$T/fx/comment-edits.json" 2>/dev/null || echo "{\"data\":{\"nodes\":[]}}" ;;
-      # The body edit histories of a chunk of issues, one alias i<n> an issue:
-      # edits-<n>.json when a case wrote it, else the last edit of
-      # edit-<n>.json (or edit.json) alone.
-      *"userContentEdits(last"*) [ ! -e "$T/fx/edits-fail" ] || exit 1
+      # The body edit histories of a chunk of issues, as the GitHub adapter
+      # asks them, one alias i<n> an issue: edits-<n>.json when a case wrote
+      # it, else the last edit of edit-<n>.json (or edit.json) alone, each
+      # with the text as created, oldest and last. edits-errors.json, when a
+      # case wrote it, is GitHub's errors beside the data, and gh exits 1.
+      *"userContentEdits(first"*) [ ! -e "$T/fx/edits-fail" ] || exit 1
         acc="{}"
         for k in $(printf "%s\n" "$*" | grep -o "i[0-9]*: issue(number:" | sed "s/^i\([0-9]*\):.*/\1/"); do
           f="$T/fx/edit-$k.json"
           [ -r "$f" ] || f="$T/fx/edit.json"
-          one=$(cat "$T/fx/edits-$k.json" 2>/dev/null) ||
-            one=$(jq -c ".data.repository.issue | if .lastEditedAt then {totalCount: 1, nodes: [{editedAt: .lastEditedAt, editor}]} else {totalCount: 0, nodes: []} end" "$f") || exit 1
-          acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): {userContentEdits: \$one}}" <<<"$acc") || exit 1
+          one=$(jq -c --argjson k "$k" --slurpfile e <(cat "$T/fx/edits-$k.json" 2>/dev/null || echo null) ".data.repository.issue | (.createdAt // \"2000-01-01T00:00:00Z\") as \$c | {number: \$k, createdAt: \$c, lastEditedAt, userContentEdits: (\$e[0] // if .lastEditedAt then {totalCount: 2, nodes: [{editedAt: .lastEditedAt, editor, diff: \"\"}, {editedAt: \$c, editor: .author, diff: \"\"}]} else {totalCount: 0, nodes: []} end)}" "$f") || exit 1
+          acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): \$one}" <<<"$acc") || exit 1
         done
+        if [ -r "$T/fx/edits-errors.json" ]; then
+          jq -c --slurpfile e "$T/fx/edits-errors.json" "{data: {repository: .}, errors: \$e[0]}" <<<"$acc"
+          exit 1
+        fi
         echo "{\"data\":{\"repository\":$acc}}" ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
@@ -857,6 +875,14 @@ pub struct World {
     held: RefCell<Vec<File>>,
 }
 
+/// A synthetic answer under tests/synthetic/ (its README names the
+/// recording each is made from).
+pub fn synthetic(path: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/synthetic")
+        .join(path)
+}
+
 #[allow(dead_code)] // each test file uses a part of this module
 impl World {
     pub fn new(name: &str) -> World {
@@ -923,6 +949,11 @@ impl World {
         write_exe(w.t.join("closed-stub"), CLOSED).unwrap();
         write_exe(w.t.join("pulls-stub"), PULLS).unwrap();
         write_exe(w.t.join("issue-stub"), ISSUE).unwrap();
+        fs::copy(
+            synthetic("branch-checks/none.json"),
+            w.t.join("branch-checks-none.json"),
+        )
+        .unwrap();
         w.fs("gh-n.lock", "");
         let upstream = w.upstream();
         fs::create_dir_all(&upstream).unwrap();

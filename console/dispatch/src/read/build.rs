@@ -16,7 +16,7 @@ use std::num::NonZeroU64;
 use std::path::Path;
 use tehas_core::events::{pause_holds, Events};
 use tehas_core::home::{Home, State};
-use tehas_ports::{BlockerState, Board};
+use tehas_ports::{BlockerState, BlueprintNo, Board, Bound, Outcome, Unread};
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -31,6 +31,10 @@ pub struct Sources<'a> {
     /// it made none, and a read through it is then unreadable. The queue
     /// reads its open pull requests through it.
     pub code_host: Option<Box<dyn tehas_ports::CodeHost>>,
+    /// The blueprints port's read handle, from the same wiring: None when
+    /// it made none, and an edit history read through it is then a failed
+    /// read.
+    pub blueprints: Option<Box<dyn tehas_ports::Blueprints>>,
     /// The board handle, from the program's wiring: the queue read asks it
     /// for the open work, and the blockers' states are read through it.
     /// None when it made none: the poll fails closed on the queue, and no
@@ -849,7 +853,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         let check = super::checks::read(host, &c.branch, &c.branch_check, &mut src.said);
         s["checks"] = json!({"state": check.word(), "head": check.head()});
     }
-    edit_histories(calls, c, &mut issues, &edit_wanted(&s, &q, &candidates));
+    let wanted = edit_wanted(&s, &q, &candidates);
+    edit_histories(src.blueprints.as_deref_mut(), &mut issues, &wanted);
     s["issues"] = Value::Object(issues);
     Ok(s)
 }
@@ -896,9 +901,29 @@ fn edit_wanted(s: &Value, q: &github::Queue, candidates: &[u64]) -> Vec<u64> {
         .collect()
 }
 
-/// The body edit history of each issue of `ns`, put beside its last edit.
-fn edit_histories(calls: &mut Calls, c: &Settings, issues: &mut Map<String, Value>, ns: &[u64]) {
-    for (n, h) in ns.iter().zip(github::edits_of(calls, &c.repo, ns)) {
+/// The most edits of a body the poll reads, the text as created besides:
+/// a body edited more often holds as one whose history is cut.
+const EDITS_MAX: u32 = 99;
+
+/// The body edit history of each issue of `ns`, read through the
+/// blueprints port in one ask and put beside its last edit
+/// (`board::history`). With no handle, it is a failed read.
+fn edit_histories(
+    blueprints: Option<&mut (dyn tehas_ports::Blueprints + 'static)>,
+    issues: &mut Map<String, Value>,
+    ns: &[u64],
+) {
+    if ns.is_empty() {
+        return;
+    }
+    let nos: Vec<BlueprintNo> = ns.iter().filter_map(|&n| BlueprintNo::new(n)).collect();
+    let bound = Bound::new(EDITS_MAX).expect("a bound of no 0");
+    let read = match blueprints {
+        Some(b) => b.body_edits_together(&nos, bound),
+        None => Err(Outcome::Unread(Unread::Malformed)),
+    };
+    for n in ns {
+        let h = board::history(&read, *n);
         let i = entry(issues, *n);
         if i["edit"].is_object() {
             i["edit"]["userContentEdits"] = h;
@@ -1298,6 +1323,51 @@ mod tests {
         );
     }
 
+    /// The edit histories are read through the blueprints port, in one ask
+    /// for the issues wanted, and put beside each one's last edit; a read
+    /// the port fails, or one with no handle, is a failed history.
+    #[test]
+    fn the_edit_histories_are_read_through_the_blueprints_port() {
+        use tehas_ports::fake::{BlueprintsOp, FakeSite, Fault, Faulty, Op};
+        use tehas_ports::{Actor, Blueprints, Caller, Depth, MarkerEdit, Scope, Site};
+        let world = World::new().ticket(7, |t| t.text("a body"));
+        let site = FakeSite::new(&world);
+        let by = Actor::Ours(Scope::Full);
+        let mut writes = site.blueprint_writes(&by, Caller::new("test")).unwrap();
+        let no = BlueprintNo::new(7).unwrap();
+        world.advance(60);
+        let rev = writes
+            .blueprint(no, Depth::Cut { notes: 0 })
+            .unwrap()
+            .revision;
+        writes
+            .edit(no, None, Some("edited"), &MarkerEdit::default(), &rev)
+            .unwrap();
+        let read = |b: Option<&mut (dyn Blueprints + 'static)>| {
+            let mut issues = Map::new();
+            for n in [7, 8] {
+                entry(&mut issues, n)["edit"] = json!({});
+            }
+            edit_histories(b, &mut issues, &[7]);
+            assert_eq!(issues["8"]["edit"], json!({}), "only the issues asked");
+            issues["7"]["edit"]["userContentEdits"].clone()
+        };
+        let mut handle = site.blueprints(&by, Caller::new("test")).unwrap();
+        let h = read(Some(handle.as_mut()));
+        assert_eq!(h["totalCount"], json!(1), "{h}");
+        assert_eq!(
+            h["nodes"][0]["editedAt"],
+            json!(tehas_core::time::iso(world.now().secs()))
+        );
+        assert!(h["nodes"][0]["editor"]["login"].is_string(), "{h}");
+        let faulty = Faulty::new(FakeSite::new(&world)).on(
+            Op::Blueprints(BlueprintsOp::BodyEditsOf),
+            Fault::Unreachable,
+        );
+        let mut handle = faulty.blueprints(&by, Caller::new("test")).unwrap();
+        assert_eq!(read(Some(handle.as_mut()))["failed"], json!(true));
+        assert_eq!(read(None)["failed"], json!(true));
+    }
     use crate::snapshot::{ClosingPr, Snapshot};
 
     /// What separates two calls in a stub's record: a word of nothing that no
@@ -2068,6 +2138,7 @@ esac"#,
             board: Some(Box::new(test_board(queue, dir))),
             tickets: Some(site.tickets(&by, caller).unwrap()),
             mark_name: board::fake::label,
+            blueprints: None,
             said: Vec::new(),
             faults: Vec::new(),
         }
