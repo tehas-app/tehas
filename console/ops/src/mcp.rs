@@ -284,11 +284,6 @@ fn run_args(run: &Run) -> Vec<String> {
     args
 }
 
-fn is_program(path: &Path) -> bool {
-    path.metadata()
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
 fn prepare(home: &str) -> Result<Run, (u8, String)> {
     let fail = |line: String| (1, line);
     check_keys(
@@ -297,7 +292,7 @@ fn prepare(home: &str) -> Result<Run, (u8, String)> {
     )
     .map_err(|line| (78, line))?;
     let bin = format!("{home}/libexec/tehas-mcp");
-    if !is_program(Path::new(&bin)) {
+    if !tehas_core::file::runnable(Path::new(&bin)) {
         return Err(fail(format!("no {bin}: run install.sh")));
     }
     let versions = fs::read(format!("{home}/versions.env")).unwrap_or_default();
@@ -378,7 +373,7 @@ pub fn liveness(home: &Path, on: &str, addr: &str, port: u16, bound: Duration) -
         "1" => {}
         _ => return Liveness::Silent("TEHAS_MCP is not 0 or 1".to_string()),
     }
-    if !is_program(&home.join("libexec/tehas-mcp")) {
+    if !tehas_core::file::runnable(&home.join("libexec/tehas-mcp")) {
         return Liveness::NotInstalled;
     }
     let target = probe_addr(addr, port);

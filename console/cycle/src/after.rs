@@ -11,7 +11,7 @@ use crate::ran_with::ran_with;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -153,8 +153,7 @@ fn analytics_bin(home: &Path) -> PathBuf {
 /// feed that program asks this, so a host with it off leaves no such note.
 pub fn analytics_on(home: &Path) -> bool {
     let bin = analytics_bin(home);
-    env("TEHAS_ANALYTICS") == "on"
-        && fs::metadata(bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    env("TEHAS_ANALYTICS") == "on" && tehas_core::file::runnable(&bin)
 }
 
 fn analytics_wait() -> u32 {
