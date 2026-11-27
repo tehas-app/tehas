@@ -514,6 +514,7 @@ impl World {
                 edited: None,
                 editor: None,
                 seq,
+                fork: spec.fork,
             });
             match s.layout {
                 Layout::SameItem => s.next_ticket = s.next_ticket.max(n + 1),

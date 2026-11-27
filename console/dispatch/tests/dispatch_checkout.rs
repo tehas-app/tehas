@@ -303,7 +303,9 @@ fn an_outside_edit_after_the_label_is_not_approved_though_an_allowed_account_edi
 }
 
 // The list may name a GitHub account called unknown: a change by no account is
-// still nobody's. The rename variant is a fixture of approval.json.
+// still nobody's. The board adapter names an editor GitHub no longer gives
+// ghost, so the line says ghost and that account is on no list either way.
+// The rename variant is a fixture of approval.json.
 #[test]
 fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_edit_variant() {
     let w = World::new("co-unknown-edit");
@@ -319,7 +321,7 @@ fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_e
         r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":null}}}}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
-    has(&r.out, "skip #7: its text was changed by 'unknown'");
+    has(&r.out, "skip #7: its text was changed by 'ghost'");
     lacks(&r.out, "would run a cycle");
     has(&w.gh(), "userContentEdits(last: 100)");
 }

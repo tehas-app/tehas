@@ -220,7 +220,7 @@ fn the_queues_page_asks_for_the_size_the_dropped_page_guard_rests_on() {
     let w = world();
     let r = rpoll(&w, "");
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "issues(states: OPEN, first: 25, after: $cursor)");
+    has(&w.gh(), "issues(states: [OPEN], first: 25, after: $cursor");
 }
 
 #[test]

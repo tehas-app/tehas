@@ -367,6 +367,7 @@ pub struct ChangeSpec {
     pub(crate) events: Vec<(String, crate::ChangeHappened)>,
     pub(crate) state: Option<ChangeState>,
     pub(crate) merge_state: Option<Mergeable>,
+    pub(crate) fork: bool,
 }
 
 impl ChangeSpec {
@@ -431,6 +432,13 @@ impl ChangeSpec {
     /// Whether it can merge.
     pub fn merge_state(mut self, m: Mergeable) -> Self {
         self.merge_state = Some(m);
+        self
+    }
+
+    /// Whether the head lives in another repository: a fork's change, whose
+    /// head is no branch of this one.
+    pub fn fork(mut self, yes: bool) -> Self {
+        self.fork = yes;
         self
     }
 }

@@ -105,7 +105,9 @@ fn a_label_from_a_listed_login_with_another_user_id_does_not_count_and_is_warned
 
 /// The dispatcher matches the allowed list in any ASCII case, as
 /// `console label allowed` does: a case variant of a listed login with the
-/// recorded id counts, and names the login as GitHub gave it.
+/// recorded id counts. The ports' adapter folds a login when it names an
+/// account, so the log says it as the list spells it; the vouch above it
+/// keeps the case GitHub gave.
 #[test]
 fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
     let w = World::new("ap-uid-case");
@@ -113,7 +115,7 @@ fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
     let r = w.dispatch(&["--dry-run"]);
     lacks(&r.out, "does not count");
     lacks(&r.out, "not an allowed account");
-    has(&r.out, "would run a cycle for #7 (labelled by Alice)");
+    has(&r.out, "would run a cycle for #7 (labelled by alice)");
 }
 
 /// The vouch folds case: a case variant with another id is doubted.
@@ -129,7 +131,7 @@ fn a_case_variant_of_a_listed_login_with_another_user_id_is_warned_about() {
             uid("alice")
         ),
     );
-    has(&r.out, "was applied by 'Alice#99', not an allowed account");
+    has(&r.out, "was applied by 'alice#99', not an allowed account");
     lacks(&r.out, "would run a cycle");
 }
 
@@ -951,6 +953,11 @@ fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
     assert_eq!(w.notes_any(), 0);
 }
 
+/// A page whose timeline takes back a mark its labels still show is an
+/// answer the board adapter does not trust: GitHub's two lists never
+/// disagree, so such an issue reads as unread and the next poll reads it
+/// again. Nothing starts and nothing is written meanwhile, which is all
+/// the old skip line did for it.
 #[test]
 fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_still_list_it() {
     let w = World::new("ap-taken-off");
@@ -966,10 +973,8 @@ fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_stil
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
-    has(
-        &r.out,
-        "skip #7: tehas:ready was taken off by 'alice' since it was applied",
-    );
+    lacks(&r.out, "run a cycle for #7");
+    lacks(&r.out, "would take tehas:ready off #7");
     lacks(&r.out, "not an allowed account");
     lacks(&w.gh(), "issue edit 7");
     assert_eq!(w.marks(Some(7)), 0);
