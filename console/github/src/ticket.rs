@@ -30,7 +30,7 @@ pub const CUT_TEXT: usize = 200;
 
 /// The most pages one read asks for after its first, a hundred items each.
 /// A list longer than that is `Unread(Cut)`.
-const PAGES_MAX: usize = 100;
+pub(crate) const PAGES_MAX: usize = 100;
 
 /// An account, with the user id the vouch reads beside every login.
 pub(crate) const ACTOR: &str =
@@ -425,7 +425,7 @@ pub(crate) fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 }
 
 /// A field that says whether it was there: `Some(None)` for an empty one.
-fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+pub(crate) fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)
@@ -462,24 +462,48 @@ pub(crate) struct Pages {
 }
 
 impl Pages {
+    /// The pages of a list read forward, or back from its end.
+    pub(crate) fn new(back: bool) -> Self {
+        Pages {
+            seen: Vec::new(),
+            back,
+        }
+    }
+
     /// The cursor of the page after this one, None after the last. A page
     /// that does not say whether there is more, or says so with no cursor
-    /// or one already used, is `Unread(Inconsistent)`.
+    /// or one already used, is `Unread(Inconsistent)`. Past `PAGES_MAX`
+    /// cursors the list is `Unread(Cut)`.
     pub(crate) fn next(&mut self, info: Option<Info>) -> Got<Option<String>> {
+        match self.after(info)? {
+            None => Ok(None),
+            Some(cursor) => self.turn(cursor, PAGES_MAX)?.ok_or(CUT).map(Some),
+        }
+    }
+
+    /// The cursor of the page after this one as the page says it, None
+    /// after the last: `Unread(Inconsistent)` where it does not say whether
+    /// there is more, or says so with no cursor.
+    pub(crate) fn after(&self, info: Option<Info>) -> Got<Option<String>> {
         let info = info.ok_or(INCONSISTENT)?;
         let (more, cursor) = match self.back {
             true => (info.has_previous_page, info.start_cursor),
             false => (info.has_next_page, info.end_cursor),
         };
-        if !more.ok_or(INCONSISTENT)? {
-            return Ok(None);
+        match more.ok_or(INCONSISTENT)? {
+            false => Ok(None),
+            true => cursor.map(Some).ok_or(INCONSISTENT),
         }
-        let cursor = cursor.ok_or(INCONSISTENT)?;
+    }
+
+    /// Turns to the page at `cursor`: `Unread(Inconsistent)` for a cursor
+    /// already used, None without turning once `most` cursors are used.
+    pub(crate) fn turn(&mut self, cursor: String, most: usize) -> Got<Option<String>> {
         if self.seen.contains(&cursor) {
             return Err(INCONSISTENT);
         }
-        if self.seen.len() >= PAGES_MAX {
-            return Err(CUT);
+        if self.seen.len() >= most {
+            return Ok(None);
         }
         self.seen.push(cursor.clone());
         Ok(Some(cursor))
@@ -822,10 +846,7 @@ impl GitHub {
     ) -> Got<Took<TicketEvent>> {
         let asks = events(kinds, window);
         let question = of_issue(&asks);
-        let mut pages = Pages {
-            seen: Vec::new(),
-            back: matches!(window, Window::Last(_)),
-        };
+        let mut pages = Pages::new(matches!(window, Window::Last(_)));
         let mut all: Vec<TicketEvent> = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
