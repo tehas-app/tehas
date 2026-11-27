@@ -382,9 +382,14 @@ case "$1 $2" in
       # whole read reaches here too, and is answered from the same fixtures
       # the page's timeline reads.
       *"events: timelineItems"*) "$T/issue-stub" "$n" || exit 1 ;;
-      # The ticket an issue is a part of, as the GitHub adapter asks it
-      # beside an issue's REST read: none.
-      *"parent { number repository"*) echo "{\"data\":{\"repository\":{\"issue\":{\"number\":$n,\"parent\":null}}}}" ;;
+      
+      # The ticket each issue is a part of, as the GitHub adapter asks it
+      # beside the issues' REST reads, one alias n<n> an issue: none.
+      *") { number parent { number repository"*) acc=""
+        for k in $(printf "%s\n" "$*" | grep -o " n[0-9][0-9]*: issue(number:" | sed "s/^ n\([0-9]*\):.*/\1/"); do
+          acc="$acc,\"n$k\":{\"number\":$k,\"parent\":null}"
+        done
+        echo "{\"data\":{\"repository\":{${acc#,}}}}" ;;
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")

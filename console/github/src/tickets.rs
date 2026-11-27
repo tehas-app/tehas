@@ -2,6 +2,9 @@
 //! reads in the ports' types. The traits are answered in `port/`; the rest
 //! of the tickets port comes with the moves that need it.
 
+use std::collections::BTreeMap;
+
+use crate::ticket::INCONSISTENT;
 use crate::{gh, table, ForgeError, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -21,20 +24,45 @@ impl GitHub {
         Ok(self.read_marks(&labels).into_iter().flatten().collect())
     }
 
-    /// A ticket's digest, from the issue's REST read and one question for
-    /// the ticket it is a part of (`GitHub::parent`): the answer of
-    /// `Tickets::several` for one key. GitHub has no priority: every ticket
-    /// is `Normal`. The revision is the sum of the title and the body as
+    /// Several tickets' digests, in the order asked: `Tickets::several`.
+    /// Each is the issue's REST read, and the ticket it is a part of
+    /// (`GitHub::parents`) is asked of every issue read, a repeated number
+    /// once, a question a hundred. GitHub has no priority: every ticket is
+    /// `Normal`. The revision is the sum of the title and the body as
     /// GitHub holds them, markers in (`gh::text_revision`), the one rule of
     /// both ports' revisions; `updated` is the time it last changed. An
     /// accepted edge: the title's sum drops its CRs and LFs, so a title
     /// changed by those alone keeps its revision.
-    pub(crate) fn digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
+    pub(crate) fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
+        let mut read: Vec<(TicketKey, Got<TicketDigest>)> = keys
+            .iter()
+            .map(|k| (k.clone(), self.rest_digest(k)))
+            .collect();
+        let mut asked: Vec<u64> = read
+            .iter()
+            .filter(|(_, d)| d.is_ok())
+            .filter_map(|(k, _)| number(k).ok())
+            .collect();
+        asked.sort_unstable();
+        asked.dedup();
+        let parents: BTreeMap<u64, _> = asked.iter().copied().zip(self.parents(&asked)).collect();
+        for (k, got) in &mut read {
+            let Ok(digest) = got else { continue };
+            let parent = number(k).map(|n| parents.get(&n).cloned().unwrap_or(Err(INCONSISTENT)));
+            match parent.and_then(|p| p) {
+                Ok(p) => digest.parent = p,
+                Err(e) => *got = Err(e),
+            }
+        }
+        read
+    }
+
+    /// A ticket's digest from the issue's REST read alone, its parent not
+    /// yet asked.
+    fn rest_digest(&mut self, key: &TicketKey) -> Got<TicketDigest> {
         let issue = number(key)?;
         let out = self.issue_answer(issue).map_err(|e| self.outcome(&e))?;
-        let mut digest = self.digest_of(key, &out)?;
-        digest.parent = self.parent(key)?;
-        Ok(digest)
+        self.digest_of(key, &out)
     }
 
     /// The digest of an issue's REST read. A pull request answers that read
