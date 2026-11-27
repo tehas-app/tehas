@@ -1305,6 +1305,20 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
 }
 
 #[test]
+fn scopes_read_scope_fetches_and_writes_nothing() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v2.0.0", &at).release("v2.0.0", &[]);
+        let site = FakeSite::new(&w);
+        let wrote = w.wrote().len();
+        ok(laws::scopes::read_scope_fetches_and_writes_nothing(
+            &site, C,
+        ));
+        assert_eq!(w.wrote().len(), wrote);
+    }
+}
+
+#[test]
 fn tickets_kinds_hold_no_unknown() {
     for w in both() {
         let w = w
