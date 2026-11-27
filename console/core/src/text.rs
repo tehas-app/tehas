@@ -21,6 +21,12 @@ pub fn trim(line: &str) -> String {
         .collect()
 }
 
+/// Whether `s` is one line of at most `max` characters: not empty, and no
+/// control character in it.
+pub fn one_line(s: &str, max: usize) -> bool {
+    !s.is_empty() && s.chars().count() <= max && !s.chars().any(char::is_control)
+}
+
 /// The character that replaces the colon of `tehas:`: U+2010 HYPHEN, which
 /// reads as a hyphen and is no colon to any parser of ours.
 pub const BREAK: char = '\u{2010}';

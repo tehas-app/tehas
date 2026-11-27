@@ -74,8 +74,10 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, State};
 use tehas_core::lock::Held;
+use tehas_core::verb::Verb;
 use tehas_core::{rukas, time};
 
 /// Sandbox builds a host keeps: the current one and the one before it, for a
@@ -1056,8 +1058,7 @@ fn which(name: &str) -> Option<String> {
     let path = std::env::var("PATH").ok()?;
     path.split(':').find_map(|dir| {
         let p = Path::new(dir).join(name);
-        let m = fs::metadata(&p).ok()?;
-        (m.is_file() && m.permissions().mode() & 0o111 != 0).then(|| p.display().to_string())
+        tehas_core::file::runnable(&p).then(|| p.display().to_string())
     })
 }
 
@@ -1229,8 +1230,10 @@ impl Run {
         ok
     }
 
+    /// `n` is a number `issue_of` read.
     fn cycle_lock(&self, n: &str) -> PathBuf {
-        Home::new(&self.home).cycles_dir().join(format!("{n}.lock"))
+        let n: u64 = n.parse().unwrap_or_default();
+        Home::new(&self.home).cycle_note(n, Note::Lock)
     }
 
     /// A cycle holds the issue's lock, or the probe could not tell: the cases
@@ -1855,19 +1858,13 @@ impl Run {
     fn upkeep(&mut self) -> bool {
         let bin = self.home.join("libexec").join("store");
         let db = Home::new(&self.home).state(State::StoreDb);
-        let runnable =
-            fs::metadata(&bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
-        if !runnable || !plain_file(&db) {
+        if !tehas_core::file::runnable(&bin) || !plain_file(&db) {
             self.warn("the state store is not installed: no logs removed, no backup");
             self.upkept(Some(("absent", "the state store is not installed")));
             return false;
         }
-        let args: &[&str] = if self.dry {
-            &["upkeep", "--dry-run"]
-        } else {
-            &["upkeep"]
-        };
-        let v = match store::call(&self.home, args) {
+        let upkeep = Verb::Upkeep { dry_run: self.dry };
+        let v = match store::call(&self.home, &upkeep) {
             Ok(v) => v,
             Err(no) => {
                 self.warn(&format!("store upkeep failed ({}): {}", no.word, no.line));

@@ -268,11 +268,7 @@ pub fn summed(args: &[String], input: Option<&str>) -> Option<Value> {
 
 /// The sha-256 of a text, in lower-case hex.
 fn sha256(text: &str) -> String {
-    use sha2::Digest;
-    sha2::Sha256::digest(text.as_bytes())
-        .iter()
-        .map(|x| format!("{x:02x}"))
-        .collect()
+    crate::sum::sha256_hex(text.as_bytes())
 }
 
 #[cfg(test)]

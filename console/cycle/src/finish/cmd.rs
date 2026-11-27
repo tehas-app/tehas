@@ -10,7 +10,6 @@
 //! workspace a cycle's container wrote (see [`super::run`]). The pins of
 //! [`PINS`] stay on every call as a second guard.
 
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -188,8 +187,7 @@ fn found(name: &str) -> Result<String, String> {
     path.split(':')
         .find_map(|dir| {
             let p = Path::new(dir).join(name);
-            let m = std::fs::metadata(&p).ok()?;
-            (m.is_file() && m.permissions().mode() & 0o111 != 0).then(|| p.display().to_string())
+            tehas_core::file::runnable(&p).then(|| p.display().to_string())
         })
         .ok_or_else(|| format!("{name} is not on PATH"))
 }

@@ -41,6 +41,7 @@ use std::env;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::Read;
+#[cfg(test)]
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -66,9 +67,7 @@ fn dispatcher(libexec: &str) -> String {
 /// An executable file that starts as a program does. bash would run any other
 /// file as a script of its own, and an empty one is a poll that exits 0.
 fn a_program(path: &Path) -> bool {
-    let runs = path
-        .metadata()
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let runs = tehas_core::file::runnable(path);
     let mut magic = Vec::new();
     let read = File::open(path).and_then(|f| f.take(4).read_to_end(&mut magic));
     runs && read.is_ok() && (magic == b"\x7fELF" || magic.starts_with(b"#!"))

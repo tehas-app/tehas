@@ -1465,6 +1465,7 @@ mod tests {
 #[cfg(kani)]
 mod proofs {
     use super::*;
+    use crate::grammar::all_digits;
 
     /// Any text of at most N bytes. Kani's cost grows fast with the length
     /// of a symbolic string, so the parsers are proved on short ones and the
@@ -1472,10 +1473,6 @@ mod proofs {
     fn text<const N: usize>(b: &[u8; N]) -> Option<&str> {
         let len: usize = kani::any_where(|l| *l <= N);
         std::str::from_utf8(&b[..len]).ok()
-    }
-
-    fn digits(s: &str) -> bool {
-        !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
     }
 
     fn value(s: &str) -> u64 {
@@ -1487,7 +1484,7 @@ mod proofs {
     fn num_is_some_exactly_for_a_number_and_gives_its_value() {
         let b: [u8; 4] = kani::any();
         let Some(s) = text(&b) else { return };
-        let ok = s == "0" || (digits(s) && !s.starts_with('0'));
+        let ok = s == "0" || (all_digits(s) && !s.starts_with('0'));
         let got = num(s);
         match got {
             Some(v) => assert!(ok && v == value(s)),
@@ -1510,7 +1507,7 @@ mod proofs {
             Some(b'b' | b'B') => (&s[..s.len() - 1], 0),
             _ => (s, 0),
         };
-        let ok = digits(n) && !n.starts_with('0');
+        let ok = all_digits(n) && !n.starts_with('0');
         let got = bytes(s);
         match got {
             Some(v) => assert!(ok && v > 0 && v == value(n) << shift),

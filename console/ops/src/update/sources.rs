@@ -21,7 +21,6 @@
 //! workspace, 64 usage.
 
 use super::{fault, say, tell};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -329,12 +328,7 @@ fn sum_line(hex: &str, rel: &str) -> String {
     }
 }
 
-pub(super) fn hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
+pub(super) use tehas_core::sum::sha256_hex as hex;
 
 pub(super) fn source_sum(root: &Path, ws: &Workspace, name: &str) -> Result<String, String> {
     let mut files: BTreeSet<String> = ["Cargo.toml", "Cargo.lock"].map(String::from).into();

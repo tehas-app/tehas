@@ -1,0 +1,40 @@
+{
+  "data": {
+    "repository": {
+      "databaseId": 1474040929,
+      "issue": {
+        "number": 28,
+        "closes": {
+          "nodes": []
+        },
+        "blockedBy": {
+          "totalCount": 0,
+          "nodes": []
+        },
+        "subIssues": {
+          "totalCount": 0,
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": []
+        },
+        "mentions": {
+          "totalCount": 0,
+          "pageInfo": {
+            "hasNextPage": false,
+            "endCursor": null
+          },
+          "nodes": []
+        },
+        "parent": {
+          "number": 27,
+          "repository": {
+            "databaseId": 1474040929,
+            "nameWithOwner": "tehas-app/tehas-rec-tickets"
+          }
+        }
+      }
+    }
+  }
+}

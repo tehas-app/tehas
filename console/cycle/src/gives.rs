@@ -44,8 +44,7 @@ fn attach(home: &Path) -> Option<PathBuf> {
         return None;
     }
     let bin = home.join("libexec/attach");
-    let m = fs::metadata(&bin).ok()?;
-    (m.is_file() && m.permissions().mode() & 0o111 != 0).then_some(bin)
+    tehas_core::file::runnable(&bin).then_some(bin)
 }
 
 use attach::link::may_link;
