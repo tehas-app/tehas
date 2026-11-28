@@ -512,19 +512,43 @@ mod wiring {
         repo: &str,
         bound: Duration,
     ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
-        use tehas_ports::{Actor, Caller, Outcome, Refusal, Site};
+        use tehas_ports::{Actor, Caller, Site};
         let make = gh_make(bound);
         let site = tehas_github::GitHubSite::new(repo, "", None, make);
-        let caller = Caller::new("update");
         if *by != Actor::Anonymous {
-            return site.code_host(by, caller);
+            return site.code_host(by, Caller::new("update"));
         }
+        anonymous(site, Caller::new("update"))
+    }
+
+    /// The code host handle of `console pins` for the public project `repo`
+    /// (`owner/name`), for its releases and tags: no credential and no gh
+    /// to run, its budget kept in the home's ledger as the anonymous
+    /// holder's. The runner source refuses, since an anonymous handle runs
+    /// no gh.
+    pub(crate) fn anon_code_host(
+        repo: &str,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Caller, Outcome, Refusal};
+        let make: tehas_github::MakeRunner =
+            std::sync::Arc::new(|_| Err(Outcome::Refused(Refusal::Unsupported)));
+        let site = tehas_github::GitHubSite::new(repo, "", None, make);
+        anonymous(site, Caller::new("pins"))
+    }
+
+    /// The anonymous code host handle of a site's project: curl, the home's
+    /// ledger and a notice sink. No home, no handle.
+    fn anonymous(
+        site: tehas_github::GitHubSite,
+        caller: tehas_ports::Caller,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Outcome, Refusal, Site};
         let Some(home) = tehas_core::home::Home::from_env() else {
             return Err(Outcome::Refused(Refusal::Unsupported));
         };
         let ledger = std::sync::Arc::new(tehas_core::ledger::FileLedger::new(&home));
         site.with_anonymous_curl(curl(), ledger, std::sync::Arc::new(JournalNotices))
-            .code_host(by, caller)
+            .code_host(&Actor::Anonymous, caller)
     }
 
     /// The `Notices` of the anonymous reads: each is written to stderr in
@@ -762,7 +786,9 @@ fn main() -> ExitCode {
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..], &wiring::tickets_over)),
-            Some("pins") => return ExitCode::from(pins::main(&given[1..])),
+            Some("pins") => {
+                return ExitCode::from(pins::main(&given[1..], &wiring::anon_code_host))
+            }
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
