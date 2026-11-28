@@ -4,9 +4,10 @@
 //! which the analytics writer reads too. A log's file name is never returned.
 
 use crate::args::{Arg, Args};
-use crate::snapshot::Snapshot;
+use crate::snapshot::{Fact, Loose, Many, Scalar, Session, Snapshot};
 use crate::tools::{self, Dirs, Links, ToolError};
 use regex::Regex;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -391,41 +392,106 @@ fn bad(why: &str) -> ToolError {
 
 /// The session `id` as the snapshot has it, inside the window. The id is
 /// checked before anything is opened.
-pub fn find(snap: &Snapshot, id: &str) -> Result<Value, ToolError> {
+pub fn find(snap: &Snapshot, id: &str) -> Result<Session, ToolError> {
     if !ID.is_match(id) {
         return Err(bad("id is like work-12-1792485967"));
     }
     snap.sessions()
-        .find(|s| s["id"].as_str() == Some(id))
+        .find(|s| s.text("id") == Some(id))
         .ok_or_else(|| bad(&format!("no session {id} in the last {} days", snap.days)))
 }
 
-/// A live file through `tools::read`, or `None` when it is not there. A file
-/// that is there and cannot be read or parsed is the tool's error: "I could
-/// not look" is never answered as "it is not listed".
-pub(crate) fn published(dirs: &Dirs, file: &str) -> Result<Option<Value>, ToolError> {
-    match std::fs::metadata(dirs.live.join(file)) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        _ => tools::read(&dirs.live, file).map(Some),
-    }
+/// `live/status.json`, read for the server: the repository whose items an
+/// answer links, and the numbers the dashboard lists under each stage.
+#[derive(Deserialize, Default)]
+pub(crate) struct Status {
+    #[serde(default)]
+    pub repo: Loose<String>,
+    #[serde(flatten)]
+    pub stages: BTreeMap<String, Many<StageRow>>,
 }
 
-fn repo_of(status: &Option<Value>) -> Option<String> {
-    status.as_ref()?["repo"].as_str().map(str::to_string)
+/// One row of a stage list: its number and its title, each as a scalar: the
+/// readers compare the number as `as_i64` compared it, so a whole-valued
+/// fraction still matches, and `tools::title` serves the title on one line.
+#[derive(Deserialize, Default)]
+pub(crate) struct StageRow {
+    #[serde(default)]
+    pub number: Fact,
+    #[serde(default)]
+    pub title: Fact,
+}
+
+/// `live/running.json`, read for the server: the cycles it says are running.
+#[derive(Deserialize, Default)]
+pub(crate) struct Running {
+    #[serde(default)]
+    pub cycles: Many<CycleRow>,
+}
+
+/// One cycle of the running file: the issue it runs, whether it runs, the
+/// store's start its id is built from, and the step and status word the
+/// dashboard gives it.
+#[derive(Deserialize, Default)]
+pub(crate) struct CycleRow {
+    #[serde(default)]
+    pub issue: Fact,
+    #[serde(default)]
+    pub running: Loose<bool>,
+    #[serde(rename = "startedAt", default)]
+    pub started_at: Fact,
+    #[serde(default)]
+    pub step: Fact,
+    #[serde(default)]
+    pub status: Fact,
+}
+
+/// `live/health.json`, read for the server: the issues of the planning check.
+#[derive(Deserialize, Default)]
+pub(crate) struct Health {
+    #[serde(default)]
+    pub checks: Loose<Checks>,
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct Checks {
+    #[serde(default)]
+    pub plans: Many<Planned>,
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct Planned {
+    #[serde(default)]
+    pub issue: Fact,
+}
+
+/// A published file, read and typed: a file the host has not written reads as
+/// the empty reading, and a field of another type than the one named reads as
+/// nothing - what indexing a document gave for any shape this file is not. A
+/// file that is there and cannot be read or parsed is the tool's error: "I
+/// could not look" is never answered as "it is not listed".
+pub(crate) fn live<T: serde::de::DeserializeOwned + Default>(
+    dirs: &Dirs,
+    file: &str,
+) -> Result<T, ToolError> {
+    match std::fs::metadata(dirs.live.join(file)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
+        _ => tools::read(&dirs.live, file).map(|v| serde_json::from_value(v).unwrap_or_default()),
+    }
 }
 
 /// The links of the repository the published status names.
 fn linker(dirs: &Dirs) -> Result<Linker, ToolError> {
-    let repo = repo_of(&published(dirs, "status.json")?);
-    Ok(Linker::of(dirs.links, repo.as_deref()))
+    let status = live::<Status>(dirs, "status.json")?;
+    Ok(Linker::of(
+        dirs.links,
+        status.repo.get().map(String::as_str),
+    ))
 }
 
-fn session_links(links: &Linker, s: &Value) -> (Option<String>, Option<String>) {
-    match s["issue"].as_i64() {
-        Some(n) => (
-            links.issue(n),
-            s["change"].as_i64().and_then(|p| links.pr(p)),
-        ),
+fn session_links(links: &Linker, s: &Session) -> (Option<String>, Option<String>) {
+    match s.count("issue") {
+        Some(n) => (links.issue(n), s.count("change").and_then(|p| links.pr(p))),
         None => (None, None),
     }
 }
@@ -535,16 +601,21 @@ pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, 
         before,
     } = asked;
     let (limit, before) = (*limit, before.as_deref());
+    let json_of = |f: &Scalar| serde_json::to_value(f).expect("a scalar serialises");
 
     let snap = open(dirs)?;
     let links = linker(dirs)?;
-    let eq = |s: &Value, key: &str, want: &Option<String>| {
-        want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
+    let eq = |s: &Session, key: &str, want: &Option<String>| {
+        want.as_deref().is_none_or(|w| s.text(key) == Some(w))
     };
-    let keys = spec(&SUMMARY);
     let item = summary_schema();
-    let summary = |s: &Value| {
-        let mut o = pick_object(s, &keys);
+    let summary = |s: &Session| {
+        let mut o = Map::new();
+        for k in SUMMARY {
+            if let Some(f) = s.field(k) {
+                o.insert(k.to_string(), json_of(f));
+            }
+        }
         let (i, p) = session_links(&links, s);
         insert_opt(&mut o, "issueUrl", i);
         insert_opt(&mut o, "prUrl", p);
@@ -555,7 +626,7 @@ pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, 
     let mut left_out = 0u64;
     for s in snap.sessions() {
         if !passed {
-            passed = s["id"].as_str() == before;
+            passed = s.text("id") == before;
             continue;
         }
         let keep = eq(&s, "outcome", outcome)
@@ -564,15 +635,14 @@ pub(crate) fn list(dirs: &Dirs, asked: &ListArgs) -> Result<Map<String, Value>, 
             && eq(&s, "failureKind", failure_kind)
             && eq(&s, "tehasVersion", tehas)
             && rukas.as_deref().is_none_or(|w| {
-                s["rukasVersion"].as_str() == Some(w) || s["rukasCommit"].as_str() == Some(w)
+                s.text("rukasVersion") == Some(w) || s.text("rukasCommit") == Some(w)
             })
             && image.as_deref().is_none_or(|w| {
-                s["image"]
-                    .as_str()
+                s.text("image")
                     .and_then(|i| i.strip_prefix("sha256:"))
                     .is_some_and(|i| i.starts_with(w))
             })
-            && issue.is_none_or(|n| s["issue"].as_i64() == Some(n));
+            && issue.is_none_or(|n| s.count("issue") == Some(n));
         if !keep {
             continue;
         }
@@ -617,25 +687,10 @@ fn insert_opt(o: &mut Map<String, Value>, key: &str, v: Option<String>) {
     }
 }
 
-/// As `insert_opt`, for a value copied from another JSON value as it is.
+/// As `insert_opt`, for a value the answer carries as it is.
 fn put(o: &mut Map<String, Value>, key: &str, v: Option<Value>) {
     if let Some(v) = v {
         o.insert(key.into(), v);
-    }
-}
-
-/// A value `pick` names a scalar: a word, a count or a yes. `pick` refuses an
-/// object or an array at the key it is given, so these are the only values a
-/// named key can hold; the check is repeated on the answer so one key of a
-/// hand-edited or malformed snapshot cannot serve a whole subtree.
-fn scalar(v: &Value) -> bool {
-    v.is_string() || v.is_i64() || v.is_u64() || v.is_f64() || v.is_boolean()
-}
-
-fn pick_object(src: &Value, spec: &Value) -> Map<String, Value> {
-    match tools::pick(src, spec) {
-        Some(Value::Object(m)) => m,
-        _ => Map::new(),
     }
 }
 
@@ -659,23 +714,46 @@ impl OneArgs {
 }
 
 pub(crate) fn one(dirs: &Dirs, asked: &OneArgs) -> Result<Map<String, Value>, ToolError> {
+    let json_of = |f: &Scalar| serde_json::to_value(f).expect("a scalar serialises");
     let id = asked.id.as_str();
     let snap = open(dirs)?;
     let raw = find(&snap, id)?;
-    let keys: Vec<&str> = FIELDS.iter().map(|f| f.0).collect();
-    let mut spec = spec(&keys);
-    spec["steps"] = json!([spec_of(&STEP)]);
-    spec["roles"] = json!([spec_of(&ROLE)]);
-    spec["filed"] = json!([{"issue": true, "url": true}]);
-    let mut s = pick_object(&raw, &spec);
-    let logs: Vec<Value> = raw["logs"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|l| {
-            let file = l["word"].as_str()?;
-            Some(json!({"file": file, "bytes": l["bytes"].as_u64()?}))
-        })
+    let mut s = Map::new();
+    for (k, _, _) in FIELDS {
+        if let Some(f) = raw.field(k) {
+            s.insert(k.to_string(), json_of(f));
+        }
+    }
+    // The three lists of the session, each element copied with its named keys,
+    // as `pick` copied them: a key the line holds as an object, an array or
+    // null is left out, and one of another scalar type travels to the check.
+    let step_keys: Vec<&str> = STEP.iter().map(|f| f.0).collect();
+    let role_keys: Vec<&str> = ROLE.iter().map(|f| f.0).collect();
+    for (key, named, rows) in [
+        ("steps", &step_keys[..], raw.steps()),
+        ("roles", &role_keys[..], raw.roles()),
+        ("filed", &["issue", "url"][..], raw.filed()),
+    ] {
+        if let Some(rows) = rows {
+            let a: Vec<Value> = rows
+                .iter()
+                .map(|row| {
+                    let mut o = Map::new();
+                    for k in named {
+                        if let Some(f) = row.get(*k) {
+                            o.insert((*k).to_string(), json_of(f));
+                        }
+                    }
+                    Value::Object(o)
+                })
+                .collect();
+            s.insert(key.to_string(), Value::Array(a));
+        }
+    }
+    let logs: Vec<Value> = raw
+        .logs()
+        .iter()
+        .filter_map(|l| Some(json!({"file": l.word()?, "bytes": l.bytes()?})))
         .collect();
     s.insert("logs".into(), Value::Array(logs));
     let (i, p) = session_links(&linker(dirs)?, &raw);
@@ -690,10 +768,6 @@ pub(crate) fn one(dirs: &Dirs, asked: &OneArgs) -> Result<Map<String, Value>, To
     out.insert("stale".into(), json!(snap.stale));
     out.insert("session".into(), s);
     Ok(out)
-}
-
-fn spec_of(fields: &[(&str, &str, &str)]) -> Value {
-    spec(&fields.iter().map(|f| f.0).collect::<Vec<_>>())
 }
 
 #[derive(Default)]
@@ -733,8 +807,8 @@ pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, 
     let snap = open(dirs)?;
     let links = linker(dirs)?;
     let mut pairs: BTreeMap<(Option<String>, Option<String>, String), Pair> = BTreeMap::new();
-    for s in snap.sessions().filter(|s| s["kind"] == "work") {
-        let text = |k: &str| s[k].as_str().map(str::to_string);
+    for s in snap.sessions().filter(|s| s.text("kind") == Some("work")) {
+        let text = |k: &str| s.text(k).map(str::to_string);
         if only.as_deref().is_some_and(|w| {
             text("rukasVersion").as_deref() != Some(w) && text("rukasCommit").as_deref() != Some(w)
         }) {
@@ -763,7 +837,7 @@ pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, 
         if let Some(cause) = text("failureCause") {
             let c = p.causes.entry((cause, kind)).or_default();
             c.n += 1;
-            if let Some(i) = s["issue"].as_i64() {
+            if let Some(i) = s.count("issue") {
                 if c.issues.len() < CAUSE_ISSUES && !c.issues.contains(&i) {
                     c.issues.push(i);
                 }
@@ -815,11 +889,6 @@ pub(crate) fn failures(dirs: &Dirs, asked: &FailuresArgs) -> Result<Map<String, 
 
 /// The stage lists of the dashboard, in the order `factory_issues` gives them.
 pub(crate) const ISSUE_STAGES: [&str; 5] = [QUEUED, RUNNING, AWAITING, STOPPED, COMPLETED];
-
-/// The named keys of one value, copied as they are: a time, a word or a count.
-fn copied(src: &Value, key: &str) -> Option<Value> {
-    tools::pick(&src[key], &json!(true))
-}
 
 // The attempt's fields this tool copies as the snapshot gives them, as
 // `SUMMARY` is for a summary: a name here that is not a field of the contract
@@ -882,52 +951,47 @@ impl IssueArgs {
 /// join `factory_issues`, `factory_sessions` and `factory_session`.
 pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>, ToolError> {
     let issue = asked.issue;
+    let json_of = |f: &Scalar| serde_json::to_value(f).expect("a scalar serialises");
     // The snapshot first: its header is the one file this tool must read, and
     // a host without it has nothing to answer with.
     let snap = open(dirs)?;
-    let status = published(dirs, "status.json")?;
-    let links = Linker::of(dirs.links, repo_of(&status).as_deref());
-    let st = status.unwrap_or(Value::Null);
+    let status = live::<Status>(dirs, "status.json")?;
+    let links = Linker::of(dirs.links, status.repo.get().map(String::as_str));
 
     // The first list that holds the number, as the dashboard shows it. The
     // planning list is not in status.json: it gives a count, so the numbers
     // come from the poll's plans, as `factory_issues` takes them.
     let mut stage: Option<&'static str> = None;
-    let mut row = Value::Null;
+    let mut title: Option<Scalar> = None;
     for name in ISSUE_STAGES {
-        if st[name]
-            .as_array()
+        let row = status
+            .stages
+            .get(name)
             .into_iter()
-            .flatten()
-            .any(|r| r["number"].as_i64() == Some(issue))
-        {
+            .flat_map(|m| m.list())
+            .find(|r| r.number.count() == Some(issue));
+        if let Some(r) = row {
             stage = Some(name);
-            row = st[name]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find(|r| r["number"].as_i64() == Some(issue))
-                .cloned()
-                .unwrap_or(Value::Null);
+            title = r.title.0.clone();
             break;
         }
     }
-    let running_cycle = published(dirs, "running.json")?.and_then(|r| {
-        r["cycles"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|c| c["issue"].as_i64() == Some(issue))
-            .cloned()
-    });
+    let running = live::<Running>(dirs, "running.json")?;
+    let running_cycle = running
+        .cycles
+        .list()
+        .iter()
+        .find(|c| c.issue.count() == Some(issue));
     if stage.is_none() && running_cycle.is_none() {
-        let planning = published(dirs, "health.json")?.is_some_and(|h| {
-            h["checks"]["plans"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|p| p["issue"].as_i64() == Some(issue))
-        });
+        let planning = live::<Health>(dirs, "health.json")?
+            .checks
+            .into_inner()
+            .is_some_and(|c| {
+                c.plans
+                    .list()
+                    .iter()
+                    .any(|p| p.issue.count() == Some(issue))
+            });
         if planning {
             stage = Some("planning");
         }
@@ -935,30 +999,25 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
     // A row of the running file is the dashboard's own word for the issue:
     // its step and status are served whatever the stage, but only a cycle
     // that is running counts as the `running` stage.
-    if stage.is_none()
-        && running_cycle
-            .as_ref()
-            .is_some_and(|c| c["running"].as_bool() == Some(true))
-    {
+    if stage.is_none() && running_cycle.is_some_and(|c| c.running.get() == Some(&true)) {
         stage = Some("running");
     }
 
-    let attempt_spec = issue_spec();
-    let keys = attempt_spec["attempts"]
-        .as_array()
-        .expect("a list of attempts")[0]
-        .clone();
+    // The attempt's fields the answer copies, as the snapshot gives them, with
+    // the two the answer writes: `prUrl`, whose link the snapshot does not
+    // hold, is named here too so one of a hand-written line is no more served
+    // than `pick` once served it, until the link replaces it.
     let mut attempts: Vec<Value> = snap
         .sessions()
-        .filter(|s| s["issue"].as_i64() == Some(issue))
+        .filter(|s| s.count("issue") == Some(issue))
         .map(|s| {
-            let mut o = pick_object(&s, &keys);
-            o.retain(|_, v| scalar(v));
-            insert_opt(
-                &mut o,
-                "prUrl",
-                s["change"].as_i64().and_then(|p| links.pr(p)),
-            );
+            let mut o = Map::new();
+            for k in ATTEMPT_KEYS.into_iter().chain(["id", "prUrl"]) {
+                if let Some(f) = s.field(k) {
+                    o.insert(k.to_string(), json_of(f));
+                }
+            }
+            insert_opt(&mut o, "prUrl", s.count("change").and_then(|p| links.pr(p)));
             Value::Object(o)
         })
         .collect();
@@ -971,11 +1030,15 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
     if let Some(s) = stage {
         out.insert("stage".into(), json!(s));
     }
-    put(&mut out, "title", tools::title(copied(&row, "title")));
-    if let Some(c) = &running_cycle {
+    put(
+        &mut out,
+        "title",
+        tools::title(title.as_ref().map(&json_of)),
+    );
+    if let Some(c) = running_cycle {
         let mut r = Map::new();
-        put(&mut r, "step", copied(c, "step"));
-        put(&mut r, "status", copied(c, "status"));
+        put(&mut r, "step", c.step.0.as_ref().map(&json_of));
+        put(&mut r, "status", c.status.0.as_ref().map(&json_of));
         tools::cycle_status_in(&mut r);
         if !r.is_empty() {
             out.insert("running".into(), Value::Object(r));
@@ -989,11 +1052,13 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
             snap.days
         )));
     }
+    // The named keys copied as they are: an attempt holds only scalars, so
+    // the key is the value or nothing, which is all `pick` with `true` made.
     if let Some(first) = attempts.first() {
-        put(&mut out, "firstSeen", copied(first, "started"));
+        put(&mut out, "firstSeen", first.get("started").cloned());
         if let Some(last) = attempts.last() {
-            put(&mut out, "lastSeen", copied(last, "started"));
-            put(&mut out, "outcome", copied(last, "outcome"));
+            put(&mut out, "lastSeen", last.get("started").cloned());
+            put(&mut out, "outcome", last.get("outcome").cloned());
         }
     }
     Ok(out)

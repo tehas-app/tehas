@@ -5,9 +5,10 @@
 
 use crate::args::{Args, Shape};
 use crate::logs::{self, Unopened};
-use crate::snapshot::Snapshot;
+use crate::snapshot::{Loose, Many, Scalar, Session, Snapshot};
 use crate::tools::{self, Dirs, ToolError};
 use regex::Regex;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::io::Read;
 use std::sync::LazyLock;
@@ -111,17 +112,57 @@ fn line(s: &str) -> String {
     one.trim().chars().take(TEXT_MAX).collect()
 }
 
-fn text_of(v: &Value) -> Option<String> {
-    v.as_str().map(line).filter(|s| !s.is_empty())
+fn text_of(w: Option<&str>) -> Option<String> {
+    w.map(line).filter(|s| !s.is_empty())
+}
+
+/// One entry of the result log, of the issue asked for: what the answer
+/// serves of the runner's own extract. A field of another shape than the
+/// word or the list of words it names reads as nothing, as indexing a
+/// document read it.
+#[derive(Deserialize, Default)]
+pub(crate) struct ResultEntry {
+    #[serde(default)]
+    issue: Loose<u64>,
+    #[serde(default)]
+    failure: Loose<Failure>,
+    #[serde(rename = "causeClass", default)]
+    cause_class: Loose<String>,
+    #[serde(rename = "causeReason", default)]
+    cause_reason: Loose<String>,
+    #[serde(rename = "userAction", default)]
+    user_action: Loose<String>,
+    #[serde(rename = "causeEvidence", default)]
+    cause_evidence: Many<Loose<String>>,
+}
+
+/// The part of the runner's failure the answer serves.
+#[derive(Deserialize, Default)]
+pub(crate) struct Failure {
+    #[serde(default)]
+    message: Loose<String>,
+    #[serde(default)]
+    evidence: Loose<String>,
+}
+
+/// The error of the result that holds the entry: what the answer serves of
+/// the runner itself when it stopped.
+#[derive(Deserialize, Default)]
+pub(crate) struct RunnerError {
+    #[serde(default)]
+    code: Loose<String>,
+    #[serde(default)]
+    message: Loose<String>,
 }
 
 /// The issue's entry of the result log and the error of the result that
 /// holds it, or the word to say why there is none.
-fn entry(dirs: &Dirs, s: &Value, issue: u64) -> Result<(Value, Value), &'static str> {
-    let listed = s["logs"].as_array().into_iter().flatten();
+fn entry(dirs: &Dirs, s: &Session, issue: u64) -> Result<(ResultEntry, RunnerError), &'static str> {
+    let listed = s.logs();
     let names: Vec<&str> = listed
-        .filter(|l| l["word"] == "result")
-        .filter_map(|l| l["name"].as_str())
+        .iter()
+        .filter(|l| l.word() == Some("result"))
+        .filter_map(|l| l.name())
         .collect();
     let name = match names.as_slice() {
         [] => return Err("none"),
@@ -143,6 +184,8 @@ fn entry(dirs: &Dirs, s: &Value, issue: u64) -> Result<(Value, Value), &'static 
         return Err("unreadable");
     }
     // A file of several results: the last entry of this issue is the run's.
+    // The stream is read as the file wrote it; only the entry and the error
+    // that answer are kept as their types.
     let mut found = None;
     for v in serde_json::Deserializer::from_slice(&bytes).into_iter::<Value>() {
         let v = v.map_err(|_| "unreadable")?;
@@ -156,27 +199,40 @@ fn entry(dirs: &Dirs, s: &Value, issue: u64) -> Result<(Value, Value), &'static 
             .rev()
             .find(|e| e["issue"].as_u64() == Some(issue))
         {
-            found = Some((e.clone(), v["error"].clone()));
+            found = Some((
+                serde_json::from_value::<ResultEntry>(e.clone()).unwrap_or_default(),
+                serde_json::from_value::<RunnerError>(v["error"].clone()).unwrap_or_default(),
+            ));
         }
     }
-    found.filter(|(e, _)| e.is_object()).ok_or("unreadable")
+    // Only an object can hold the issue it was found by, as the entry the
+    // answer serves always did.
+    found
+        .filter(|(e, _)| e.issue.get() == Some(&issue))
+        .ok_or("unreadable")
 }
 
 /// One word of the runner's, masked first: a private name fails the pattern.
-fn word_of(v: &Value) -> Option<String> {
-    v.as_str().map(mask).filter(|w| WORD.is_match(w))
+fn word_of(w: Option<&str>) -> Option<String> {
+    w.map(mask).filter(|w| WORD.is_match(w))
 }
 
 /// The runner's own extract first, then the lines of its evidence that name
 /// a failing check. A line held in another, as the runner cuts or quotes
 /// one, is given once, the longer kept.
-fn checks(e: &Value) -> (Vec<String>, bool) {
+fn checks(e: &ResultEntry) -> (Vec<String>, bool) {
     let mut out: Vec<String> = Vec::new();
     let mut cut = false;
-    let own = e["causeEvidence"].as_array().into_iter().flatten();
-    let evidence = e["failure"]["evidence"].as_str().unwrap_or("");
-    let found = own
-        .filter_map(Value::as_str)
+    let evidence = e
+        .failure
+        .get()
+        .and_then(|f| f.evidence.get().map(String::as_str))
+        .unwrap_or("");
+    let found = e
+        .cause_evidence
+        .list()
+        .iter()
+        .filter_map(|w| w.get().map(String::as_str))
         .map(line)
         .chain(evidence.lines().filter(|l| CHECK.is_match(l)).map(line));
     for l in found {
@@ -204,16 +260,16 @@ pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, 
     let mut newest: Option<String> = None;
     let mut stop = None;
     for s in snap.sessions() {
-        if s["issue"].as_u64() != Some(issue) || s["kind"] != "work" {
+        if s.whole("issue") != Some(issue) || s.text("kind") != Some("work") {
             continue;
         }
-        if s["outcome"].as_str().is_some_and(|o| STOPS.contains(&o)) {
+        if s.text("outcome").is_some_and(|o| STOPS.contains(&o)) {
             stop = Some(s);
             break;
         }
         if latest {
-            newest = s["outcome"]
-                .as_str()
+            newest = s
+                .text("outcome")
                 .filter(|o| OUTCOMES.contains(o))
                 .map(str::to_string);
         }
@@ -226,7 +282,7 @@ pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, 
         ))
     })?;
 
-    let word = |k: &str| s[k].as_str().unwrap_or("");
+    let word = |k: &str| s.text(k).unwrap_or("");
     let step = match word("lastStep") {
         "" => "-",
         w => w,
@@ -262,10 +318,13 @@ pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, 
         ("failureCause", "cause"),
         ("providerOutage", "provider"),
     ] {
-        let v = match &s[from] {
-            Value::String(t) => Some(json!(mask(t))),
-            v @ (Value::Number(_) | Value::Bool(_)) => Some(v.clone()),
-            _ => None,
+        // The word masked; a number or a flag travels as the line wrote it.
+        let v = match s.field(from) {
+            Some(Scalar::Text(t)) => Some(json!(mask(t))),
+            Some(
+                f @ (Scalar::Count(_) | Scalar::Big(_) | Scalar::Decimal(..) | Scalar::Flag(_)),
+            ) => Some(serde_json::to_value(f).expect("a scalar serialises")),
+            None => None,
         };
         if let Some(v) = v {
             out.insert(to.into(), v);
@@ -273,7 +332,7 @@ pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, 
     }
     // What the park comment states of the container, when it happened.
     for k in ["forksRefused", "oomKills"] {
-        if let Some(n) = s[k].as_u64().filter(|n| *n > 0) {
+        if let Some(n) = s.whole(k).filter(|n| *n > 0) {
             out.insert(k.into(), json!(n));
         }
     }
@@ -285,22 +344,26 @@ pub(crate) fn call(dirs: &Dirs, asked: &ParkArgs) -> Result<Map<String, Value>, 
         }
         Ok((e, error)) => {
             out.insert("result".into(), json!("read"));
-            if let Some(c) = word_of(&error["code"]) {
+            if let Some(c) = word_of(error.code.get().map(String::as_str)) {
                 out.insert("errorCode".into(), json!(c));
             }
-            if let Some(t) = text_of(&error["message"]) {
+            if let Some(t) = text_of(error.message.get().map(String::as_str)) {
                 out.insert("error".into(), json!(t));
             }
-            for (k, v) in [
-                ("message", &e["failure"]["message"]),
-                ("causeReason", &e["causeReason"]),
-                ("userAction", &e["userAction"]),
+            let failure = e.failure.get();
+            for (k, t) in [
+                (
+                    "message",
+                    failure.and_then(|f| f.message.get().map(String::as_str)),
+                ),
+                ("causeReason", e.cause_reason.get().map(String::as_str)),
+                ("userAction", e.user_action.get().map(String::as_str)),
             ] {
-                if let Some(t) = text_of(v) {
+                if let Some(t) = text_of(t) {
                     out.insert(k.into(), json!(t));
                 }
             }
-            if let Some(c) = word_of(&e["causeClass"]) {
+            if let Some(c) = word_of(e.cause_class.get().map(String::as_str)) {
                 out.insert("causeClass".into(), json!(c));
             }
             let (lines, cut) = checks(&e);
