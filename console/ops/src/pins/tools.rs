@@ -5,11 +5,18 @@ use super::text::Ver;
 use serde_json::Value;
 use sha2::{Digest, Sha512};
 use std::path::Path;
+use tehas_ports::{Release, Tag};
 
 /// The outside world a move reads. The tests give it a fake.
 pub trait World {
     /// The body of a GET.
     fn get(&self, url: &str) -> Result<Vec<u8>, String>;
+    /// The releases of the public project `repo` (`owner/name`) on the
+    /// code host, drafts among them, as its anonymous reader answers them.
+    fn gh_releases(&self, repo: &str) -> Result<Vec<Release>, String>;
+    /// The tags of the public project `repo` on the code host, as its
+    /// anonymous reader answers them.
+    fn gh_tags(&self, repo: &str) -> Result<Vec<Tag>, String>;
     /// One file of a .tar.gz, as text.
     fn unpack(&self, archive: &[u8], member: &str) -> Result<String, String>;
     /// `npm install --package-lock-only` in that directory.
@@ -192,21 +199,21 @@ pub fn versions(tool: &Tool, world: &dyn World) -> Result<Vec<Ver>, String> {
     let mut found: Vec<Ver> = Vec::new();
     match tool.source {
         Source::Releases(repo, prefix) => {
-            let url = format!("https://api.github.com/repos/{repo}/releases?per_page=100");
-            let all = json(world, &url)?;
-            let published = all.as_array().into_iter().flatten().filter(|r| {
-                r["draft"].as_bool() == Some(false) && r["prerelease"].as_bool() == Some(false)
-            });
             found.extend(
-                published.filter_map(|r| Ver::parse(r["tag_name"].as_str()?.strip_prefix(prefix)?)),
+                world
+                    .gh_releases(repo)?
+                    .into_iter()
+                    .filter(|r| !r.draft && !r.prerelease)
+                    .filter_map(|r| Ver::parse(r.tag.as_str().strip_prefix(prefix)?)),
             );
         }
         Source::Tags(repo) => {
-            let all = json(
-                world,
-                &format!("https://api.github.com/repos/{repo}/tags?per_page=100"),
-            )?;
-            found.extend(strs(&all, "name").filter_map(Ver::parse));
+            found.extend(
+                world
+                    .gh_tags(repo)?
+                    .into_iter()
+                    .filter_map(|t| Ver::parse(t.name.as_str())),
+            );
         }
         Source::Node => {
             let all = json(world, "https://nodejs.org/dist/index.json")?;

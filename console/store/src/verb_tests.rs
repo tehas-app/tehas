@@ -8,12 +8,26 @@ use std::path::PathBuf;
 use tehas_core::order::Order;
 use tehas_core::plugin::run::{Kind, Trigger};
 use tehas_core::question::Choice;
-use tehas_core::verb::{End, Plans, Verb};
+use tehas_core::verb::{End, EndByReport, Plans, Verb};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const TITLE_SHA: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const HEAD: &str = "76543210fedcba9876543210fedcba9876543210";
+
+/// The label `plan-begin --auto` must carry. Its one owner is the table at
+/// `host/labels.tsv`, whose row of the millwright's refine mark names the
+/// word: the sample asks the table for it, so the store's test writes no
+/// label of its own (R1, T2).
+fn refine_label() -> String {
+    include_str!("../../../host/labels.tsv")
+        .lines()
+        .find_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            (f.len() == 4 && f[3] == "Act::Refine").then(|| f[0].to_string())
+        })
+        .expect("the table names the refine label")
+}
 
 /// Samples of the variants; together they cover every arm of `arm`.
 fn samples() -> Vec<Verb> {
@@ -40,6 +54,11 @@ fn samples() -> Vec<Verb> {
             health: Some(s("/tmp/health.json")),
         },
         Verb::CycleStartByHand { issue: 5 },
+        Verb::CycleStart {
+            issue: 5,
+            rukas: Some(s(COMMIT)),
+            by_hand: true,
+        },
         Verb::CycleEnd {
             issue: 5,
             attempt: s("1"),
@@ -55,11 +74,66 @@ fn samples() -> Vec<Verb> {
             attempt: s("3"),
             end: End::Refused(65),
         },
+        Verb::CycleEndByReport(Box::new(EndByReport {
+            issue: 5,
+            attempt: s("1"),
+            status: s("failed"),
+            step: s("commit-pr"),
+            rc: s("1"),
+            oom: s("0"),
+            forks: s("0"),
+            runner_exit: Some(s("0")),
+            host_saw: true,
+            stalled: Some(s("60")),
+            timed: true,
+            branch: Some(s("feature/issue-5-x")),
+            pr: Some(s("12")),
+            result: Some(s("/home/tehas/tmp/5.result.json")),
+            progress: Some(s("/home/tehas/tmp/5.progress.json")),
+            cap: Some(s("step-failed:explore")),
+            park_reason: Some(s("quiet")),
+            failure_kind: Some(s("network")),
+            failure_cause: Some(s("reset")),
+            provider: true,
+            parked: true,
+            never_ran: true,
+            signalled: true,
+        })),
+        Verb::CycleImage {
+            issue: 5,
+            attempt: s("1"),
+            image: s(&format!("sha256:{}", &SHA[..64])),
+            rukas: Some(s(COMMIT)),
+            settings: Some(s("/home/tehas/tmp/5.settings")),
+        },
+        Verb::CycleHeartbeat {
+            issue: 5,
+            attempt: Some(s("1")),
+            running: true,
+            status: s("running"),
+            step: Some(s("explore")),
+            text: String::new(),
+            progress: vec![(s("--step-number"), s("2")), (s("--step-total"), s("5"))],
+        },
         Verb::CycleShow { issue: 5 },
         Verb::CyclesRunning,
         Verb::LocksHeld,
         Verb::ParkShow { issue: 5 },
         Verb::ParkRetry { issue: 5 },
+        Verb::Park {
+            issue: 5,
+            attempt: s("1"),
+            reason: s("step-failed:explore"),
+            step: Some(s("explore")),
+            pr: Some(s("12")),
+        },
+        Verb::QuestionAsked {
+            issue: 5,
+            id: s("1234"),
+            kind: s("park"),
+            body_sha: s(SHA),
+            offers: s("retry"),
+        },
         Verb::QuestionWithdrawn {
             issue: 5,
             id: s("1234"),
@@ -101,7 +175,16 @@ fn samples() -> Vec<Verb> {
             at: s("1700000000"),
         },
         Verb::ApprovalCurrent { issue: 5 },
+        Verb::ApprovalView {
+            issue: 5,
+            attempt: Some(s("1")),
+        },
+        Verb::SettingsView {
+            issue: 5,
+            attempt: s("1"),
+        },
         Verb::ApprovalHosts,
+        Verb::Records { issue: 5 },
         Verb::PlanShow(Plans::Open),
         Verb::PlanShow(Plans::Issue(5)),
         Verb::HistoryShow { issue: None },
@@ -150,13 +233,130 @@ fn samples() -> Vec<Verb> {
             plugin: s("floorplan"),
             no_calls: true,
         },
+        Verb::ParksOwed { refine: false },
+        Verb::ParksOwed { refine: true },
+        Verb::QuestionKnown {
+            issue: 5,
+            id: s("1234"),
+        },
+        Verb::QuestionReasked {
+            issue: 5,
+            id: s("1234"),
+            kind: s("park"),
+            offers: Some(s("retry")),
+        },
+        Verb::QuestionAnswered {
+            issue: 5,
+            id: s("1234"),
+            by: s("alice"),
+        },
+        Verb::AnswerDrop {
+            issue: 5,
+            id: s("1234"),
+        },
+        Verb::QuestionAdopt {
+            issue: 5,
+            id: s("1234"),
+            posted_sha: s(SHA),
+            body_sha: Some(s(TITLE_SHA)),
+        },
+        Verb::ParkTold { issue: 5 },
+        Verb::PlanNote {
+            issue: 5,
+            kind: s("held"),
+            id: s("1234"),
+        },
+        Verb::JournalOpen,
+        Verb::JournalSettle {
+            action: s("1"),
+            result: Some(s("ok")),
+            evidence: Some(s("{\"comment\":null}")),
+            abandoned: false,
+        },
+        Verb::JournalSettle {
+            action: s("1"),
+            result: None,
+            evidence: None,
+            abandoned: true,
+        },
+        Verb::CycleNote {
+            issue: 5,
+            said_for: s("1700000000"),
+        },
+        Verb::CycleStopAsked {
+            issue: 5,
+            said_only: true,
+        },
+        Verb::PlanBegin {
+            issue: 5,
+            by: s("alice"),
+            label: refine_label(),
+            brief_file: s("/tmp/plan-5.brief"),
+            auto: true,
+        },
+        Verb::PlanBeginUndo { issue: 5 },
+        Verb::PlanAnswer {
+            issue: 5,
+            turn: s("2"),
+            by: s("alice"),
+            text_file: s("/tmp/answer.md"),
+            millwright: true,
+        },
+        Verb::PlanAnswerUndo {
+            issue: 5,
+            turn: s("2"),
+        },
+        Verb::PlanEnd {
+            issue: 5,
+            turn: s("2"),
+            outcome: s("finished"),
+            rc: Some(s("0")),
+            session: Some(s("s-1")),
+            options: vec![s("Yes"), s("No")],
+            filed: vec![s("https://github.com/acme/widget/issues/9")],
+            out: Some(s("/tmp/5.out")),
+        },
+        Verb::PlanEndPosted { issue: 5 },
+        Verb::PlanEndClosed { issue: 5 },
+        Verb::ApprovalClaim {
+            issue: 5,
+            at: s("1700000000"),
+            by: s("alice"),
+            how: s("host"),
+            body_sha: s(SHA),
+            input_file: s("/tmp/5.input.json"),
+            label: None,
+            title_sha: Some(s(TITLE_SHA)),
+            comment_id: Some(s("1234")),
+            refresh_pr: None,
+            refresh_head: None,
+        },
+        Verb::PollRecord {
+            started: s("1700000000.5"),
+            cpu_ms: s("12"),
+            gh: s("3"),
+            writes_log: s("/tmp/github-writes.jsonl"),
+            starts: s("1"),
+        },
+        Verb::SweepLocks { dry_run: true },
+        Verb::PublishDispatch {
+            dispatch: s("/home/tehas/tmp/dispatch.json"),
+        },
+        Verb::HistoryCycles {
+            issue: Some(5),
+            how: None,
+        },
+        Verb::HistoryCycles {
+            issue: None,
+            how: Some(s("refresh")),
+        },
     ]
 }
 
 /// The arms of `Verb`, numbered 0 to `ARMS - 1`. The match has no wildcard,
 /// so a new variant does not build until it has an arm; numbered `ARMS`, with
 /// `ARMS` raised, the test below fails until a sample covers it.
-const ARMS: usize = 32;
+const ARMS: usize = 65;
 
 fn arm(v: &Verb) -> usize {
     match v {
@@ -175,6 +375,15 @@ fn arm(v: &Verb) -> usize {
         Verb::ParkShow { .. } => 12,
         Verb::ParkRetry { .. } => 13,
         Verb::QuestionWithdrawn { .. } => 14,
+        Verb::CycleStart { .. } => 32,
+        Verb::CycleEndByReport(_) => 33,
+        Verb::CycleImage { .. } => 34,
+        Verb::CycleHeartbeat { .. } => 35,
+        Verb::Park { .. } => 36,
+        Verb::QuestionAsked { .. } => 37,
+        Verb::ApprovalView { .. } => 38,
+        Verb::SettingsView { .. } => 39,
+        Verb::Records { .. } => 40,
         Verb::QuestionShow { .. } => 15,
         Verb::QuestionList { .. } => 16,
         Verb::AnswerRecord { .. } => 17,
@@ -192,6 +401,30 @@ fn arm(v: &Verb) -> usize {
         Verb::PluginRunBegin { .. } => 29,
         Verb::PluginRunEnd { .. } => 30,
         Verb::PluginRuns { .. } => 31,
+        Verb::ParksOwed { .. } => 41,
+        Verb::QuestionKnown { .. } => 42,
+        Verb::QuestionReasked { .. } => 43,
+        Verb::QuestionAnswered { .. } => 44,
+        Verb::AnswerDrop { .. } => 45,
+        Verb::QuestionAdopt { .. } => 46,
+        Verb::ParkTold { .. } => 47,
+        Verb::PlanNote { .. } => 48,
+        Verb::JournalOpen => 49,
+        Verb::JournalSettle { .. } => 50,
+        Verb::CycleNote { .. } => 51,
+        Verb::CycleStopAsked { .. } => 52,
+        Verb::PlanBegin { .. } => 53,
+        Verb::PlanBeginUndo { .. } => 54,
+        Verb::PlanAnswer { .. } => 55,
+        Verb::PlanAnswerUndo { .. } => 56,
+        Verb::PlanEnd { .. } => 57,
+        Verb::PlanEndPosted { .. } => 58,
+        Verb::PlanEndClosed { .. } => 59,
+        Verb::ApprovalClaim { .. } => 60,
+        Verb::PollRecord { .. } => 61,
+        Verb::SweepLocks { .. } => 62,
+        Verb::PublishDispatch { .. } => 63,
+        Verb::HistoryCycles { .. } => 64,
     }
 }
 

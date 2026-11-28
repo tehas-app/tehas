@@ -220,8 +220,10 @@ impl GitHub {
     }
 }
 
-/// The first `n` of `all`, and whether there were more.
-fn took<T>(mut all: Vec<T>, n: NonZeroU32) -> Took<T> {
+/// The first `n` of `all`, and whether there were more. Also the anonymous
+/// handle's `recent_releases` (anonymous.rs), so both sides answer the
+/// same read the same way.
+pub(crate) fn took<T>(mut all: Vec<T>, n: NonZeroU32) -> Took<T> {
     let more = all.len() > n.get() as usize;
     all.truncate(n.get() as usize);
     let mut t = Took::default();

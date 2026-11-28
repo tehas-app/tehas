@@ -229,7 +229,8 @@ impl TicketSpec {
         };
         for (login, body, markers) in self.comments {
             let author = Some(s.account(&login, comment_realm));
-            let id = s.new_comment(author, &body, markers, now);
+            let raw = markers.is_empty().then(|| body.clone());
+            let id = s.new_comment(author, &body, markers, raw, now);
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
@@ -346,11 +347,12 @@ impl BlueprintSpec {
         item.markers.extend(self.markers);
         for (login, body, markers) in self.comments {
             let author = Some(s.account(&login, Realm::CodeHost));
-            let id = s.new_comment(author, &body, markers, now);
+            let raw = markers.is_empty().then(|| body.clone());
+            let id = s.new_comment(author, &body, markers, raw, now);
             s.items[at].comments.push(id);
         }
         for (author, body) in self.comments_as {
-            let id = s.new_comment(Some(author), &body, Vec::new(), now);
+            let id = s.new_comment(Some(author), &body, Vec::new(), Some(body.clone()), now);
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {

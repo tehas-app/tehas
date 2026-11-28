@@ -12,6 +12,7 @@ use std::time::Duration;
 use tehas_core::cycle_notes::Note;
 use tehas_core::home::Home;
 use tehas_core::units;
+use tehas_core::verb::Verb;
 
 /// What a stop does next.
 pub(super) enum Then {
@@ -45,14 +46,10 @@ impl Writer {
         let heard: u64 = said_for.parse().unwrap_or(0);
         let why = quiet_why(n, heard);
         let unit = units::cycle(n);
-        let note = match self.calls.store(&[
-            "cycle-note",
-            &n.to_string(),
-            "--kind",
-            "quiet",
-            "--said-for",
-            &said_for,
-        ]) {
+        let note = match self.calls.store(&Verb::CycleNote {
+            issue: n,
+            said_for: said_for.clone(),
+        }) {
             Ok(v) => v,
             Err(f) => {
                 if let Then::End = Self::usable(&f, log) {
@@ -86,12 +83,10 @@ impl Writer {
             Due::Again => log.push(format!("WARN: {why}: the poll asks {unit} to stop again")),
             Due::Line => {
                 log.push(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
-                let mut args = vec!["cycle-stop-asked".to_string(), n.to_string()];
-                if times != QUIET_ASKS {
-                    args.push("--said-only".into());
-                }
-                let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                if let Err(f) = self.calls.store(&refs) {
+                if let Err(f) = self.calls.store(&Verb::CycleStopAsked {
+                    issue: n,
+                    said_only: times != QUIET_ASKS,
+                }) {
                     if let Then::End = Self::usable(&f, log) {
                         return Then::End;
                     }
@@ -103,7 +98,10 @@ impl Writer {
                 return Then::Go;
             }
         }
-        if let Err(f) = self.calls.store(&["cycle-stop-asked", &n.to_string()]) {
+        if let Err(f) = self.calls.store(&Verb::CycleStopAsked {
+            issue: n,
+            said_only: false,
+        }) {
             if let Then::End = Self::usable(&f, log) {
                 return Then::End;
             }

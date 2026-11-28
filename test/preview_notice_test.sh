@@ -124,7 +124,7 @@ for odd in $'<!-- tehas-preview -->\nopen with no close' \
   t_run "$preview"
   t_lacks "$t_out" "left alone"
   t_eq "$(writes)" ""
-  t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+  t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 0
 done
 
 # A block of the marker lines at the very top is not this command's unless
@@ -152,7 +152,7 @@ pulls "$(pull 12 "$a")"
 rm -f "$T"/calls/gh
 t_run "$preview"
 t_eq "$(writes)" ""
-t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 0
 # With the marker lines gone and a later time from GitHub, the same commit and
 # state do not wait for a new commit: the notice comes at the run that sees the
 # description change.
@@ -258,7 +258,7 @@ t_eq "$(cat "$root/12/.notice")" "$a serving said 0 $when"
 # The record carries the time of that look, so the run after it looks no more.
 rm -f "$T"/calls/gh "$T/calls/gh-writes"
 t_run "$preview"
-t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 0
 t_eq "$(writes)" ""
 
 t_case "a notice a person removed comes back at the next run"
@@ -294,13 +294,13 @@ when="2026-10-11T09:20:00Z"
 pulls "$(pull 12 "$a")"
 rm -f "$T"/calls/gh "$T/calls/gh-writes"
 t_run "$preview"
-t_eq "$(t_calls gh | grep -c 'pulls/12')" 1
+t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 1
 t_eq "$(writes)" ""
 t_lacks "$t_out" "notice"
 t_eq "$(cat "$root/12/.notice")" "$a serving none 0 $when"
 rm -f "$T"/calls/gh
 t_run "$preview"
-t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 0
 
 # A description this command cannot own is looked at again when GitHub says it
 # moved, and still left alone. The line about it is said once for that commit
@@ -322,7 +322,7 @@ when="2026-10-11T09:20:00Z"
 pulls "$(pull 12 "$a")"
 rm -f "$T"/calls/gh "$T/calls/gh-writes"
 t_run "$preview"
-t_eq "$(t_calls gh | grep -c 'pulls/12')" 1
+t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 1
 t_eq "$(writes)" ""
 t_eq "$(printf '%s\n' "$t_out" | grep -c 'left alone')" 0
 t_contains "$(cat "$root/12/.notice")" "$a serving refused"

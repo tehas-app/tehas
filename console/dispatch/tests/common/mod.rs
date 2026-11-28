@@ -65,13 +65,62 @@ if [ -e "$T_GITHUB_WRITES" ]; then
     "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T_GITHUB_WRITES" ;;
   esac
 fi
-# comments_json <n>: the comments of #n as the GraphQL comment read gives them,
-# from the answer a case wrote or from its REST answer.
-comments_json() {
-  cat "$T/fx/comments-$1.json" 2>/dev/null ||
-    jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: ({login: .user.login} + (.user | with_entries(select(.key == \"id\")))),
-      body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
-      editor: (if .updated_at == .created_at then null else {login: .user.login} + (.user | with_entries(select(.key == \"id\"))) end)}]}}}}}" "$T/fx/icomments-$1.json"
+# rest_comments <n>: the comments of #n as GitHub's REST pages list them.
+# A case's answer stands in either shape it wrote: the GraphQL comment
+# answer (the nodes of the read) or its REST list; either way the page
+# holds the ids, links, users and times GitHub's pages hold.
+rest_comments() {
+  local n="$1"
+  if [ -r "$T/fx/comments-$n.json" ]; then
+    jq -c --arg n "$n" '[.data.repository.issue.comments.nodes // []
+        | to_entries[] | .value as $c | (.key + 4001) as $fallback
+      | ($c.databaseId // $fallback) as $id
+      | ($c.createdAt // "2000-01-01T00:00:00Z") as $cr
+      | {id: $id, node_id: ("IC_" + ($id | tostring)),
+         html_url: ("https://github.com/acme/widget/issues/\($n)#issuecomment-" + ($id | tostring)),
+         user: ({login: ($c.author.login // "nobody")}
+                + (if ($c.author | has("databaseId")) then {id: $c.author.databaseId} else {} end)),
+         body: ($c.body // ""),
+         created_at: $cr,
+         updated_at: ($c.lastEditedAt // $cr)}] | sort_by(.id)' \
+      "$T/fx/comments-$n.json"
+  elif [ -r "$T/fx/icomments-$n.json" ]; then
+    jq -c --arg n "$n" '[.[] | .id as $id
+      | (.created_at // "2000-01-01T00:00:00Z") as $cr | (.user // {}) as $u
+      | {id: $id, node_id: (.node_id // ("IC_" + ($id | tostring))),
+         html_url: (.html_url // ("https://github.com/acme/widget/issues/\($n)#issuecomment-" + ($id | tostring))),
+         user: ($u + {login: ($u.login // "nobody")}),
+         body: (.body // ""),
+         created_at: $cr,
+         updated_at: (.updated_at // $cr)}] | sort_by(.id)' \
+      "$T/fx/icomments-$n.json"
+  else
+    echo '[]'
+  fi
+}
+# all_comment_answers: every comment any case wrote, each with the issue it
+# stands on and its editor and history as far as the case named them: the
+# source of a nodes(ids:) answer.
+all_comment_answers() {
+  { for f in "$T"/fx/comments-*.json; do
+      [ -r "$f" ] || continue
+      n=$(basename "$f" .json); n=${n#comments-}
+      jq -c --arg n "$n" '.data.repository.issue.comments.nodes // []
+        | .[] | . + {issue: ($n | tonumber)}' "$f"
+    done
+    for f in "$T"/fx/icomments-*.json; do
+      [ -r "$f" ] || continue
+      n=$(basename "$f" .json); n=${n#icomments-}
+      jq -c --arg n "$n" '.[] | {databaseId: .id, issue: ($n | tonumber),
+          author: {login: (((.user // {}).login) // "nobody"),
+                   databaseId: (((.user // {}).id) // null)},
+          body: .body,
+          createdAt: .created_at,
+          lastEditedAt: (if .updated_at != null and .updated_at != .created_at then .updated_at else null end),
+          editor: (if .updated_at != null and .updated_at != .created_at
+                   then {login: (((.user // {}).login) // "nobody"), databaseId: (((.user // {}).id) // null)}
+                   else null end)}' "$f"
+    done; } | jq -s '.'
 }
 # not_found: say what GitHub says for a path it does not have, and fail.
 not_found() { echo "message: Not Found" >&2; exit 1; }
@@ -245,11 +294,22 @@ case "$1 $2" in
     n=${2#repos/acme/widget/collaborators/}
     cat "$T/fx/perm-${n%%/*}.json" 2>/dev/null || echo "{\"permission\":\"write\",\"role_name\":\"write\"}" ;;
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
-  "api repos/acme/widget/issues/"*"/comments?per_page=100")
+  "api repos/acme/widget/issues/"*"/comments?per_page=100&page="*)
+    # The adapter's pages of a ticket's notes: the case's answer stands in
+    # either shape it wrote, and the page holds what GitHub's pages hold.
     n=${2#repos/acme/widget/issues/}
+    n=${n%%/*}
+    n=${n%%\?*}
+    a=$(rest_comments "$n"); printf '%s\n' "$a" ;;
+  "api repos/acme/widget/issues/"*"/comments?per_page=100"*)
+    # The start's own list of the issue's comments, gh's paginated read. It
+    # is answered, as ever, by the REST list the case wrote alone.
+    n=${2#repos/acme/widget/issues/}
+    n=${n%%/*}
+    n=${n%%\?*}
     # None written is none at all; $fx/icomments-fails makes the read fail.
     [ ! -e "$T/fx/icomments-fails" ] || exit 1
-    cat "$T/fx/icomments-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
+    cat "$T/fx/icomments-$n.json" 2>/dev/null || echo "[]" ;;
   # One comment, as the code host's adapter reads it before its edit: what
   # `World::comments_of` wrote, else not there.
   "api repos/acme/widget/issues/comments/"*)
@@ -265,6 +325,9 @@ case "$1 $2" in
         # One number alone, for a poll that cannot read that issue.
         [ ! -e "$T/fx/work-$n-fails" ] || exit 1
         url="https://github.com/acme/widget/issues/$n"
+        # The issue's own count of its comments: the pages of them are
+        # read by that count.
+        cnt=$(rest_comments "$n" | jq length)
         # A case's issue, with the address and text a write's read of it
         # needs when the case wrote none.
         # The fields of an issue every read of the tickets port needs, where
@@ -273,23 +336,23 @@ case "$1 $2" in
         # hold the pause, and an answer that is no list is no answer. Its
         # state fixture answers first, as it answers `gh issue view`.
         if [ "$n" = 1 ] && [ -e "$T/fx/issue-1.json" ]; then
-          jq -c --arg url "$url" '{number: 1, body: "", title: "an issue", id: 1001,
-            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z"} +
+          jq -c --arg url "$url" --argjson cnt 0 '{number: 1, body: "", title: "an issue", id: 1001,
+            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", comments: $cnt} +
             . + {html_url: (.html_url // $url), state: ((.state // "OPEN") | ascii_upcase)}' \
             "$T/fx/issue-1.json"
         elif [ "$n" = 1 ] && [ -e "$T/fx/control.json" ]; then
-          jq -c --arg url "$url" '{number: 1, state: "open", html_url: $url, body: "",
+          jq -c --arg url "$url" --argjson cnt 0 '{number: 1, state: "open", html_url: $url, body: "",
             title: "an issue", id: 1001, created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z"} + .' "$T/fx/control.json"
+            updated_at: "2026-01-01T00:00:00Z", comments: $cnt} + .' "$T/fx/control.json"
         elif [ -e "$T/fx/work-$n.json" ]; then
-          jq -c --arg url "$url" --argjson n "$n" 'if type == "object" then {number: $n, state: "open", title: "an issue",
-            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [], id: (1000 + $n)}
+          jq -c --arg url "$url" --argjson n "$n" --argjson cnt "$cnt" 'if type == "object" then {number: $n, state: "open", title: "an issue",
+            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [], id: (1000 + $n), comments: $cnt}
             + . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
             "$T/fx/work-$n.json" 2>/dev/null || cat "$T/fx/work-$n.json"
         else
-          jq -c --argjson n "$n" --arg url "$url" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", title: \"an issue\", id: (1000 + \$n),
-            created_at: \"2026-01-01T00:00:00Z\", updated_at: \"2026-01-01T00:00:00Z\", labels: (if any(.[]?; type == \"object\" and .number == \$n)
-            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\",\"title\":\"an issue\",\"id\":$((1000 + n)),\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"labels\":[]}"
+          jq -c --argjson n "$n" --arg url "$url" --argjson cnt "$cnt" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", title: \"an issue\", id: (1000 + \$n),
+            created_at: \"2026-01-01T00:00:00Z\", updated_at: \"2026-01-01T00:00:00Z\", comments: \$cnt, labels: (if any(.[]?; type == \"object\" and .number == \$n)
+            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\",\"title\":\"an issue\",\"id\":$((1000 + n)),\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"labels\":[],\"comments\":$cnt}"
         fi ;;
     esac ;;
   # The check runs of a name on the head commit of the branch, and the
@@ -351,23 +414,52 @@ case "$1 $2" in
         else
           echo '[]' | page_of issueTypes
         fi ;;
-      # Or the REST answer a case wrote, as GraphQL gives it. The poll asks a
-      # chunk of issues in one query, one alias i<n> an issue, and the stub
-      # answers them in one answer; a number the case wrote no comments for
-      # refuses the whole chunk, as GitHub refuses the one query.
-      *"comments(last"*) if [ -n "$n" ]; then comments_json "$n" || exit 1; else
-          acc="{}"
-          for k in $(printf "%s\n" "$*" | grep -o "i[0-9]*: issue(number:" | sed "s/^i\([0-9]*\):.*/\1/"); do
-            one=$(comments_json "$k") || exit 1
-            acc=$(jq -c --arg k "i$k" --argjson one "$one" ". + {(\$k): \$one.data.repository.issue}" <<<"$acc") || exit 1
-          done
-          echo "{\"data\":{\"repository\":$acc}}"
-        fi ;;
-      # The edit histories of edited comments, by their node ids: the
-      # comment-edits.json a case wrote, else none. It is asked before the
-      # body histories of the issues below, whose query holds the same words.
+      # The comment pages and the editors and histories behind them come
+      # from the REST reads above: the poll reads a comment nowhere here.
+      # The editors and histories of comments, by their node ids: each
+      # asked id answered as GitHub answers it, in the order asked, from
+      # the comment the case wrote for it. comment-edits.json, when a case
+      # wrote it, answers whole as it stands. It is asked before the body
+      # histories of the issues below, whose query holds the same words.
       *"nodes(ids:"*) [ ! -e "$T/fx/comment-edits-fail" ] || exit 1
-        cat "$T/fx/comment-edits.json" 2>/dev/null || echo "{\"data\":{\"nodes\":[]}}" ;;
+        if [ -e "$T/fx/comment-edits.json" ]; then
+          cat "$T/fx/comment-edits.json"
+        else
+          ids=$(printf '%s' "$*" | sed -n 's/.*nodes(ids: \[\([^]]*\)\].*/\1/p' | tr ',' '\n' | tr -d ' "[]')
+          all=$(all_comment_answers)
+          acc='[]'
+          for id in $ids; do
+            d=${id#IC_}
+            one=$(jq -c --arg d "$d" --argjson all "$all" '
+              def acct(a): {__typename: (if ((a.login // "") | test("bot")) then "Bot" else "User" end),
+                            login: (a.login // "nobody"),
+                            databaseId: (a.databaseId // ((a.login // "nobody") | sub("\\[bot\\]$";"") | explode | add))};
+              ($all | map(select(.databaseId == ($d | tonumber)))) as $m
+              | (if ($m | length) == 0 then null else $m[0] end) as $c
+              | if $c == null then null else
+                  ($c.createdAt // "2000-01-01T00:00:00Z") as $cr
+                | ($c.lastEditedAt // $cr) as $le
+                | ($c.author // {login: "nobody"}) as $au
+                | ($c.editor // $au) as $ed
+                | ((($c.userContentEdits // {}).nodes) // [$ed]) as $h
+                | {__typename: "IssueComment",
+                   id: ("IC_" + $d),
+                   databaseId: ($d | tonumber),
+                   url: ("https://github.com/acme/widget/issues/" + ($c.issue | tostring) + "#issuecomment-" + $d),
+                   createdAt: $cr,
+                   lastEditedAt: $le,
+                   editor: acct($ed),
+                   userContentEdits: {totalCount: (($h | length) + 1),
+                     nodes: ((($h // []) | map({editedAt: (.editedAt // $le),
+                                                deletedAt: null,
+                                                diff: ($c.body // ""),
+                                                editor: acct(.editor // $ed)}))
+                            + [{editedAt: $cr, deletedAt: null, diff: ($c.body // ""), editor: acct($au)}])}}
+                end' <<<"$all")
+            acc=$(jq -c --argjson one "$one" '. + [$one]' <<<"$acc")
+          done
+          printf '{"data":{"nodes":%s}}' "$acc"
+        fi ;;
       # The body edit histories of a chunk of issues, as the GitHub adapter
       # asks them, one alias i<n> an issue: edits-<n>.json when a case wrote
       # it, else the last edit of edit-<n>.json (or edit.json) alone, each
@@ -2077,11 +2169,21 @@ impl World {
         let mut v: Value =
             serde_json::from_str(&fs::read_to_string(self.fx.join(&name)).unwrap()).unwrap();
         v["data"]["repository"]["issue"]["comments"]["nodes"][0]["databaseId"] = json!(id);
+        // Comments are unique by id on GitHub: a reply the case's tick left
+        // behind keeps an id of its own, never the question's.
+        if let Value::Array(nodes) = &mut v["data"]["repository"]["issue"]["comments"]["nodes"] {
+            for (i, node) in nodes.iter_mut().enumerate().skip(1) {
+                if node.get("databaseId") == Some(&json!(id)) {
+                    node["databaseId"] = json!(id + i as u64);
+                }
+            }
+        }
         self.fx_json(&name, &v);
         self.fx_json(
             &format!("rcomment-{id}.json"),
             &json!({
                 "id": id,
+                "node_id": format!("IC_{id}"),
                 "html_url": format!("{}/{n}#issuecomment-{id}", "https://github.com/acme/widget/issues"),
                 "body": body,
                 // The factory's bot, by the user id state/account-ids

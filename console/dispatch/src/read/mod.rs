@@ -6,6 +6,7 @@
 pub mod board;
 pub mod build;
 pub mod checks;
+pub mod comments;
 pub mod github;
 pub mod host;
 pub mod models;

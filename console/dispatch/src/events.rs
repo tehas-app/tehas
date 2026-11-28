@@ -33,8 +33,8 @@ pub fn wiring() -> Dispatcher {
 }
 
 impl Writer {
-    fn ask(&mut self, args: &[&str]) -> Result<String, String> {
-        self.store_try(3, args)
+    fn ask(&mut self, call: &Verb) -> Result<String, String> {
+        self.store_try(3, call)
             .map(|v| v.to_string())
             .map_err(|f| f["word"].as_str().unwrap_or("unknown").to_string())
     }
@@ -83,10 +83,7 @@ impl Writer {
         let Some(attempt) = u32::try_from(attempt).ok().filter(|_| wrote) else {
             return;
         };
-        let mut ask = |v: &Verb| {
-            let words = v.args();
-            self.ask(&words.iter().map(String::as_str).collect::<Vec<_>>())
-        };
+        let mut ask = |v: &Verb| self.ask(v);
         // A lost end never raises `change.merged`: no report read it, so
         // there is no site's merge time to ask for.
         match raise::read_ended(&mut ask, n, attempt, raise::Writer::Short, &mut |_| None) {
@@ -103,10 +100,7 @@ impl Writer {
         let Some(id) = raise::recorded(answer) else {
             return;
         };
-        let mut ask = |v: &Verb| {
-            let words = v.args();
-            self.ask(&words.iter().map(String::as_str).collect::<Vec<_>>())
-        };
+        let mut ask = |v: &Verb| self.ask(v);
         match raise::read_asked(&mut ask, id) {
             Ok(Some(p)) => {
                 let warned = RefCell::new(Vec::new());
