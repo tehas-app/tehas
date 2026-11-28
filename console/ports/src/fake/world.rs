@@ -636,6 +636,18 @@ impl World {
 
     /// A published release of a tag, with its files.
     pub fn release(self, tag: &str, files: &[(&str, &[u8])]) -> Self {
+        self.release_as(tag, false, false, files)
+    }
+
+    /// A release of a tag the site holds as a draft or a prerelease, with
+    /// its files. A draft is not published; a prerelease is.
+    pub fn release_as(
+        self,
+        tag: &str,
+        draft: bool,
+        prerelease: bool,
+        files: &[(&str, &[u8])],
+    ) -> Self {
         let now = self.now();
         {
             let mut s = self.lock();
@@ -646,9 +658,9 @@ impl World {
                 id,
                 tag: tag.clone(),
                 title: tag.as_str().to_string(),
-                draft: false,
-                prerelease: false,
-                published: Some(now),
+                draft,
+                prerelease,
+                published: (!draft).then_some(now),
                 notes: String::new(),
                 files: Vec::new(),
                 link,
