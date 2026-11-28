@@ -28,12 +28,14 @@ use tehas_ports::{Actor, CodeHost, Got, Outcome, Passing, Release, Scope, Sent};
 const FETCH_EVERY: i64 = 3600;
 const FETCH_LIMIT: u64 = 60;
 /// How many of the newest releases the read asks for, as its old
-/// `per_page=100` did.
+/// `per_page=100` did. The adapter reads every page of the list up to its
+/// own bound of a thousand before it takes these: a project with more
+/// releases than that answers the read `Unread(Cut)` instead, where the
+/// old one-page call kept answering from the first hundred.
 const RECENT: u32 = 100;
 
-/// The handle maker of the release reads: the same contract as
-/// `wiring::releases` for `tehas update`, so a test can answer with the
-/// ports' fake.
+/// The handle maker of the release reads: the console's wiring makes the
+/// same site it hands `tehas update`'s reads, with a caller of its own.
 type Releases<'a> = &'a dyn Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>>;
 
 /// Write live/platform.json, or take it away on a host with no platform.
@@ -441,7 +443,12 @@ mod tests {
     }
 
     /// A gh with no credential sends the read to the anonymous handle; a
-    /// failure of the site itself does not.
+    /// failure of the site itself does not. The fake answers every method,
+    /// so it cannot show that the real anonymous handle implements this
+    /// read: the shell test
+    /// `platform_a_signed_out_host_reads_the_newest_over_anonymous_curl`
+    /// runs the same fallback against the real adapter, with curl
+    /// answering the list.
     #[test]
     fn a_signed_out_gh_sends_the_read_to_the_anonymous_handle() {
         let world = World::new().release("v0.10.0", &[]);
