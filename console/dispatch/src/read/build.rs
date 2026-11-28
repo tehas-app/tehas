@@ -767,7 +767,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         &words,
         &wanted,
     )
-    .into_iter();
+    .into_iter()
+    .map(|a| (*a).clone());
     let mut asked_of: BTreeMap<u64, Value> = BTreeMap::new();
     for (n, comments) in asking.iter().zip(read.by_ref()) {
         let question = store::question(&asked, *n);
@@ -1556,7 +1557,7 @@ mod tests {
         let comment = |body: &str| {
             json!({"data": {"repository": {"issue": {"comments": {"nodes": [
                 {"databaseId": 500, "author": {"login": "tehas-bot"}, "body": body,
-                 "createdAt": "2026-10-03T00:00:00Z", "lastEditedAt": null, "editor": null,
+                 (comments::CREATED_AT): "2026-10-03T00:00:00Z", "lastEditedAt": null, "editor": null,
                  "userContentEdits": {"totalCount": 0, "nodes": []}}
             ]}}}}})
         };
@@ -2017,7 +2018,7 @@ esac"#,
     ) -> (Value, Vec<String>, u32, Vec<String>, Vec<Vec<u64>>) {
         let _clock = crate::read::run::no_case_clock();
         let dir = host(world);
-        seed(queue, world, broken);
+        seed(queue, &world.to_string(), broken);
         let fault = world["note-edits-fault"].as_bool().unwrap_or(false);
         let mut src = sources_of(&dir, queue, pulls, fault);
         let board = test_board(queue, &dir);
@@ -2116,7 +2117,8 @@ esac"#,
     /// poll seeds anew, so a case that widens its world between two polls
     /// reads what it holds then. `broken` names issues whose comments the
     /// site refuses.
-    fn seed(queue: &World, world: &Value, broken: &[u64]) {
+    fn seed(queue: &World, world: &str, broken: &[u64]) {
+        let world: Value = serde_json::from_str(world).unwrap();
         queue.clear_broken_comments();
         for n in broken {
             queue.fail_comments(*n);
@@ -2158,13 +2160,30 @@ esac"#,
         }
     }
 
+    /// The comment nodes of one answer, for the cases' assertions.
+    #[derive(Clone, Debug)]
+    struct Nodes {
+        items: Vec<Value>,
+    }
+
+    impl std::ops::Deref for Nodes {
+        type Target = Vec<Value>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.items
+        }
+    }
+
     /// The comment nodes of issue `n`'s snapshot answer.
-    fn nodes_of(snap: &Value, n: u64) -> Vec<Value> {
-        snap["issues"][n.to_string()]["comments"]["data"]["repository"]["issue"]["comments"]
-            ["nodes"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
+    fn nodes_of(snap: &str, n: u64) -> Nodes {
+        let snap: Value = serde_json::from_str(snap).unwrap();
+        Nodes {
+            items: snap["issues"][n.to_string()]["comments"]["data"]["repository"]["issue"]
+                ["comments"]["nodes"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        }
     }
 
     /// The line of the refused read of comments, in the outcome's words.
@@ -2264,7 +2283,7 @@ esac"#,
                 parsed.issues[&n].comments.is_some(),
                 "issue {n} has the comments the poll read"
             );
-            let nodes = nodes_of(&snap, n);
+            let nodes = nodes_of(&snap.to_string(), n);
             assert_eq!(nodes.len(), 1, "issue {n} keeps its own comment");
             assert_eq!(
                 nodes[0]["body"],
@@ -2673,7 +2692,7 @@ esac"#,
         let parsed = Snapshot::parse(&snap);
         assert!(parsed.issues[&21].blockers.is_empty());
         assert!(parsed.issues[&21].comments.is_some());
-        let nodes = nodes_of(&snap, 21);
+        let nodes = nodes_of(&snap.to_string(), 21);
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0]["body"], "no marker here");
         assert_eq!(
@@ -2703,7 +2722,7 @@ esac"#,
         ]}}}}}});
         let _ = ();
         let (snap, _, _, _) = poll_q(&queue, &world, &[], &settings());
-        let nodes = nodes_of(&snap, 21);
+        let nodes = nodes_of(&snap.to_string(), 21);
         assert_eq!(nodes.len(), 2);
         assert_eq!(
             nodes[0]["userContentEdits"],
@@ -2727,7 +2746,7 @@ esac"#,
             json!([world["comments"]["21"]["data"]["repository"]["issue"]["comments"]["nodes"][0]]);
         world["note-edits-fault"] = json!(true);
         let (snap, _, _, _) = poll_q(&queue, &world, &[], &settings());
-        let nodes = nodes_of(&snap, 21);
+        let nodes = nodes_of(&snap.to_string(), 21);
         assert_eq!(
             nodes[0]["userContentEdits"],
             json!({"totalCount": 0, "nodes": []}),
@@ -2751,7 +2770,7 @@ esac"#,
         ]}}}}}});
         world["note-edits-fault"] = json!(true);
         let (snap, _, _, _) = poll_q(&queue, &world, &[], &settings());
-        let c = &nodes_of(&snap, 21)[0];
+        let c = &nodes_of(&snap.to_string(), 21)[0];
         assert_eq!(c["userContentEdits"]["failed"], json!(true), "{c}");
         let ours = |w: &str| w == "tehas-bot";
         assert!(tehas_core::events::edit_holds(c, "", "", &ours).is_some());
@@ -2822,7 +2841,7 @@ esac"#,
         let w = startable(w);
         let (snap, _, _, _) = poll_q(&q, &w, &[], &settings());
         for n in 21..=32 {
-            let nodes = nodes_of(&snap, n);
+            let nodes = nodes_of(&snap.to_string(), n);
             assert_eq!(nodes.len(), 1, "issue {n} is read once, whole");
             assert_eq!(
                 nodes[0]["body"],
@@ -2912,7 +2931,7 @@ esac"#,
         let (snap, _, _, _) = poll_q(&queue, &w, &[], &settings());
         // The asking issue is one of the numbers asked for, not asked for
         // twice: its answer carries its own comment once.
-        let nodes = nodes_of(&snap, 22);
+        let nodes = nodes_of(&snap.to_string(), 22);
         assert_eq!(nodes.len(), 1, "the double-labelled issue is read once");
         assert_eq!(
             nodes[0]["body"],
@@ -2939,8 +2958,8 @@ esac"#,
         let queue = blocked_of(&[21, 22]);
         let (snap, _, _, _, blocker_reads) = poll_h_asked(&queue, &w, &[], &settings(), true);
         // The two issues on the page are read; #23, off the page, is not.
-        assert_eq!(nodes_of(&snap, 21).len(), 1);
-        assert_eq!(nodes_of(&snap, 22).len(), 1);
+        assert_eq!(nodes_of(&snap.to_string(), 21).len(), 1);
+        assert_eq!(nodes_of(&snap.to_string(), 22).len(), 1);
         assert_eq!(
             snap["issues"].get("23"),
             None,

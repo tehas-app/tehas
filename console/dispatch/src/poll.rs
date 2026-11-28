@@ -1241,7 +1241,7 @@ fn finish_step(
         asks.push(Ask {
             n,
             events: Events::parse(&issue["events"]),
-            comments,
+            comments: (*comments).clone(),
             edit: issue["edit"].clone(),
             approval,
             running: marked || running.contains(&n) || d.picked.contains(&n),

@@ -18,6 +18,32 @@ use tehas_ports::{
 /// empty list.
 const NO_HANDLE: &str = "ERROR: the poll has no handle to read the comments by";
 
+/// The page's field that names when a comment was made, spelled once here
+/// and read by its name everywhere else.
+pub(crate) const CREATED_AT: &str = "createdAt";
+
+/// One issue's comment answer as the rules read it: the page's shape, with
+/// its comment nodes or its failed read. The poll's one reader writes it
+/// and the snapshot holds it; no rule sees the port.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Answer {
+    page: serde_json::Value,
+}
+
+impl std::ops::Deref for Answer {
+    type Target = serde_json::Value;
+
+    fn deref(&self) -> &Self::Target {
+        &self.page
+    }
+}
+
+impl std::fmt::Display for Answer {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.page.fmt(f)
+    }
+}
+
 /// The account a page names, or null for none. The same spelling as
 /// `read::board`: an id no number is named by its site word.
 macro_rules! account {
@@ -51,7 +77,7 @@ pub fn all(
     mut blueprints: Option<&mut (dyn Blueprints + '_)>,
     words: &Words,
     numbers: &[u64],
-) -> Vec<Value> {
+) -> Vec<Answer> {
     numbers
         .iter()
         .map(|n| {
@@ -74,7 +100,7 @@ pub fn unjudged(
     blueprints: Option<&mut (dyn Blueprints + '_)>,
     words: &Words,
     n: u64,
-) -> Value {
+) -> Answer {
     one(tickets, blueprints, words, n, false)
 }
 
@@ -86,17 +112,24 @@ fn one(
     words: &Words,
     n: u64,
     histories: bool,
-) -> Value {
+) -> Answer {
+    let fail = |o: &Outcome| Answer {
+        page: json!({"failed": true, "line": o.line()}),
+    };
     let Some(number) = std::num::NonZeroU64::new(n) else {
-        return json!({"failed": true, "line": NO_HANDLE});
+        return Answer {
+            page: json!({"failed": true, "line": NO_HANDLE}),
+        };
     };
     let key = TicketKey::Number(number);
     let Some(t) = tickets else {
-        return json!({"failed": true, "line": NO_HANDLE});
+        return Answer {
+            page: json!({"failed": true, "line": NO_HANDLE}),
+        };
     };
     let mut comments = match t.notes(&key, Window::Whole(ALL_MAX)) {
         Ok(took) => took.items,
-        Err(o) => return failed(&o),
+        Err(o) => return fail(&o),
     };
     if comments.is_empty() {
         // Where ticket and blueprint are one item and the ticket answers no
@@ -104,14 +137,37 @@ fn one(
         if let (Some(no), Some(b)) = (key.same_item(), blueprints) {
             match b.comments(no, ALL_MAX) {
                 Ok(whole) => comments = whole.into_items(),
-                Err(o) => return failed(&o),
+                Err(o) => return fail(&o),
             }
         }
     }
     let mut nodes = Vec::with_capacity(comments.len());
     for c in &comments {
+        // The edit history of the comment as the port carried it: the
+        // versions newest first, the text as created last, each its editor,
+        // and the count of them, so `edit_holds` and `edit_history_unread`
+        // see what the old read did. A history the port says is cut or does
+        // not agree with itself is `{"unjudged": true}`: `edit_holds` holds
+        // on it as on one by nobody, and the poll goes on. Any other
+        // failure is the read's own failed marker, which ends the poll as
+        // unread when a rule needs the history.
         let history = match (histories, c.edited) {
-            (true, Some(_)) => Some(history(t, c)),
+            (true, Some(_)) => Some(match t.note_edits(&c.id, ALL_MAX) {
+                Ok(whole) => {
+                    let edits = whole.into_items();
+                    let mut versions: Vec<Value> = edits
+                        .iter()
+                        .rev()
+                        .map(|e| json!({"editor": account!(&e.by)}))
+                        .collect();
+                    versions.push(json!({"editor": account!(&c.author)}));
+                    json!({"totalCount": edits.len() + 1, "nodes": versions})
+                }
+                Err(Outcome::Unread(Unread::Cut | Unread::Inconsistent)) => {
+                    json!({"unjudged": true})
+                }
+                Err(o) => json!({"failed": true, "line": o.line()}),
+            }),
             (true, None) => Some(json!({"totalCount": 0, "nodes": []})),
             (false, _) => None,
         };
@@ -119,7 +175,7 @@ fn one(
             "databaseId": c.id.as_str().parse::<u64>().ok(),
             "author": account!(&c.author),
             "body": body(c, words),
-            "createdAt": iso(c.created.secs()),
+            (CREATED_AT): iso(c.created.secs()),
             "lastEditedAt": c.edited.map(stamp),
             "editor": account!(&c.editor),
         });
@@ -128,31 +184,8 @@ fn one(
         }
         nodes.push(node);
     }
-    json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}})
-}
-
-/// The edit history of one comment as the comment read carried it: the
-/// versions newest first, the text as created last, each its editor, and
-/// the count of them - so a history cut short, one whose count says more
-/// than it holds, holds like the old read's did. A history the port says is
-/// cut or does not agree with itself is `{"unjudged": true}`: `edit_holds`
-/// holds on it as on one by nobody, and the poll goes on. Any other
-/// failure is the read's own failed marker, which ends the poll as unread
-/// when a rule needs the history.
-fn history(t: &mut dyn Tickets, c: &Comment) -> Value {
-    match t.note_edits(&c.id, ALL_MAX) {
-        Ok(whole) => {
-            let edits = whole.into_items();
-            let mut nodes: Vec<Value> = edits
-                .iter()
-                .rev()
-                .map(|e| json!({"editor": account!(&e.by)}))
-                .collect();
-            nodes.push(json!({"editor": account!(&c.author)}));
-            json!({"totalCount": edits.len() + 1, "nodes": nodes})
-        }
-        Err(Outcome::Unread(Unread::Cut | Unread::Inconsistent)) => json!({"unjudged": true}),
-        Err(o) => json!({"failed": true, "line": o.line()}),
+    Answer {
+        page: json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}}),
     }
 }
 
@@ -188,13 +221,6 @@ fn body(c: &Comment, words: &Words) -> String {
         .join("\n\n")
 }
 
-/// The failed read of a port answer, as the comment read's failed marker
-/// gives it: what a rule that ends the poll on the marker says, and with
-/// the outcome's own line.
-fn failed(o: &Outcome) -> Value {
-    json!({"failed": true, "line": o.line()})
-}
-
 /// A time as the page writes it.
 fn stamp(at: At) -> String {
     iso(at.secs())
@@ -202,7 +228,7 @@ fn stamp(at: At) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{all, unjudged, Words, NO_HANDLE};
+    use super::{all, unjudged, Answer, Words, CREATED_AT, NO_HANDLE};
     use serde_json::{json, Value};
     use std::num::NonZeroU32;
     use tehas_core::events::{edit_history_unread, edit_holds};
@@ -225,7 +251,21 @@ mod tests {
         CommentId::new("comment-1")
     }
 
-    fn read(world: &World, n: u64) -> Vec<Value> {
+    /// The comment nodes of one answer, for the cases' assertions.
+    #[derive(Clone, Debug)]
+    struct Nodes {
+        items: Vec<Value>,
+    }
+
+    impl std::ops::Deref for Nodes {
+        type Target = Vec<Value>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.items
+        }
+    }
+
+    fn read(world: &World, n: u64) -> Nodes {
         let site = FakeSite::new(world);
         let (by, caller) = (Actor::Ours(Scope::Full), Caller::new("test"));
         let mut tickets = site.tickets(&by, caller).unwrap();
@@ -239,12 +279,14 @@ mod tests {
         nodes(answers.pop().unwrap())
     }
 
-    fn nodes(answer: Value) -> Vec<Value> {
+    fn nodes(answer: Answer) -> Nodes {
         assert!(answer["failed"].is_null(), "{answer}");
-        answer["data"]["repository"]["issue"]["comments"]["nodes"]
-            .as_array()
-            .unwrap()
-            .clone()
+        Nodes {
+            items: answer["data"]["repository"]["issue"]["comments"]["nodes"]
+                .as_array()
+                .unwrap()
+                .clone(),
+        }
     }
 
     #[test]
@@ -255,7 +297,7 @@ mod tests {
         assert_eq!(ns.len(), 1);
         assert_eq!(ns[0]["author"]["login"], "alice");
         assert_eq!(ns[0]["body"], "plain text");
-        assert_eq!(ns[0]["createdAt"], json!(at));
+        assert_eq!(ns[0][CREATED_AT], json!(at));
         assert_eq!(ns[0]["lastEditedAt"], json!(null));
         assert_eq!(ns[0]["editor"], json!(null));
         // An unedited comment carries an empty history, as the fill put it.
@@ -423,16 +465,15 @@ mod tests {
     #[test]
     fn a_note_kind_the_site_cannot_name_holds_its_words() {
         // An unknown marker names no text: its words stay in the body the
-        // port gave, and the read asks no line for it.
+        // port gave, and the read asks no line for it. The body holds the
+        // note as the site wrote it; the read never parses the body, so
+        // the words are the comment's own, in a form no site names.
+        let note = "an <!-- unknown --> note";
         let world = World::new().ticket(7, |t| {
-            t.comment_marked(
-                "alice",
-                "an <!-- tehas:unknown --> note",
-                vec![Marker::Unknown],
-            )
+            t.comment_marked("alice", note, vec![Marker::Unknown])
         });
         let ns = read(&world, 7);
-        assert_eq!(ns[0]["body"], "an <!-- tehas:unknown --> note");
+        assert_eq!(ns[0]["body"], note);
         let _ = MarkerKind::Park;
     }
 }

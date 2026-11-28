@@ -112,8 +112,8 @@ pub fn counted(c: &Settings, snap: &Value, control: u64) -> (Vec<u64>, Vec<Strin
 pub struct Ask {
     pub n: u64,
     pub events: Events,
-    /// The poll's GraphQL read of the issue's comments, `{"failed": true}`
-    /// when it failed.
+    /// The issue's comments from the tickets port, `{"failed": true}` when
+    /// the read failed.
     pub comments: Value,
     /// The edit record of the snapshot: title, body, lastEditedAt, editor.
     pub edit: Value,
