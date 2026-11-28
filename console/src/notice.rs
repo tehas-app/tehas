@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use tehas_core::time;
 use tehas_ports::{
     Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeState, ChangeStates, CodeHost, Outcome,
-    Unread,
+    Passing, Sent, Unread,
 };
 
 const MARKER: &str = "<!-- tehas-preview -->";
@@ -104,9 +104,13 @@ fn read(
         return Err(Outcome::Unread(Unread::Malformed));
     };
     // The handle is None when the wiring failed before the run: no answer,
-    // as a call that never came back was before this read was a port call.
+    // as a call that never came back was before this read was a port call,
+    // which is what a host with no gh said then.
     let Some(host) = host.as_mut() else {
-        return Err(Outcome::Unread(Unread::Malformed));
+        return Err(Outcome::Unavailable {
+            why: Passing::Unreachable,
+            sent: Sent::No,
+        });
     };
     let filter = ChangeFilter {
         states: ChangeStates::All,
@@ -476,7 +480,8 @@ mod tests {
 
     /// The read on the ports' fake: the number the site names answers, any
     /// other number or a name that is no number is no answer, and no
-    /// handle at all is an answer that cannot be read.
+    /// handle at all is the site could not be reached, as a host with no
+    /// gh said before this read was a port call.
     #[test]
     fn the_read_answers_only_the_number_the_site_names() {
         let world = World::new().change(12, "feature/x", |c| c.body("Hello"));
@@ -493,6 +498,6 @@ mod tests {
         assert_eq!(ask("13").unwrap(), None);
         assert_eq!(ask("x").unwrap(), None);
         let line = read(&mut None, "12").unwrap_err().line().to_string();
-        assert_eq!(line, "the answer does not read");
+        assert_eq!(line, "the site could not be reached");
     }
 }
