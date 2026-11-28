@@ -85,8 +85,9 @@ fn said(r: &Report) -> (Vec<Mark>, String) {
 }
 
 fn end_arg(r: &Report, flag: &str) -> Option<String> {
-    let i = r.end.iter().position(|a| a == flag)?;
-    r.end.get(i + 1).cloned()
+    let w = r.end.as_ref()?.args();
+    let i = w.iter().position(|a| a == flag)?;
+    w.get(i + 1).cloned()
 }
 
 #[test]
@@ -198,7 +199,7 @@ fn a_lean_run_that_found_the_issue_not_ready_asks_for_a_pi_spec_block() {
         "{comment}"
     );
     let park = r.actions.iter().find_map(|a| match a {
-        Action::Park(p) => Some(p.args.clone()),
+        Action::Park(p) => Some(p.record_words()),
         _ => None,
     });
     assert!(park
@@ -262,7 +263,7 @@ fn a_lean_run_declined_for_the_repository_s_setup_says_the_issue_is_fine() {
         "{comment}"
     );
     let park = r.actions.iter().find_map(|a| match a {
-        Action::Park(p) => Some(p.args.clone()),
+        Action::Park(p) => Some(p.record_words()),
         _ => None,
     });
     assert!(park

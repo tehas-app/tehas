@@ -28,6 +28,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::approval::{self, Refusal};
 use tehas_core::driver::Driver;
 use tehas_core::text::disarm;
+use tehas_core::verb::Verb;
 
 /// `[1-9][0-9]{0,8}`: an attempt as the store gives it.
 pub fn attempt_shaped(a: &str) -> bool {
@@ -79,11 +80,14 @@ pub enum View {
 
 /// The store's approval-view.
 fn view(home: &Path, issue: &str, attempt: Option<&str>) -> View {
-    let mut args = vec!["approval-view", issue];
-    if let Some(a) = attempt {
-        args.extend(["--attempt", a]);
-    }
-    let Ok(answer) = host::store_said(home, &args) else {
+    let Ok(n) = issue.parse::<u64>() else {
+        return View::Unread;
+    };
+    let call = Verb::ApprovalView {
+        issue: n,
+        attempt: attempt.map(str::to_string),
+    };
+    let Ok(answer) = host::store_said(home, &call) else {
         return View::Unread;
     };
     match answer.get("view") {
@@ -113,9 +117,13 @@ fn read_record(home: &Path, issue: &str, attempt: &str) -> (Option<PathBuf>, &'s
         View::Unread => (None, "the approval of this start could not be read"),
         // None used by this start: one by hand, as the store has it, or one
         // whose approval is gone.
-        View::None => match host::store_said(home, &["cycle-show", issue]) {
-            Err(_) => (None, "the approval of this start could not be read"),
-            Ok(shown) => {
+        View::None => match issue
+            .parse::<u64>()
+            .ok()
+            .and_then(|n| host::store_said(home, &Verb::CycleShow { issue: n }).ok())
+        {
+            None => (None, "the approval of this start could not be read"),
+            Some(shown) => {
                 let cycle = shown.get("cycle").filter(|c| !c.is_null());
                 let this = cycle.filter(|c| {
                     c.get("attempt").and_then(Value::as_f64) == attempt.parse::<f64>().ok()
