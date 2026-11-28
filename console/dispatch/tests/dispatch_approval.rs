@@ -363,42 +363,46 @@ fn an_outsiders_comment_one_written_after_the_label_and_one_edited_after_it_are_
 /// #7 parked on alice's label, its clean-start box ticked by alice, with
 /// images on unless `off`.
 fn retry_world(w: &World, off: bool, boxes: &[&str]) {
+    retry_world_after(w, off, boxes, vec![]);
+}
+
+/// As `retry_world`, with `after` written as the comments the issue got
+/// after the question.
+fn retry_world_after(w: &World, off: bool, boxes: &[&str], after: Vec<Value>) {
     w.parked("failed", "alice");
     if !off {
         instance(w, IMAGES);
     }
-    w.comments(7, &park_body(boxes), "alice", json!([]));
+    w.comments(7, &park_body(boxes), "alice", json!(after));
+}
+
+/// The comment `who` wrote at `created`, in the shape of the read's nodes.
+/// The read numbers it, so a list of them agrees with itself.
+fn gcomment(who: &str, created: &str, body: &str) -> Value {
+    json!({"author": {"login": who, "databaseId": uid(who)}, "body": body,
+        "createdAt": created})
 }
 
 #[test]
 fn a_retry_ticks_record_takes_the_comments_written_before_the_tick() {
     let w = World::new("ap-retry");
-    retry_world(&w, false, &["x", " "]);
-    issue_comments(
+    retry_world_after(
         &w,
-        7,
-        &[
-            icomment(
-                61,
-                "alice",
-                "2026-01-01T00:30:00Z",
-                "2026-01-01T00:30:00Z",
-                &format!("![r]({A}/9191)"),
-            ),
-            icomment(
-                62,
-                "alice",
-                "2026-01-01T01:00:01Z",
-                "2026-01-01T01:00:01Z",
-                &format!("![s]({A}/9292)"),
-            ),
+        false,
+        &["x", " "],
+        vec![
+            gcomment("alice", "2026-01-01T00:30:00Z", &format!("![r]({A}/9191)")),
+            gcomment("alice", "2026-01-01T01:00:01Z", &format!("![s]({A}/9292)")),
         ],
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
+    // The read numbers the comments: 4002 is alice's before the tick and
+    // 4003 the reply that ticked, itself written at the tick and so within
+    // the window. The comment of 01:00:01 is after it and stays out.
     assert_eq!(
         w.at_mark(r#"[.how, (.retry_context | map(.id)), has("comment_links")]"#),
-        r#"["reply",[61],false]"#
+        r#"["reply",[4002,4003],false]"#
     );
 }
 
@@ -461,7 +465,11 @@ fn pr_world(w: &World) -> Run {
             "author": {"login": "tehas-bot[bot]", "databaseId": BOT}},
             {"number": 31, "headRefName": "feature/issue-8-other", "body": "",
             "author": {"login": "tehas-bot[bot]", "databaseId": BOT}},
-            {"number": 32, "headRefName": "x", "body": "Fixes #7",
+            // #32 closes the issue with its body. The poll's own list of
+            // open pull requests reads it too, so a case of it says what
+            // the hold on an open one would have made a person do first:
+            // it is closed, and its comment is still the conversation.
+            {"number": 32, "headRefName": "x", "body": "Fixes #7", "state": "CLOSED",
             "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
     );
     issue_comments(
@@ -531,7 +539,7 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
     let w = World::new("ap-retry-pr");
     let r = pr_world(&w);
     assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.started(), "7 ");
+    assert_eq!(w.started(), "7 ", "{}", r.out);
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(
         val(&w.at_mark(".retry_context | map([.source, .id, .pr, .by, .text])")),
@@ -550,7 +558,11 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
                 "alice",
                 format!("The button goes here: ![shot]({A}/7171)")
             ],
-            ["pr-comment", 91, 32, "bob", "second PR"]
+            ["pr-comment", 91, 32, "bob", "second PR"],
+            // The reply that ticked the box is a comment of the issue by
+            // an allowed account, written at the tick: the read of the
+            // notes gives it with the rest, as the issue has it.
+            ["issue-comment", 4002, null, "alice", "retry"]
         ])
     );
     has(
@@ -586,14 +598,12 @@ fn a_start_by_label_reads_no_pull_request() {
 #[test]
 fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     let w = World::new("ap-retry-off");
-    retry_world(&w, true, &["x", " "]);
-    issue_comments(
+    retry_world_after(
         &w,
-        7,
-        &[icomment(
-            61,
+        true,
+        &["x", " "],
+        vec![gcomment(
             "alice",
-            "2026-01-01T00:30:00Z",
             "2026-01-01T00:30:00Z",
             &format!("said ![r]({A}/9191)"),
         )],
@@ -601,12 +611,14 @@ fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
+    // alice's comment and the reply that ticked the box, both before or at
+    // the tick: the text is taken and no link of a comment is named.
     assert_eq!(
         w.approval(
             r#"[has("comment_links"), (.retry_context | map(.source))]"#,
             7
         ),
-        r#"[false,["issue-comment"]]"#
+        r#"[false,["issue-comment","issue-comment"]]"#
     );
 }
 
@@ -635,19 +647,22 @@ fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
     w.touch("icomments-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "ERROR: the comments of #7 could not be read");
+    // The poll reads the issue's comments once, for the tick and the retry
+    // alike, so a site failure is said where the read is asked for.
     has(
         &r.out,
-        "ERROR: could not write the approval record of #7, not starting a cycle",
+        "unreadable comments of #7: the site failed; it may have been sent",
     );
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
-    w.fx("icomments-7.json", r#"{"not": "a list"}"#);
+    w.fx("comments-7.json", r#"{"not": "a list"}"#);
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
+    has(&r.out, "unreadable comments of #7");
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.marks(None), 0);
+    assert_eq!(w.started(), "");
 }
 
 #[test]

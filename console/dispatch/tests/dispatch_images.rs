@@ -371,8 +371,9 @@ fn a_start_by_the_clean_start_box_carries_the_comment_an_allowed_account_wrote_a
     commented(&w);
     w.parked("failed", "alice");
     reviewed(&w, "clean", "alice");
-    assert_eq!(w.poll().rc, 0);
-    assert_eq!(started(&w), "7");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}\nGH:\n{}", r.out, w.gh());
+    assert_eq!(started(&w), "7", "{}", r.out);
     has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "1");
@@ -391,8 +392,8 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
     list[0]["user"]["id"] = json!(99);
     w.fx_json("icomments-30.json", &list);
     let r = w.poll();
-    assert_eq!(r.rc, 0);
-    assert_eq!(started(&w), "7");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "7", "{}", r.out);
     has(
         &r.out,
         &format!(
@@ -428,8 +429,9 @@ fn both_retries_give_the_cycle_the_image_the_issues_own_body_links() {
         commented(&w);
         w.parked("failed", "alice");
         reviewed(&w, ticked, "alice");
-        w.poll();
-        assert_eq!(started(&w), "7", "{ticked}");
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{ticked} {}", r.out);
+        assert_eq!(started(&w), "7", "{ticked} {}", r.out);
         assert_eq!(
             mark(&w, ".links"),
             json!([format!("{A}/0f3e-41")]),
@@ -475,8 +477,9 @@ fn a_park_of_the_old_two_boxes_still_gives_the_clean_start_its_pull_requests_com
     commented(&w);
     w.parked("failed", "alice");
     reviewed(&w, "old", "alice");
-    assert_eq!(w.poll().rc, 0);
-    assert_eq!(started(&w), "7");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "7", "{}", r.out);
     has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(w.at_mark(".retry_context | length"), "1");
