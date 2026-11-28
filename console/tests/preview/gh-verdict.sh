@@ -21,6 +21,9 @@ for n in $(printf "%s\n" "$*" | tr ' ' '\n' | sed -n 's/^n\([0-9][0-9]*\):$/\1/p
     node=$(jq -c --argjson here 7001 '{
       number: .number,
       title: (.title // ("Change " + (.number | tostring))),
+      # The description: the notice asks for bodies, and GitHub gives the
+      # text of a pull request with none as the empty string.
+      body: (.body // ""),
       state: (if .state == "closed" then "CLOSED" else "OPEN" end),
       isDraft: false,
       isCrossRepository: ((.head.repo != null)
@@ -48,8 +51,11 @@ for n in $(printf "%s\n" "$*" | tr ' ' '\n' | sed -n 's/^n\([0-9][0-9]*\):$/\1/p
       labels: {totalCount: 0, nodes: []},
       closingIssuesReferences: {totalCount: 0, nodes: []}
     }' "$T/fx/pull-$n.json") || {
-      echo "gh: the fixture of $n is no answer" >&2
-      exit 1
+      # The fixture is no object of a pull request: answer the node as the
+      # fixture's own bytes, so the read faces an answer that is not one,
+      # which is what a broken node is at the site, rather than a call that
+      # failed. The adapter's parse says so in the ports' words.
+      node=$(cat "$T/fx/pull-$n.json")
     }
   else
     node=null

@@ -22,7 +22,8 @@ use tehas_core::testing::{copy_exe, write_exe};
 /// The answers of the stub gh. One answer per search: the count is the only
 /// call that asks for a total and no nodes, so that shape tells the two apart.
 /// A file `<x>-down` makes its read fail; GH_MARK_FAILS fails a mark put on an issue and
-/// GH_AUTH is what `gh auth status` exits with.
+/// GH_AUTH makes `gh auth status` fail and the release reads exit 4, as a gh
+/// with no credential does.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
     *"filterBy: {states: [CLOSED], since: "*) [ ! -e "$T/shipped-down" ] || exit 1
@@ -44,18 +45,16 @@ case "$*" in
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;
-  # The published releases of the platform; nothing until rel.json is there.
-  "api repos/"*"/releases"*) [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
+  # The published releases of the platform, read through the code host port;
+  # nothing until rel.json is there. GH_AUTH says the gh has no credential:
+  # the read then exits 4 as gh does, and the reader falls to curl.
+  "api repos/"*"/releases"*)
+    [ "${GH_AUTH:-0}" = 0 ] || { echo "Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token." >&2; exit 4; }
+    [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
 esac"####;
 
 /// The other stubs, by name: what each does after it records its call.
 const STUBS: &[(&str, &str)] = &[
-    // A release host reads the releases with curl when gh is not signed in;
-    // CURL_RC is what curl answers with, and 22 is no answer at all.
-    (
-        "curl",
-        r#"[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0"#,
-    ),
     // No sandbox image: the label of the one cycles run is not found.
     ("docker", "exit 1"),
     // The failed tehas units: $T/failed-units, and SYSTEMCTL_RC.
@@ -254,6 +253,29 @@ impl World {
         for (name, body) in STUBS {
             w.stub(name, body);
         }
+        // A release host reads the releases with curl when gh is not signed
+        // in. The code host adapter runs curl with an environment of its own
+        // and reads its HTTP answer, so this stub names $T itself and
+        // answers as GitHub's API does: the list from curl-rel.json when a
+        // test places it (the anonymous reader's per_page call), 404 when it
+        // does not, and CURL_RC alone when a test wants curl itself to
+        // fail (22 is no answer at all). Each call is kept in $T/calls/curl.
+        w.stub(
+            "curl",
+            &format!(
+                "#!{bash}\nT='{t}'\nprintf '%s\\n' \"$*\" >>\"$T/calls/curl\"\n\
+                 if [ -n \"${{CURL_RC:-}}\" ]; then exit \"$CURL_RC\"; fi\n\
+                 if [ -e \"$T/curl-rel.json\" ]; then\n\
+                 \x20 printf 'HTTP/2 200 \\r\\ncontent-type: application/json\\r\\n\\r\\n'\n\
+                 \x20 cat \"$T/curl-rel.json\"\n\
+                 else\n\
+                 \x20 printf 'HTTP/2 404 \\r\\n\\r\\n{{\"message\":\"Not Found\"}}'\n\
+                 fi\n\
+                 exit 0\n",
+                bash = w.bash,
+                t = w.t.display(),
+            ),
+        );
         w.fx("gh-n.lock", "");
         fs::set_permissions(w.t.join("gh-n.lock"), fs::Permissions::from_mode(0o600)).unwrap();
         w.env_always("TEHAS_CONSOLE", &w.console.to_string_lossy());
