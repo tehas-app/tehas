@@ -202,6 +202,30 @@ fn new_blueprint(title: &str, body: &str) -> NewBlueprint {
     }
 }
 
+/// The question of this project's name as the adapter asks it, once, when
+/// an answer names another repository.
+const NAME_QUESTION: [&str; 8] = [
+    "api",
+    "graphql",
+    "-f",
+    "owner=acme",
+    "-f",
+    "name=widget",
+    "-f",
+    "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId nameWithOwner } }",
+];
+
+/// Each call as `name` where it is exactly that question, else `call`.
+fn kinds(calls: &[Call]) -> Vec<&'static str> {
+    calls
+        .iter()
+        .map(|c| match c.input.is_none() && c.args == NAME_QUESTION {
+            true => "name",
+            false => "call",
+        })
+        .collect()
+}
+
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -272,6 +296,31 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_the_comments_lin
     );
     kept_out_of_argv(&calls, &body);
     assert_eq!(input(&calls[1]), sent(None, Some(&body)));
+}
+
+/// An instance that still names the project's old name comments on it as
+/// here, by the name GitHub gives with the repository's id.
+#[test]
+fn a_renamed_project_still_gets_its_comment_by_its_repository_id() {
+    let calls = Calls::default();
+    let script = Script {
+        answers: vec![
+            Ok(sample("issue-7.json")),
+            Ok(
+                r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#
+                    .into(),
+            ),
+            Ok(sample("comment-created.json")),
+        ]
+        .into(),
+        calls: Arc::clone(&calls),
+    };
+    let mut gh = GitHub::new("acme/widget-before", Box::new(script)).on_clock(now);
+    let got = gh.comment(no(7), "b", &[]).unwrap();
+    assert_eq!(got.id, CommentId::new("2501234567"));
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
 }
 
 #[test]
@@ -1400,19 +1449,24 @@ fn a_comment_on_a_pull_request_or_of_another_comment_is_not_edited() {
     let mut elsewhere: Value = serde_json::from_str(&read).unwrap();
     elsewhere["html_url"] =
         "https://github.com/acme/gadget/issues/7#issuecomment-2501230002".into();
-    for (answer, want) in [
-        (on_pull, Outcome::NotFound),
-        (other, Outcome::Unread(Unread::Inconsistent)),
-        (elsewhere, Outcome::Unread(Unread::Inconsistent)),
+    for (answer, want, asked) in [
+        (on_pull, Outcome::NotFound, &["call"][..]),
+        (other, Outcome::Unread(Unread::Inconsistent), &["call"]),
+        (
+            elsewhere,
+            Outcome::Unread(Unread::Inconsistent),
+            &["call", "name"],
+        ),
         (
             Value::String("no comment".into()),
             Outcome::Unread(Unread::Malformed),
+            &["call"],
         ),
     ] {
         let (mut gh, calls) = adapter_ours(vec![Ok(answer.to_string())]);
         let got = gh.edit_comment(&question_id(), "b", &MarkerEdit::default(), &since);
         assert_eq!(got, Err(want.clone()), "{answer}");
-        assert_eq!(calls.lock().unwrap().len(), 1, "no write: {answer}");
+        assert_eq!(kinds(&calls.lock().unwrap()), asked, "no write: {answer}");
     }
 }
 

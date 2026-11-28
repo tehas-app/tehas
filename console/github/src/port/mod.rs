@@ -18,12 +18,14 @@ mod code_host;
 mod code_host_writes;
 mod identity;
 mod mergeable;
+mod named;
 mod people;
 mod site;
 mod tickets;
 mod writes;
 
 pub use code_host::{project_of, WORKFLOW_RUNS_FORBIDDEN};
+pub(crate) use named::Named;
 pub(crate) use people::People;
 pub use people::{PeopleClient, Person, Trade};
 pub use site::{GitHubSite, MakeRunner};

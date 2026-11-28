@@ -244,6 +244,11 @@ impl GhRunner for Replay {
                 self.graphql(query.strip_prefix("query=").unwrap())
             }
             ["api", path] => self.rest(path),
+            ["api", "graphql", "-f", "owner=acme", "-f", "name=widget", "-f", query]
+                if query.contains("{ databaseId nameWithOwner } }") =>
+            {
+                Ok(r#"{"data":{"repository":{"databaseId":500001,"nameWithOwner":"acme/widget"}}}"#.into())
+            }
             _ => panic!("no recording of {args:?}"),
         }
     }
@@ -478,9 +483,11 @@ fn a_comment_that_is_not_on_an_issue_here_is_not_found_or_untrusted() {
             inconsistent(),
         ]
     );
-    // No id that is no number is asked; none is left to ask GitHub's GraphQL.
+    // No id that is no number is asked; none is left to ask GitHub's
+    // GraphQL, which is asked only this project's name, once.
     assert_eq!(rest_reads(&asked), 3);
-    assert!(questions(&asked).is_empty());
+    assert_eq!(questions(&asked).len(), 1);
+    assert!(questions(&asked)[0].contains("{ databaseId nameWithOwner } }"));
 }
 
 #[test]
