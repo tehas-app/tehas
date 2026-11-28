@@ -443,8 +443,9 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     );
     lacks(&w.gh(), "pr list");
     lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
-    // The reads of the ports, too, are not asked for: the list of the
-    // bot's changes and the notes of the issue.
+    // The port read of the bot's changes, too, is not asked for: the box
+    // of the issue alone names neither list. The notes are read, as ever,
+    // for the tick itself.
     lacks(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
 }
 
