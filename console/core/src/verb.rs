@@ -16,6 +16,8 @@ pub enum End {
     Status(String),
     /// `--refused --rc <rc>`: a start that was refused.
     Refused(i32),
+    /// `--lost`: a record its poll ended as lost, with no report.
+    Lost,
 }
 
 /// What `plan-show` reads: the open sessions, or one issue's.
@@ -227,6 +229,162 @@ pub enum Verb {
         plugin: String,
         no_calls: bool,
     },
+    /// `park-show` with no issue: the parks owed a start (`--automatic`)
+    /// or a refine (`--refine`).
+    ParksOwed {
+        refine: bool,
+    },
+    /// `question-known <n> --id <id>`: whether the comment's question the
+    /// poll reads is the one on record.
+    QuestionKnown {
+        issue: u64,
+        id: String,
+    },
+    /// `question-asked` as the poll records a comment whose body it did not
+    /// read: no `--body-sha`, so the store keeps no sum of it.
+    QuestionReasked {
+        issue: u64,
+        id: String,
+        kind: String,
+        offers: Option<String>,
+    },
+    /// `question-answered <n> --id <id> --by <who>`: the answer on record.
+    QuestionAnswered {
+        issue: u64,
+        id: String,
+        by: String,
+    },
+    /// `answer-drop <n> --id <id>`: an answer the poll could not act on,
+    /// taken off the record.
+    AnswerDrop {
+        issue: u64,
+        id: String,
+    },
+    /// `question-adopt`: a question of before 2.0 takes 2.0's form in place
+    /// of its sum of before. With `body_sha`, the sum of its visible text.
+    QuestionAdopt {
+        issue: u64,
+        id: String,
+        posted_sha: String,
+        body_sha: Option<String>,
+    },
+    /// `park-told <n>`: the park's tell is made, so the poll says it once.
+    ParkTold {
+        issue: u64,
+    },
+    /// `plan-note <n> --kind <kind> --id <id>`: a note of a planning
+    /// session, said once.
+    PlanNote {
+        issue: u64,
+        kind: String,
+        id: String,
+    },
+    /// `journal-open`: the actions the journal holds open.
+    JournalOpen,
+    /// `journal-settle --action <n>`: an action's end. `result` and
+    /// `evidence` settle an action the poll read done; `abandoned` is the
+    /// settling poll's word for one it never attempted.
+    JournalSettle {
+        action: String,
+        result: Option<String>,
+        evidence: Option<String>,
+        abandoned: bool,
+    },
+    /// `cycle-note <n> --kind quiet --said-for <key>`: the quiet episode on
+    /// record, and whether the poll owes the cycle a word.
+    CycleNote {
+        issue: u64,
+        said_for: String,
+    },
+    /// `cycle-stop-asked <n>`: the poll asked the unit to stop. With
+    /// `said_only`, the line was said and no stop asked.
+    CycleStopAsked {
+        issue: u64,
+        said_only: bool,
+    },
+    /// `plan-begin <n>`: a planning session on record, its brief read from
+    /// the file.
+    PlanBegin {
+        issue: u64,
+        by: String,
+        label: String,
+        brief_file: String,
+        auto: bool,
+    },
+    /// `plan-begin <n> --undo`: a session the poll put back.
+    PlanBeginUndo {
+        issue: u64,
+    },
+    /// `plan-answer <n> --turn <n>`: a planning turn's answer, its text read
+    /// from the file; `millwright` marks a turn of the millwright.
+    PlanAnswer {
+        issue: u64,
+        turn: String,
+        by: String,
+        text_file: String,
+        millwright: bool,
+    },
+    /// `plan-answer <n> --turn <n> --undo`: a turn the poll put back.
+    PlanAnswerUndo {
+        issue: u64,
+        turn: String,
+    },
+    /// `plan-end <n> --turn <n>`: a planning turn's end on record.
+    PlanEnd {
+        issue: u64,
+        turn: String,
+        outcome: String,
+        rc: Option<String>,
+        session: Option<String>,
+        options: Vec<String>,
+        filed: Vec<String>,
+        out: Option<String>,
+    },
+    /// `plan-end <n> --posted`: the session's question is posted.
+    PlanEndPosted {
+        issue: u64,
+    },
+    /// `plan-end <n> --close`: the session is ended.
+    PlanEndClosed {
+        issue: u64,
+    },
+    /// `approval-record`, as a start claims an approval: the whole input
+    /// file, and what the given names: the label, the title's sum, the
+    /// question's comment, and the pull request a refresh conflicts with.
+    ApprovalClaim {
+        issue: u64,
+        at: String,
+        by: String,
+        how: String,
+        body_sha: String,
+        input_file: String,
+        label: Option<String>,
+        title_sha: Option<String>,
+        comment_id: Option<String>,
+        refresh_pr: Option<String>,
+        refresh_head: Option<String>,
+    },
+    /// `poll-record`: what the poll cost.
+    PollRecord {
+        started: String,
+        cpu_ms: String,
+        gh: String,
+        writes_log: String,
+        starts: String,
+    },
+    /// `sweep-locks`: the unused cycle locks go, or, dry, the list.
+    SweepLocks {
+        dry_run: bool,
+    },
+    /// `publish --dispatch <file>`: the poll's report among the live views.
+    PublishDispatch {
+        dispatch: String,
+    },
+    /// `history-show`'s cycle rows: of one issue, or of all with `how`.
+    HistoryCycles {
+        issue: Option<u64>,
+        how: Option<String>,
+    },
 }
 
 impl Verb {
@@ -270,6 +428,28 @@ impl Verb {
             Verb::PluginRunBegin { .. } => "plugin-run-begin",
             Verb::PluginRunEnd { .. } => "plugin-run-end",
             Verb::PluginRuns { .. } => "plugin-runs",
+            Verb::ParksOwed { .. } => "park-show",
+            Verb::QuestionKnown { .. } => "question-known",
+            Verb::QuestionReasked { .. } => "question-asked",
+            Verb::QuestionAnswered { .. } => "question-answered",
+            Verb::AnswerDrop { .. } => "answer-drop",
+            Verb::QuestionAdopt { .. } => "question-adopt",
+            Verb::ParkTold { .. } => "park-told",
+            Verb::PlanNote { .. } => "plan-note",
+            Verb::JournalOpen => "journal-open",
+            Verb::JournalSettle { .. } => "journal-settle",
+            Verb::CycleNote { .. } => "cycle-note",
+            Verb::CycleStopAsked { .. } => "cycle-stop-asked",
+            Verb::PlanBegin { .. } | Verb::PlanBeginUndo { .. } => "plan-begin",
+            Verb::PlanAnswer { .. } | Verb::PlanAnswerUndo { .. } => "plan-answer",
+            Verb::PlanEnd { .. } | Verb::PlanEndPosted { .. } | Verb::PlanEndClosed { .. } => {
+                "plan-end"
+            }
+            Verb::ApprovalClaim { .. } => "approval-record",
+            Verb::PollRecord { .. } => "poll-record",
+            Verb::SweepLocks { .. } => "sweep-locks",
+            Verb::PublishDispatch { .. } => "publish",
+            Verb::HistoryCycles { .. } => "history-show",
         }
     }
 
@@ -316,6 +496,7 @@ impl Verb {
                         a.switch("--refused", true);
                         a.flag("--rc", rc);
                     }
+                    End::Lost => a.switch("--lost", true),
                 }
             }
             Verb::CycleStart {
@@ -545,6 +726,187 @@ impl Verb {
                 a.flag("--plugin", plugin);
                 a.switch("--no-calls", *no_calls);
             }
+            Verb::ParksOwed { refine } => {
+                a.switch(if *refine { "--refine" } else { "--automatic" }, true)
+            }
+            Verb::QuestionKnown { issue, id } => {
+                a.issue(*issue);
+                a.flag("--id", id);
+            }
+            Verb::QuestionReasked {
+                issue,
+                id,
+                kind,
+                offers,
+            } => {
+                a.issue(*issue);
+                a.flag("--id", id);
+                a.flag("--kind", kind);
+                a.maybe("--offers", offers.as_ref());
+            }
+            Verb::QuestionAnswered { issue, id, by } => {
+                a.issue(*issue);
+                a.flag("--id", id);
+                a.flag("--by", by);
+            }
+            Verb::AnswerDrop { issue, id } => {
+                a.issue(*issue);
+                a.flag("--id", id);
+            }
+            Verb::QuestionAdopt {
+                issue,
+                id,
+                posted_sha,
+                body_sha,
+            } => {
+                a.issue(*issue);
+                a.flag("--id", id);
+                a.flag("--posted-sha", posted_sha);
+                a.maybe("--body-sha", body_sha.as_ref());
+            }
+            Verb::ParkTold { issue } => a.issue(*issue),
+            Verb::PlanNote { issue, kind, id } => {
+                a.issue(*issue);
+                a.flag("--kind", kind);
+                a.flag("--id", id);
+            }
+            Verb::JournalOpen => {}
+            Verb::JournalSettle {
+                action,
+                result,
+                evidence,
+                abandoned,
+            } => {
+                a.flag("--action", action);
+                if *abandoned {
+                    a.switch("--abandoned", true);
+                } else {
+                    a.flag("--result", result.as_deref().unwrap_or("ok"));
+                    a.maybe("--evidence", evidence.as_ref());
+                }
+            }
+            Verb::CycleNote { issue, said_for } => {
+                a.issue(*issue);
+                a.flag("--kind", "quiet");
+                a.flag("--said-for", said_for);
+            }
+            Verb::CycleStopAsked { issue, said_only } => {
+                a.issue(*issue);
+                a.switch("--said-only", *said_only);
+            }
+            Verb::PlanBegin {
+                issue,
+                by,
+                label,
+                brief_file,
+                auto,
+            } => {
+                a.issue(*issue);
+                a.flag("--by", by);
+                a.flag("--label", label);
+                a.flag("--brief-file", brief_file);
+                a.switch("--auto", *auto);
+            }
+            Verb::PlanBeginUndo { issue } => {
+                a.issue(*issue);
+                a.switch("--undo", true);
+            }
+            Verb::PlanAnswer {
+                issue,
+                turn,
+                by,
+                text_file,
+                millwright,
+            } => {
+                a.issue(*issue);
+                a.flag("--turn", turn);
+                a.flag("--by", by);
+                a.flag("--text-file", text_file);
+                a.switch("--millwright", *millwright);
+            }
+            Verb::PlanAnswerUndo { issue, turn } => {
+                a.issue(*issue);
+                a.flag("--turn", turn);
+                a.switch("--undo", true);
+            }
+            Verb::PlanEnd {
+                issue,
+                turn,
+                outcome,
+                rc,
+                session,
+                options,
+                filed,
+                out,
+            } => {
+                a.issue(*issue);
+                a.flag("--turn", turn);
+                a.flag("--outcome", outcome);
+                a.maybe("--rc", rc.as_ref());
+                a.maybe("--session", session.as_ref());
+                for o in options {
+                    a.flag("--option", o);
+                }
+                for f in filed {
+                    a.flag("--filed", f);
+                }
+                a.maybe("--out", out.as_ref());
+            }
+            Verb::PlanEndPosted { issue } => {
+                a.issue(*issue);
+                a.switch("--posted", true);
+            }
+            Verb::PlanEndClosed { issue } => {
+                a.issue(*issue);
+                a.switch("--close", true);
+            }
+            Verb::ApprovalClaim {
+                issue,
+                at,
+                by,
+                how,
+                body_sha,
+                input_file,
+                label,
+                title_sha,
+                comment_id,
+                refresh_pr,
+                refresh_head,
+            } => {
+                a.issue(*issue);
+                a.flag("--at", at);
+                a.flag("--by", by);
+                a.flag("--how", how);
+                a.flag("--body-sha", body_sha);
+                a.flag("--input-file", input_file);
+                a.maybe("--label", label.as_ref());
+                a.maybe("--title-sha", title_sha.as_ref());
+                a.maybe("--comment-id", comment_id.as_ref());
+                a.maybe("--refresh-pr", refresh_pr.as_ref());
+                a.maybe("--refresh-head", refresh_head.as_ref());
+            }
+            Verb::PollRecord {
+                started,
+                cpu_ms,
+                gh,
+                writes_log,
+                starts,
+            } => {
+                a.flag("--started", started);
+                a.flag("--cpu-ms", cpu_ms);
+                a.flag("--gh", gh);
+                a.flag("--writes-log", writes_log);
+                a.flag("--starts", starts);
+            }
+            Verb::SweepLocks { dry_run } => a.switch("--dry-run", *dry_run),
+            Verb::PublishDispatch { dispatch } => a.flag("--dispatch", dispatch),
+            Verb::HistoryCycles { issue, how } => {
+                if let Some(n) = issue {
+                    a.issue(*n);
+                }
+                a.flag("--kind", "cycle");
+                a.maybe("--how", how.as_ref());
+            }
         }
         a.0
     }
@@ -643,6 +1005,92 @@ mod tests {
         assert_eq!(
             Verb::Records { issue: 7 }.args(),
             ["records", "--issue", "7"]
+        );
+    }
+
+    #[test]
+    fn the_polls_calls_name_their_words_in_the_stores_order() {
+        assert_eq!(
+            Verb::CycleEnd {
+                issue: 9,
+                attempt: "1".into(),
+                end: End::Lost,
+            }
+            .args(),
+            ["cycle-end", "9", "--attempt", "1", "--lost"]
+        );
+        assert_eq!(
+            Verb::JournalSettle {
+                action: "1".into(),
+                result: Some("ok".into()),
+                evidence: Some("{}".into()),
+                abandoned: false,
+            }
+            .args(),
+            [
+                "journal-settle",
+                "--action",
+                "1",
+                "--result",
+                "ok",
+                "--evidence",
+                "{}"
+            ]
+        );
+        assert_eq!(
+            Verb::JournalSettle {
+                action: "1".into(),
+                result: None,
+                evidence: None,
+                abandoned: true,
+            }
+            .args(),
+            ["journal-settle", "--action", "1", "--abandoned"]
+        );
+        assert_eq!(
+            Verb::PlanEnd {
+                issue: 7,
+                turn: "2".into(),
+                outcome: "failed".into(),
+                rc: Some("1".into()),
+                session: None,
+                options: vec!["a b".into()],
+                filed: vec!["https://x/1".into()],
+                out: Some("/tmp/7.out".into()),
+            }
+            .args(),
+            [
+                "plan-end",
+                "7",
+                "--turn",
+                "2",
+                "--outcome",
+                "failed",
+                "--rc",
+                "1",
+                "--option",
+                "a b",
+                "--filed",
+                "https://x/1",
+                "--out",
+                "/tmp/7.out"
+            ]
+        );
+        assert_eq!(
+            Verb::PlanEndPosted { issue: 7 }.args(),
+            ["plan-end", "7", "--posted"]
+        );
+        assert_eq!(
+            Verb::ParksOwed { refine: true }.args(),
+            ["park-show", "--refine"]
+        );
+        assert_eq!(
+            Verb::HistoryCycles {
+                issue: None,
+                how: Some("refresh".into()),
+            }
+            .args(),
+            ["history-show", "--kind", "cycle", "--how", "refresh"]
         );
     }
 }

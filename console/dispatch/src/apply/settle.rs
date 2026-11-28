@@ -13,6 +13,7 @@ use super::{looked_key, text, word, Looked, Writer};
 use serde_json::{json, Value};
 use tehas_core::journal::{settle as rules, Found as Settled};
 use tehas_core::lock::{probe, Probe};
+use tehas_core::verb::Verb;
 use tehas_ports::{At, Bound, Write};
 
 /// How a fresh read settles one action.
@@ -132,7 +133,7 @@ impl Writer {
     /// at all: a caller that skips work on an empty journal must not skip the
     /// work of a poll whose journal it never saw.
     pub(crate) fn journal_open(&mut self, log: &mut Vec<String>) -> Option<Vec<Value>> {
-        match self.calls.store(&["journal-open"]) {
+        match self.calls.store(&Verb::JournalOpen) {
             Ok(v) => Some(
                 v.get("actions")
                     .and_then(Value::as_array)
@@ -216,20 +217,19 @@ impl Writer {
             let settled = match &found {
                 Found::Done(evidence) => {
                     let e = evidence.to_string();
-                    self.calls.store(&[
-                        "journal-settle",
-                        "--action",
-                        &id,
-                        "--result",
-                        "ok",
-                        "--evidence",
-                        &e,
-                    ])
+                    self.calls.store(&Verb::JournalSettle {
+                        action: id.clone(),
+                        result: Some("ok".into()),
+                        evidence: Some(e),
+                        abandoned: false,
+                    })
                 }
-                Found::Abandoned(_) => {
-                    self.calls
-                        .store(&["journal-settle", "--action", &id, "--abandoned"])
-                }
+                Found::Abandoned(_) => self.calls.store(&Verb::JournalSettle {
+                    action: id.clone(),
+                    result: None,
+                    evidence: None,
+                    abandoned: true,
+                }),
                 Found::Unread(why) => {
                     log.push(format!("WARN: the journal's {what} could not be settled: {why}; the next poll tries again"));
                     continue;

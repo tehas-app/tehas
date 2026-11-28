@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use tehas_core::home::{Home, Live, State};
+use tehas_core::verb::Verb;
 
 /// How long a held dispatcher lock may last before it is said to hang.
 const HANG: u64 = 1800;
@@ -532,20 +533,13 @@ impl End<'_> {
             .state(State::GithubWrites)
             .to_string_lossy()
             .into_owned();
-        let n = self.starts.to_string();
-        if let Err(f) = w.calls.store(&[
-            "poll-record",
-            "--started",
-            &started,
-            "--cpu-ms",
-            &cpu,
-            "--gh",
-            &gh,
-            "--writes-log",
-            &writes,
-            "--starts",
-            &n,
-        ]) {
+        if let Err(f) = w.calls.store(&Verb::PollRecord {
+            started,
+            cpu_ms: cpu,
+            gh,
+            writes_log: writes,
+            starts: self.starts.to_string(),
+        }) {
             say(&format!(
                 "WARN: the cost of the poll was not recorded ({})",
                 f.get("word").and_then(Value::as_str).unwrap_or("")
@@ -1229,8 +1223,7 @@ fn finish_step(
             &words,
             n,
         );
-        let nn = n.to_string();
-        let approval = match src.calls.store(&["approval-current", &nn]) {
+        let approval = match src.calls.store(&Verb::ApprovalCurrent { issue: n }) {
             Ok(v) => match crate::read::store::approval_shape(&v) {
                 Some(Value::Null) => Ok(None),
                 Some(a) => Ok(Some(a)),
@@ -1418,7 +1411,7 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
         None => say(&format!("WARN: could not write {}", file.display())),
         Some(tmp) => {
             let t = tmp.to_string_lossy().into_owned();
-            if let Err(f) = w.store_try(3, &["publish", "--dispatch", &t]) {
+            if let Err(f) = w.store_try(3, &Verb::PublishDispatch { dispatch: t }) {
                 say(&format!(
                     "WARN: could not write {} ({}: {})",
                     file.display(),
@@ -1437,13 +1430,8 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
 
 /// The lock files of issues nothing has used for 30 days go, three a poll.
 fn sweep_locks(w: &mut Writer, dry: bool) {
-    let args: &[&str] = if dry {
-        &["sweep-locks", "--dry-run"]
-    } else {
-        &["sweep-locks"]
-    };
     let did = if dry { "would remove" } else { "removed" };
-    match w.calls.store(args) {
+    match w.calls.store(&Verb::SweepLocks { dry_run: dry }) {
         Ok(v) => {
             for n in v
                 .get("removed")

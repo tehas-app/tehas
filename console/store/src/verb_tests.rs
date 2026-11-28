@@ -219,13 +219,130 @@ fn samples() -> Vec<Verb> {
             plugin: s("floorplan"),
             no_calls: true,
         },
+        Verb::ParksOwed { refine: false },
+        Verb::ParksOwed { refine: true },
+        Verb::QuestionKnown {
+            issue: 5,
+            id: s("1234"),
+        },
+        Verb::QuestionReasked {
+            issue: 5,
+            id: s("1234"),
+            kind: s("park"),
+            offers: Some(s("retry")),
+        },
+        Verb::QuestionAnswered {
+            issue: 5,
+            id: s("1234"),
+            by: s("alice"),
+        },
+        Verb::AnswerDrop {
+            issue: 5,
+            id: s("1234"),
+        },
+        Verb::QuestionAdopt {
+            issue: 5,
+            id: s("1234"),
+            posted_sha: s(SHA),
+            body_sha: Some(s(TITLE_SHA)),
+        },
+        Verb::ParkTold { issue: 5 },
+        Verb::PlanNote {
+            issue: 5,
+            kind: s("held"),
+            id: s("1234"),
+        },
+        Verb::JournalOpen,
+        Verb::JournalSettle {
+            action: s("1"),
+            result: Some(s("ok")),
+            evidence: Some(s("{\"comment\":null}")),
+            abandoned: false,
+        },
+        Verb::JournalSettle {
+            action: s("1"),
+            result: None,
+            evidence: None,
+            abandoned: true,
+        },
+        Verb::CycleNote {
+            issue: 5,
+            said_for: s("1700000000"),
+        },
+        Verb::CycleStopAsked {
+            issue: 5,
+            said_only: true,
+        },
+        Verb::PlanBegin {
+            issue: 5,
+            by: s("alice"),
+            label: s("plan"),
+            brief_file: s("/tmp/plan-5.brief"),
+            auto: true,
+        },
+        Verb::PlanBeginUndo { issue: 5 },
+        Verb::PlanAnswer {
+            issue: 5,
+            turn: s("2"),
+            by: s("alice"),
+            text_file: s("/tmp/answer.md"),
+            millwright: true,
+        },
+        Verb::PlanAnswerUndo {
+            issue: 5,
+            turn: s("2"),
+        },
+        Verb::PlanEnd {
+            issue: 5,
+            turn: s("2"),
+            outcome: s("finished"),
+            rc: Some(s("0")),
+            session: Some(s("s-1")),
+            options: vec![s("Yes"), s("No")],
+            filed: vec![s("https://github.com/acme/widget/issues/9")],
+            out: Some(s("/tmp/5.out")),
+        },
+        Verb::PlanEndPosted { issue: 5 },
+        Verb::PlanEndClosed { issue: 5 },
+        Verb::ApprovalClaim {
+            issue: 5,
+            at: s("1700000000"),
+            by: s("alice"),
+            how: s("approved"),
+            body_sha: s(SHA),
+            input_file: s("/tmp/5.input.json"),
+            label: Some(s("ready")),
+            title_sha: Some(s(TITLE_SHA)),
+            comment_id: Some(s("1234")),
+            refresh_pr: None,
+            refresh_head: None,
+        },
+        Verb::PollRecord {
+            started: s("1700000000.5"),
+            cpu_ms: s("12"),
+            gh: s("3"),
+            writes_log: s("github-writes.jsonl"),
+            starts: s("1"),
+        },
+        Verb::SweepLocks { dry_run: true },
+        Verb::PublishDispatch {
+            dispatch: s("/home/tehas/tmp/dispatch.json"),
+        },
+        Verb::HistoryCycles {
+            issue: Some(5),
+            how: None,
+        },
+        Verb::HistoryCycles {
+            issue: None,
+            how: Some(s("refresh")),
+        },
     ]
 }
 
 /// The arms of `Verb`, numbered 0 to `ARMS - 1`. The match has no wildcard,
 /// so a new variant does not build until it has an arm; numbered `ARMS`, with
 /// `ARMS` raised, the test below fails until a sample covers it.
-const ARMS: usize = 41;
+const ARMS: usize = 65;
 
 fn arm(v: &Verb) -> usize {
     match v {
@@ -270,6 +387,30 @@ fn arm(v: &Verb) -> usize {
         Verb::PluginRunBegin { .. } => 29,
         Verb::PluginRunEnd { .. } => 30,
         Verb::PluginRuns { .. } => 31,
+        Verb::ParksOwed { .. } => 41,
+        Verb::QuestionKnown { .. } => 42,
+        Verb::QuestionReasked { .. } => 43,
+        Verb::QuestionAnswered { .. } => 44,
+        Verb::AnswerDrop { .. } => 45,
+        Verb::QuestionAdopt { .. } => 46,
+        Verb::ParkTold { .. } => 47,
+        Verb::PlanNote { .. } => 48,
+        Verb::JournalOpen => 49,
+        Verb::JournalSettle { .. } => 50,
+        Verb::CycleNote { .. } => 51,
+        Verb::CycleStopAsked { .. } => 52,
+        Verb::PlanBegin { .. } => 53,
+        Verb::PlanBeginUndo { .. } => 54,
+        Verb::PlanAnswer { .. } => 55,
+        Verb::PlanAnswerUndo { .. } => 56,
+        Verb::PlanEnd { .. } => 57,
+        Verb::PlanEndPosted { .. } => 58,
+        Verb::PlanEndClosed { .. } => 59,
+        Verb::ApprovalClaim { .. } => 60,
+        Verb::PollRecord { .. } => 61,
+        Verb::SweepLocks { .. } => 62,
+        Verb::PublishDispatch { .. } => 63,
+        Verb::HistoryCycles { .. } => 64,
     }
 }
 

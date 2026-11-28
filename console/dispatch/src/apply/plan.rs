@@ -35,6 +35,7 @@ use tehas_core::plan::{
     refused_by_draft, says_refusal, text_of, Refused, WHY_MAX,
 };
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
+use tehas_core::verb::{Plans, Verb};
 
 /// plan_filed_re: an address of an issue a turn filed.
 fn filed_re() -> &'static Regex {
@@ -230,7 +231,7 @@ impl Writer {
     /// document the turn left with it, so a later read of the file cannot pick
     /// up what a refusal rewrote.
     fn plan_show(&mut self, n: u64, log: &mut Vec<String>) -> Option<(Value, Value)> {
-        match self.calls.store(&["plan-show", &n.to_string()]) {
+        match self.calls.store(&Verb::PlanShow(Plans::Issue(n))) {
             Ok(v) => {
                 let out = self.outcome(n);
                 Some((v, out))
@@ -409,11 +410,8 @@ impl Writer {
 
     /// plan_ended: the turn's end on record, then its exit status off. The
     /// store's answer, or None with the status kept for the next poll.
-    fn plan_ended(&mut self, n: u64, args: &[String], log: &mut Vec<String>) -> Option<Value> {
-        let mut all = vec!["plan-end".to_string(), n.to_string()];
-        all.extend(args.iter().cloned());
-        let refs: Vec<&str> = all.iter().map(String::as_str).collect();
-        match self.calls.store(&refs) {
+    fn plan_ended(&mut self, n: u64, end: &Verb, log: &mut Vec<String>) -> Option<Value> {
+        match self.calls.store(end) {
             Ok(v) => {
                 let _ = std::fs::remove_file(self.st(n, ".rc"));
                 Some(v)
@@ -524,22 +522,12 @@ impl Writer {
         };
         let label = s(&show, "/planning/label").to_string();
         self.analytics_plan(n, &show, rc, log);
-        let how: Vec<String> = match rc {
-            "0" => vec![
-                "--outcome".into(),
-                "finished".into(),
-                "--rc".into(),
-                "0".into(),
-            ],
-            "interrupted" => vec!["--outcome".into(), "interrupted".into()],
-            "not started" => vec!["--outcome".into(), "not-started".into()],
-            "not readable" => vec!["--outcome".into(), "not-readable".into()],
-            _ => vec![
-                "--outcome".into(),
-                "failed".into(),
-                "--rc".into(),
-                rc.into(),
-            ],
+        let (outcome, end_rc): (&str, Option<String>) = match rc {
+            "0" => ("finished", Some("0".into())),
+            "interrupted" => ("interrupted", None),
+            "not started" => ("not-started", None),
+            "not readable" => ("not-readable", None),
+            _ => ("failed", Some(rc.into())),
         };
         let why = match rc {
             "interrupted" => "was cut off, for example by a restart of the host".to_string(),
@@ -550,14 +538,18 @@ impl Writer {
         let numeric = !rc.is_empty() && rc.bytes().all(|b| b.is_ascii_digit());
         let out = self.outcome(n);
         let out_path = self.st(n, ".out").to_string_lossy().into_owned();
-        let turn = vec!["--turn".to_string(), turns.to_string()];
         if rc != "0" && out.get("lost") == Some(&json!(true)) {
-            let mut args = turn.clone();
-            args.extend(["--outcome".into(), "lost".into()]);
-            if numeric {
-                args.extend(["--rc".into(), rc.into()]);
-            }
-            let Some(ended) = self.plan_ended(n, &args, log) else {
+            let ended_call = Verb::PlanEnd {
+                issue: n,
+                turn: turns.to_string(),
+                outcome: "lost".into(),
+                rc: numeric.then(|| rc.to_string()),
+                session: None,
+                options: Vec::new(),
+                filed: Vec::new(),
+                out: None,
+            };
+            let Some(ended) = self.plan_ended(n, &ended_call, log) else {
                 return false;
             };
             log.push(format!("planning #{n}: Pi no longer has session {sid}"));
@@ -573,9 +565,7 @@ impl Writer {
             ""
         };
         if !session.is_empty() {
-            let mut args = turn.clone();
-            args.extend(how.iter().cloned());
-            args.extend(["--session".into(), session.into()]);
+            let mut labels: Vec<String> = Vec::new();
             let options = out
                 .pointer("/question/options")
                 .and_then(Value::as_array)
@@ -587,23 +577,36 @@ impl Writer {
                     Some(Value::String(x)) => x.clone(),
                     Some(v) => v.to_string(),
                 };
-                args.extend([
-                    "--option".into(),
-                    label.replace(['\r', '\n'], " ").replace('\0', ""),
-                ]);
+                labels.push(label.replace(['\r', '\n'], " ").replace('\0', ""));
             }
-            for f in out
+            let urls: Vec<String> = out
                 .get("filed")
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
+                .filter_map(|f| {
+                    f.as_str()
+                        .filter(|u| filed_re().is_match(u))
+                        .map(str::to_string)
+                })
+                .collect();
+            if self
+                .plan_ended(
+                    n,
+                    &Verb::PlanEnd {
+                        issue: n,
+                        turn: turns.to_string(),
+                        outcome: outcome.into(),
+                        rc: end_rc,
+                        session: Some(session.to_string()),
+                        options: labels,
+                        filed: urls,
+                        out: Some(out_path),
+                    },
+                    log,
+                )
+                .is_none()
             {
-                if let Some(u) = f.as_str().filter(|u| filed_re().is_match(u)) {
-                    args.extend(["--filed".into(), u.into()]);
-                }
-            }
-            args.extend(["--out".into(), out_path]);
-            if self.plan_ended(n, &args, log).is_none() {
                 return false;
             }
             self.plan_brief_rm(n);
@@ -624,13 +627,23 @@ impl Writer {
         };
         let host = self.host.name.clone();
         if !sid.is_empty() {
-            let mut args = turn.clone();
-            args.extend(how.iter().cloned());
-            if rc != "0" {
-                args.extend(["--session".into(), sid.clone()]);
-            }
-            args.extend(["--out".into(), out_path]);
-            if self.plan_ended(n, &args, log).is_none() {
+            if self
+                .plan_ended(
+                    n,
+                    &Verb::PlanEnd {
+                        issue: n,
+                        turn: turns.to_string(),
+                        outcome: outcome.into(),
+                        rc: end_rc,
+                        session: (rc != "0").then(|| sid.clone()),
+                        options: Vec::new(),
+                        filed: Vec::new(),
+                        out: Some(out_path),
+                    },
+                    log,
+                )
+                .is_none()
+            {
                 return false;
             }
             self.plan_brief_rm(n);
@@ -667,9 +680,23 @@ impl Writer {
             log.push(format!("WARN: could not hand #{n} to a person after a planning turn that left no session; the next poll tries again"));
             return false;
         }
-        let mut args = turn;
-        args.extend(how);
-        if self.plan_ended(n, &args, log).is_none() {
+        if self
+            .plan_ended(
+                n,
+                &Verb::PlanEnd {
+                    issue: n,
+                    turn: turns.to_string(),
+                    outcome: outcome.into(),
+                    rc: end_rc,
+                    session: None,
+                    options: Vec::new(),
+                    filed: Vec::new(),
+                    out: None,
+                },
+                log,
+            )
+            .is_none()
+        {
             return false;
         }
         self.say(n, &format!("The planning session could not start (the runner {why}). The log is `~/tehas/logs/dispatch-plan-{n}.log` on `{host}`. Apply `tehas:plan` again to retry."), log);
@@ -930,14 +957,12 @@ impl Writer {
             };
             match self.store_try(
                 3,
-                &[
-                    "question-asked",
-                    &n.to_string(),
-                    "--id",
-                    &id,
-                    "--kind",
-                    "plan",
-                ],
+                &Verb::QuestionReasked {
+                    issue: n,
+                    id: id.clone(),
+                    kind: "plan".into(),
+                    offers: None,
+                },
             ) {
                 Ok(v) => self.raise_asked(n, &v.to_string(), log),
                 Err(f) => {
@@ -960,7 +985,7 @@ impl Writer {
             log.push(format!("WARN: the labels of #{n} could not be changed after its question was posted; the next poll tries again"));
             return false;
         }
-        if let Err(f) = self.calls.store(&["plan-end", &n.to_string(), "--posted"]) {
+        if let Err(f) = self.calls.store(&Verb::PlanEndPosted { issue: n }) {
             log.push(format!(
                 "WARN: the record of #{n} could not be updated ({})",
                 word(&f)
@@ -1555,7 +1580,7 @@ impl Writer {
 
     /// plan_close: the session ended on record, and its files gone.
     pub(super) fn plan_close(&mut self, n: u64, log: &mut Vec<String>) -> bool {
-        if let Err(f) = self.calls.store(&["plan-end", &n.to_string(), "--close"]) {
+        if let Err(f) = self.calls.store(&Verb::PlanEndClosed { issue: n }) {
             log.push(format!(
                 "WARN: the session of #{n} could not be ended on the state store ({}); the next poll tries again",
                 word(&f)

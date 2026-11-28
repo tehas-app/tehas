@@ -845,8 +845,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
 
     // The parks owed a retry or a refine, and what they read of the issue.
-    s["owed"] = store::owed(calls, "--automatic");
-    s["refines_owed"] = store::owed(calls, "--refine");
+    s["owed"] = store::owed(calls, false);
+    s["refines_owed"] = store::owed(calls, true);
     for key in ["owed", "refines_owed"] {
         for n in s[key]
             .as_array()

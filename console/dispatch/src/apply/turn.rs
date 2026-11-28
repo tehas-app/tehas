@@ -14,6 +14,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tehas_core::home::{Home, State};
+use tehas_core::verb::{Plans, Verb};
 
 /// The script the turn's unit runs, plan_launch's: the turn's lock held
 /// for its length, its exit status kept, and a poll asked for at its end.
@@ -64,7 +65,7 @@ impl Writer {
             _ => return false,
         };
         let tries = if text(a, "how") == "outage" { 1 } else { 3 };
-        if let Err(f) = self.store_try(tries, &["park-retry", &n.to_string()]) {
+        if let Err(f) = self.store_try(tries, &Verb::ParkRetry { issue: n }) {
             if word(&f) != "unparked" {
                 log.push(format!(
                     "WARN: {} could not be spent on record ({})",
@@ -143,7 +144,7 @@ impl Writer {
         let out = self.st(n, ".out");
         let mut turns = 0;
         let mut sid = String::new();
-        let undo: Vec<String>;
+        let undo: Verb;
         let input: PathBuf;
         // The act to raise once the mark below takes the issue: a turn that
         // gives up before it raises nothing, and the next poll's turn
@@ -171,7 +172,7 @@ impl Writer {
             };
             if self.spend == Some(n) {
                 self.spend = None;
-                if let Err(f) = self.store_try(3, &["park-retry", &n.to_string()]) {
+                if let Err(f) = self.store_try(3, &Verb::ParkRetry { issue: n }) {
                     let _ = std::fs::remove_file(&file);
                     log.push(format!(
                         "ERROR: the refine of #{n} could not be spent on record ({}), not refining it",
@@ -183,25 +184,17 @@ impl Writer {
             if let Some(line) = a.get("log").and_then(Value::as_str) {
                 log.push(line.to_string());
             }
-            let mut args: Vec<String> = vec![
-                "plan-begin".into(),
-                n.to_string(),
-                "--by".into(),
-                by.clone(),
-                "--label".into(),
-                label.clone(),
-                "--brief-file".into(),
-                file.to_string_lossy().into_owned(),
-            ];
             let auto = a
                 .get("auto")
                 .and_then(Value::as_str)
                 .is_some_and(|x| !x.is_empty());
-            if auto {
-                args.push("--auto".into());
-            }
-            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            if let Err(f) = self.calls.store(&refs) {
+            if let Err(f) = self.calls.store(&Verb::PlanBegin {
+                issue: n,
+                by: by.clone(),
+                label: label.clone(),
+                brief_file: file.to_string_lossy().into_owned(),
+                auto,
+            }) {
                 let _ = std::fs::remove_file(&file);
                 return self.go(Self::plan_refused(
                     n,
@@ -235,7 +228,7 @@ impl Writer {
             let _ = std::fs::remove_file(self.st(n, ".rc"));
             let _ = std::fs::remove_dir_all(&keep);
             self.plan_start_drop(n);
-            undo = vec!["plan-begin".into(), n.to_string(), "--undo".into()];
+            undo = Verb::PlanBeginUndo { issue: n };
             input = file;
         } else {
             // The answer goes to the store as it is; the turn is given it from
@@ -250,7 +243,7 @@ impl Writer {
             if let Some(line) = a.get("log").and_then(Value::as_str) {
                 log.push(line.to_string());
             }
-            let show = match self.calls.store(&["plan-show", &n.to_string()]) {
+            let show = match self.calls.store(&Verb::PlanShow(Plans::Issue(n))) {
                 Ok(v) => v,
                 Err(f) => {
                     let _ = std::fs::remove_file(&file);
@@ -282,21 +275,14 @@ impl Writer {
             }
             let next = (turns + 1).to_string();
             let f = file.to_string_lossy().into_owned();
-            let mut args = vec![
-                "plan-answer".to_string(),
-                n.to_string(),
-                "--turn".into(),
-                next.clone(),
-                "--by".into(),
-                by.clone(),
-                "--text-file".into(),
-                f,
-            ];
-            if !self.host.millwright.is_empty() && by == self.host.millwright {
-                args.push("--millwright".into());
-            }
-            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            let answered = self.calls.store(&refs);
+            let millwright = !self.host.millwright.is_empty() && by == self.host.millwright;
+            let answered = self.calls.store(&Verb::PlanAnswer {
+                issue: n,
+                turn: next.clone(),
+                by: by.clone(),
+                text_file: f,
+                millwright,
+            });
             let _ = std::fs::remove_file(&file);
             let answered = match answered {
                 Ok(v) => v,
@@ -309,13 +295,10 @@ impl Writer {
                     ));
                 }
             };
-            undo = vec![
-                "plan-answer".into(),
-                n.to_string(),
-                "--turn".into(),
-                next,
-                "--undo".into(),
-            ];
+            undo = Verb::PlanAnswerUndo {
+                issue: n,
+                turn: next,
+            };
             // The answer the turn is given is the one on record, with what the
             // session filed above it.
             let mut filed: Vec<&str> = answered
@@ -480,9 +463,8 @@ impl Writer {
         then
     }
 
-    fn put_back(&mut self, n: u64, undo: &[String], log: &mut Vec<String>) {
-        let refs: Vec<&str> = undo.iter().map(String::as_str).collect();
-        if let Err(f) = self.calls.store(&refs) {
+    fn put_back(&mut self, n: u64, undo: &Verb, log: &mut Vec<String>) {
+        if let Err(f) = self.calls.store(undo) {
             log.push(format!(
                 "WARN: could not put back the record of #{n} ({})",
                 word(&f)
