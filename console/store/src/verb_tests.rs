@@ -15,6 +15,20 @@ const TITLE_SHA: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 const HEAD: &str = "76543210fedcba9876543210fedcba9876543210";
 
+/// The label `plan-begin --auto` must carry. Its one owner is the table at
+/// `host/labels.tsv`, whose row of the millwright's refine mark names the
+/// word: the sample asks the table for it, so the store's test writes no
+/// label of its own (R1, T2).
+fn refine_label() -> String {
+    include_str!("../../../host/labels.tsv")
+        .lines()
+        .find_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            (f.len() == 4 && f[3] == "Act::Refine").then(|| f[0].to_string())
+        })
+        .expect("the table names the refine label")
+}
+
 /// Samples of the variants; together they cover every arm of `arm`.
 fn samples() -> Vec<Verb> {
     let s = String::from;
@@ -276,7 +290,7 @@ fn samples() -> Vec<Verb> {
         Verb::PlanBegin {
             issue: 5,
             by: s("alice"),
-            label: s("plan"),
+            label: refine_label(),
             brief_file: s("/tmp/plan-5.brief"),
             auto: true,
         },
@@ -308,10 +322,10 @@ fn samples() -> Vec<Verb> {
             issue: 5,
             at: s("1700000000"),
             by: s("alice"),
-            how: s("approved"),
+            how: s("host"),
             body_sha: s(SHA),
             input_file: s("/tmp/5.input.json"),
-            label: Some(s("ready")),
+            label: None,
             title_sha: Some(s(TITLE_SHA)),
             comment_id: Some(s("1234")),
             refresh_pr: None,
@@ -321,7 +335,7 @@ fn samples() -> Vec<Verb> {
             started: s("1700000000.5"),
             cpu_ms: s("12"),
             gh: s("3"),
-            writes_log: s("github-writes.jsonl"),
+            writes_log: s("/tmp/github-writes.jsonl"),
             starts: s("1"),
         },
         Verb::SweepLocks { dry_run: true },
