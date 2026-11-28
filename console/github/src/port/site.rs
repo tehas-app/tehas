@@ -423,8 +423,19 @@ mod tests {
     struct Sends(Arc<AtomicUsize>);
 
     impl GhRunner for Sends {
-        fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        fn run(&mut self, args: &[&str]) -> Result<String, String> {
             self.0.fetch_add(1, Ordering::SeqCst);
+            // A push remote confirms the repository first, as every write
+            // does: answer its question as the replays do, from the
+            // synthetic name.
+            if args
+                .last()
+                .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+            {
+                let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/synthetic/repository/here/name.json");
+                return std::fs::read_to_string(at).map_err(|e| e.to_string());
+            }
             Ok("{}".into())
         }
         fn run_input(&mut self, _: &[&str], _: &str) -> Result<String, String> {

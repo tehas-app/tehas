@@ -113,7 +113,7 @@ Search is slow.' 'Faster search|Descriptor: what the issue is
   t_eq "$(jq -c '[.clear, .question.options[].label]' "$T/out.json")" '[null]'
   t_contains "$(jq -r .question.question "$T/out.json")" "Tehas does not offer this plan as the text of an issue"
   printf 'alice chose: Update this issue\n' >"$T/answer.md"
-  t_stub gh 'printf "%s\n" "$*" >>"$T/calls/gh.args"; cat "$T/fx/view.json"'
+  t_stub gh 'case "$*" in *"{ databaseId nameWithOwner } }") exit 0 ;; esac; printf "%s\n" "$*" >>"$T/calls/gh.args"; cat "$T/fx/view.json"'
   printf '%s\n' '{"title":"search","body":"make it fast"}' >"$fx/view.json"
   rm -f "$T"/calls/*
   t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"

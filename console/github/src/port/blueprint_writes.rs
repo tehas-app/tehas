@@ -4,7 +4,9 @@
 //! (`edit_comment`). Each write is one request, sent once, never again: its
 //! title and body go as JSON on gh's standard input, never in an argument,
 //! which holds at most 128 KiB and is seen by every process on the host.
-//! `edit` and `comment` read the issue first, `edit_comment` the comment.
+//! `edit` and `comment` read the issue first, `edit_comment` the comment,
+//! and every write confirms the repository first
+//! (`GitHub::confirm_here`).
 //!
 //! Every write goes to this adapter's own repository, named by its typed
 //! number or id. `open`, `edit` and `comment` carry no marker: a write that
@@ -14,7 +16,7 @@
 //! only a comment the factory's own account wrote, known by its id.
 
 use super::named::Named;
-use super::unsupported;
+use super::{unsent, unsupported};
 use crate::{gh, markers, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -258,11 +260,13 @@ impl GitHub {
         }
     }
 
-    /// One write, its JSON on gh's standard input, sent once. A failure is
+    /// One write, its JSON on gh's standard input, sent once, after
+    /// [`GitHub::confirm_here`]. A failure is
     /// its named outcome: a 422 is GitHub refusing the input, a spent
     /// budget is the writes' pool, and a runner that sends no input sent
     /// nothing. No word of gh's answer, or of the input, is kept.
     pub(super) fn send(&mut self, method: &str, path: &str, input: &str) -> Got<String> {
+        self.confirm_here()?;
         let args = ["api", "-X", method, path, "--input", "-"];
         let e = match self.call_input("the write", &args, input) {
             Ok(out) => return Ok(out),
@@ -334,17 +338,6 @@ pub(super) fn text_revision(title: &str, body: &str) -> Option<Revision> {
 /// every read of comments gives it.
 pub(super) fn comment_revision(raw: &str) -> Revision {
     Revision::new(tehas_core::approval::body_sum(raw))
-}
-
-/// A failure of the read before a write: the write was not sent.
-pub(super) fn unsent(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Unavailable { why, .. } => Outcome::Unavailable {
-            why,
-            sent: Sent::No,
-        },
-        other => other,
-    }
 }
 
 /// `Refused(Invalid)` when a text holds one of our markers: a body never

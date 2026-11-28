@@ -75,6 +75,10 @@ impl GhRunner for Replay {
         assert_eq!(field(args, "owner"), Some("acme"));
         assert_eq!(field(args, "name"), Some("widget"));
         let query = field(args, "query").expect("a query");
+        if query.ends_with("{ databaseId nameWithOwner } }") {
+            let at = answers::at("repository", "here", "name.json");
+            return Ok(std::fs::read_to_string(at).unwrap());
+        }
         let read = if query.contains("labels(") {
             "labels"
         } else if query.contains("issueTypes(") {

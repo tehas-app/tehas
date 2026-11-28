@@ -1,7 +1,11 @@
 //! `CodeHost::remote`: where git fetches and pushes, built from the
-//! configured repository with no request, as 1.x's finish builds it
+//! configured repository, as 1.x's finish builds it
 //! (`console/cycle/src/finish/plan.rs`, `Plan::remote`):
 //! `https://github.com/<owner>/<name>.git`.
+//!
+//! A fetch asks nothing. A push remote confirms the repository first, as
+//! every write does: a name under another owner gets no remote to push to,
+//! and its only call is the question.
 //!
 //! The remote carries no credential, in its text or beside it: the adapter
 //! obtains and keeps none, and git authenticates a push as it does today,
@@ -15,13 +19,19 @@ impl GitHub {
     /// The https remote of this repository, for either access, but a push
     /// through a fetch-only handle is `Forbidden`. A name that
     /// is not exactly `owner/name` of GitHub's characters is
-    /// `Refused(Invalid)`.
-    pub(super) fn git_remote(&self, access: Access) -> Got<Remote> {
+    /// `Refused(Invalid)`, asked of nothing. A remote for a push confirms
+    /// the repository first: under another owner it is refused, and no push
+    /// is offered.
+    pub(super) fn git_remote(&mut self, access: Access) -> Got<Remote> {
         match access {
             Access::Push if self.fetch_only => return Err(Outcome::Forbidden),
             Access::Fetch | Access::Push => {}
         }
         let (owner, name) = parts(&self.repo).ok_or(Outcome::Refused(Refusal::Invalid))?;
+        let (owner, name) = (owner.to_string(), name.to_string());
+        if access == Access::Push {
+            self.confirm_here()?;
+        }
         let url = GitRemote::new(format!("https://github.com/{owner}/{name}.git"))
             .map_err(|_| Outcome::Unread(Unread::Malformed))?;
         Ok(Remote::new(url))

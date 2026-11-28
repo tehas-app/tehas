@@ -58,7 +58,9 @@ impl Replay {
             ["api", "-X", "PATCH", _, "--input", "-"] => "rename",
             ["api", "graphql", ..] => {
                 let query = field(args, "query").expect("a query");
-                if query.contains("label(name: $label)") {
+                if query.ends_with("{ databaseId nameWithOwner } }") {
+                    "name"
+                } else if query.contains("label(name: $label)") {
                     assert_eq!(field(args, "owner"), Some("acme"));
                     assert_eq!(field(args, "name"), Some("widget"));
                     "label"
@@ -82,6 +84,10 @@ impl GhRunner for Replay {
             .unwrap()
             .push(args.iter().map(|a| a.to_string()).collect());
         let name = Self::name(args);
+        if name == "name" {
+            let at = answers::at("repository", "here", "name.json");
+            return Ok(std::fs::read_to_string(at).unwrap());
+        }
         if let Some(out) = self.read(&format!("{name}.json")) {
             if name == "create" || name == "rename" {
                 self.made = true;
@@ -160,11 +166,12 @@ fn the_law_holds_on_the_recording() {
         laws::marks::prepare_one_makes_the_mark_held(&mut gh, &ESCALATED),
         Ok(())
     );
-    // The marks, the label read and made, the marks, the label read again
-    // and right; the project's own mark asks nothing.
+    // The marks, the label read, the repository's name asked once and the
+    // label made, the marks, the label read again and right; the project's
+    // own mark asks nothing.
     assert_eq!(
         calls(&asked),
-        ["labels", "label", "create", "labels", "label"]
+        ["labels", "label", "name", "create", "labels", "label"]
     );
 }
 
@@ -172,11 +179,11 @@ fn the_law_holds_on_the_recording() {
 fn a_missing_label_is_made_as_prepare_makes_it() {
     let (mut gh, asked) = adapter("missing");
     assert_eq!(gh.prepare_one(&ESCALATED), Ok(()));
+    assert_eq!(calls(&asked), ["label", "name", "create"]);
     let asked = asked.lock().unwrap();
-    assert_eq!(asked.len(), 2);
     let read: Vec<&str> = asked[0].iter().map(String::as_str).collect();
     assert_eq!(field(&read, "label"), Some("tehas:millwright-escalated"));
-    assert_eq!(asked[1].join(" "), the_write());
+    assert_eq!(asked[2].join(" "), the_write());
 }
 
 #[test]
@@ -184,9 +191,8 @@ fn a_label_with_another_colour_or_text_is_brought_back() {
     for state in ["wrong-colour", "wrong-text", "no-text"] {
         let (mut gh, asked) = adapter(state);
         assert_eq!(gh.prepare_one(&ESCALATED), Ok(()), "{state}");
-        let asked = asked.lock().unwrap();
-        assert_eq!(asked.len(), 2, "{state}");
-        assert_eq!(asked[1].join(" "), the_write(), "{state}");
+        assert_eq!(calls(&asked), ["label", "name", "create"], "{state}");
+        assert_eq!(asked.lock().unwrap()[2].join(" "), the_write(), "{state}");
     }
 }
 
@@ -194,9 +200,9 @@ fn a_label_with_another_colour_or_text_is_brought_back() {
 fn a_label_named_in_another_case_is_renamed_in_one_write_and_then_left() {
     let (mut gh, asked, input) = adapter_input("other-case");
     assert_eq!(gh.prepare_one(&ESCALATED), Ok(()));
-    assert_eq!(calls(&asked), ["label", "rename"]);
+    assert_eq!(calls(&asked), ["label", "name", "rename"]);
     assert_eq!(
-        asked.lock().unwrap()[1],
+        asked.lock().unwrap()[2],
         [
             "api",
             "-X",
@@ -217,7 +223,7 @@ fn a_label_named_in_another_case_is_renamed_in_one_write_and_then_left() {
     );
     // The second call finds the label right and writes nothing.
     assert_eq!(gh.prepare_one(&ESCALATED), Ok(()));
-    assert_eq!(calls(&asked), ["label", "rename", "label"]);
+    assert_eq!(calls(&asked), ["label", "name", "rename", "label"]);
 }
 
 #[test]
@@ -229,7 +235,7 @@ fn a_rename_that_fails_is_its_outcome() {
                 pool: Pool::Writes,
                 until: At::new(replay_now() + 60),
             }),
-            vec!["label", "rename"]
+            vec!["label", "name", "rename"]
         )
     );
 }
@@ -287,7 +293,7 @@ fn a_failure_is_its_outcome_and_nothing_is_written_after_a_failed_read() {
     }
     assert_eq!(
         prepare("create-fails"),
-        (Err(Outcome::Forbidden), vec!["label", "create"])
+        (Err(Outcome::Forbidden), vec!["label", "name", "create"])
     );
 }
 

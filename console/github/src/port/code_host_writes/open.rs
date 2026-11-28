@@ -4,7 +4,10 @@
 //! The open pull requests of the head are read first,
 //! `repos/<repo>/pulls?state=open&head=<owner>:<branch>`: one there is
 //! `Refused(Exists)` with nothing sent, as the fake answers, so a change is
-//! never opened twice. Then one `POST repos/<repo>/pulls`, its title, head,
+//! never opened twice. Then the repository is confirmed
+//! (`GitHub::confirm_here`): one that is not this project's is
+//! `Unread(Inconsistent)` with nothing sent. Then one
+//! `POST repos/<repo>/pulls`, its title, head,
 //! base, body and `draft` as JSON on gh's standard input, sent once, never
 //! again.
 //!
@@ -38,7 +41,8 @@
 //! id (`GitHub::as_here`).
 
 use super::super::named::Named;
-use super::{project, unsent};
+use super::super::unsent;
+use super::project;
 use crate::forge::uri;
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
@@ -62,6 +66,7 @@ impl GitHub {
         if !before.is_empty() {
             return Err(Outcome::Refused(Refusal::Exists));
         }
+        self.confirm_here()?;
         let input = serde_json::json!({
             "title": new.title,
             "head": head,
