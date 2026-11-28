@@ -39,10 +39,10 @@ fn console_bin() -> PathBuf {
         return found;
     }
     BUILT.call_once(|| {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        let target = std::env::var_os("CARGO_TARGET_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"));
+        // The workspace manifest, and no --target-dir: cargo then builds the
+        // console into the target of this build, which is where `above`
+        // looks for it, with or without CARGO_TARGET_DIR set.
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
         let out = Command::new("cargo")
             .args([
                 "build",
@@ -52,8 +52,6 @@ fn console_bin() -> PathBuf {
                 "--manifest-path",
             ])
             .arg(&manifest)
-            .arg("--target-dir")
-            .arg(&target)
             .args(["-p", "console"])
             .args((!cfg!(debug_assertions)).then_some("--release"))
             .output()
