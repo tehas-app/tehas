@@ -60,9 +60,10 @@
 //! - docs/version.txt (install.sh): one line, "vX.Y.Z+<sha7>" or "<sha7>".
 //!   `analytics plan` reads it too.
 
+use crate::loose::{Loose, Many, Node};
 use regex::Regex;
 use rusqlite::{params, Connection};
-use serde_json::{Map, Value};
+use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
@@ -233,22 +234,182 @@ const MAX_LEAN_FILE: u64 = 256 << 10;
 /// when there is no file, or one this reads no step from.
 pub fn lean_steps(home: &Path, issue: i64) -> Option<Vec<String>> {
     let p = Home::new(home).cycle_note(issue as u64, Note::LeanState);
-    let v = read_json_of(&p, MAX_LEAN_FILE)?;
-    let out: Vec<String> = v
-        .get("steps")?
-        .as_array()?
+    let state = read_json_of::<Loose<LeanState>>(&p, MAX_LEAN_FILE)?.0?;
+    let out: Vec<String> = state
+        .steps
+        .items()
         .iter()
-        .filter_map(Value::as_object)
-        .filter_map(|s| word(s, "state", 40))
+        .filter_map(|s| word(&s.state, 40))
         .take(MAX_LEAN_STEPS)
         .collect();
     (!out.is_empty()).then_some(out)
 }
 
-/// The facts file, read as a host file is: a JSON value, not through a link,
-/// bounded. None when it is not there or not of that shape.
-pub(crate) fn read_facts(given: Option<&Path>) -> Option<Value> {
+/// The facts file, read as a host file is: JSON of the shape `T`, not
+/// through a link, bounded. None when it is not there or not of that shape.
+pub(crate) fn read_facts<T: serde::de::DeserializeOwned>(given: Option<&Path>) -> Option<T> {
     read_json(given?)
+}
+
+/// The facts of a run, as tehas-cycle writes them for the call. Each field
+/// is [`Loose`] or [`Node`]: a field of another shape reads as nothing, and
+/// the run is recorded without it, as every reader here has always done.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct Facts {
+    line: Node<HistoryLine>,
+    attempt: Loose<i64>,
+    approval: Node<Approval>,
+    settings: Node<Settings>,
+    rukas: Loose<String>,
+}
+
+/// The last line of tehas's history of the run. Its keys are snake_case,
+/// as the line is written.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct HistoryLine {
+    at: Loose<String>,
+    started: Loose<i64>,
+    rc: Loose<i64>,
+    status: Loose<String>,
+    step: Loose<String>,
+    cap: Loose<String>,
+    park_reason: Loose<String>,
+    failure_kind: Loose<String>,
+    failure_cause: Loose<String>,
+    provider: Loose<bool>,
+    parked: Loose<bool>,
+    pr: Loose<String>,
+    how: Loose<String>,
+}
+
+/// The approval the run started on.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct Approval {
+    at: Loose<String>,
+    how: Loose<String>,
+    driver: Loose<String>,
+}
+
+/// The settings tehas-cycle snapshotted for the run.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct Settings {
+    container: Loose<BTreeMap<String, Loose<String>>>,
+    #[serde(rename = "concurrentCycles")]
+    concurrent_cycles: Loose<i64>,
+}
+
+/// The headless runner's raw result, of the schema this reads.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ResultDoc {
+    schema_version: Loose<i64>,
+    build_version: Loose<String>,
+    build_commit: Loose<String>,
+    exit_code: Loose<i64>,
+    issues: Many<ResultIssue>,
+}
+
+/// One issue's entry of the result.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ResultIssue {
+    issue: Loose<i64>,
+    status: Loose<String>,
+    exit_code: Loose<i64>,
+    duration_ms: Loose<i64>,
+    failed_step: Loose<String>,
+    cap: Loose<String>,
+    park_reason: Loose<String>,
+    failure: Node<Failure>,
+    usage: Node<UsageRow>,
+    driver: Loose<String>,
+    steps: Many<EntryStep>,
+}
+
+/// The runner's usage of a run or a role, and the roles under a run: the
+/// same counts, named the same, at both depths.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct UsageRow {
+    role: Loose<String>,
+    dispatches: Loose<i64>,
+    turns: Loose<i64>,
+    input: Loose<i64>,
+    output: Loose<i64>,
+    cache_read: Loose<i64>,
+    cache_write: Loose<i64>,
+    ms: Loose<i64>,
+    duration_ms: Loose<i64>,
+    tool_calls: Loose<i64>,
+    tool_errors: Loose<i64>,
+    by_role: Loose<BTreeMap<String, Node<UsageRow>>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct Failure {
+    kind: Loose<String>,
+    cause: Loose<String>,
+}
+
+/// One step as the result gives it.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct EntryStep {
+    step: Loose<String>,
+    started_at: Loose<String>,
+    ended_at: Loose<String>,
+}
+
+/// The progress summary tehas-cycle leaves beside the result.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct ProgressFile {
+    roles: Many<UsageRow>,
+    review_held: Loose<bool>,
+}
+
+/// The driver's own record of a lean run.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct LeanState {
+    steps: Many<LeanStep>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct LeanStep {
+    state: Loose<String>,
+}
+
+/// One line of the cycle's progress stream.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct StreamLine {
+    v: Loose<i64>,
+    unstable: Loose<bool>,
+    kind: Loose<String>,
+    issue: Loose<i64>,
+    event: Node<StreamEvent>,
+}
+
+/// The event of a stable line. `target.kind` is the key the runner names
+/// the gate's tier by; `tier` is the word a runner may answer with instead.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct StreamEvent {
+    step: Loose<String>,
+    at: Loose<i64>,
+    ms: Loose<i64>,
+    command: Loose<String>,
+    #[serde(rename = "target.kind")]
+    target_kind: Loose<String>,
+    tier: Loose<String>,
+    ok: Loose<bool>,
 }
 
 /// Reads the run of `issue` that ended last. Err when its facts cannot be
@@ -257,120 +418,92 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     let cycles = Home::new(home);
     let note = |n: Note| cycles.cycle_note(issue as u64, n);
 
-    let facts = read_facts(given.facts.as_deref())
-        .and_then(|f| match f {
-            Value::Object(o) => Some(o),
-            _ => None,
-        })
+    let facts = read_facts::<Loose<Facts>>(given.facts.as_deref())
+        .and_then(|f| f.0)
         .ok_or_else(|| format!("no facts of the run of issue {issue}, so no run to record"))?;
     let last = facts
-        .get("line")
-        .and_then(Value::as_object)
+        .line
+        .into_object()
         .ok_or_else(|| format!("no history of issue {issue}, so no run to record"))?;
     let started = last
-        .get("started")
-        .and_then(Value::as_i64)
-        .filter(|s| *s > 0)
+        .started
+        .get()
+        .filter(|s| **s > 0)
+        .copied()
         .ok_or_else(|| format!("the last history line of issue {issue} has no start"))?;
 
     let mut run = Run {
         id: format!("work-{issue}-{started}"),
         issue,
         started,
-        attempt: facts
-            .get("attempt")
-            .and_then(Value::as_i64)
-            .filter(|n| *n > 0),
+        attempt: facts.attempt.get().filter(|n| **n > 0).copied(),
         ..Run::default()
     };
-    run.ended = text(last, "at")
+    run.ended = text(&last.at)
         .and_then(|at| iso_ms(&at))
         .map(|ms| ms / 1000);
     run.seconds = run.ended.map(|e| (e - started).max(0));
-    run.status = word(last, "status", 40);
-    run.exit_code = last.get("rc").and_then(Value::as_i64);
-    run.last_step = word(last, "step", 80).filter(|s| s != "-");
-    run.cap = word(last, "cap", 80);
-    run.park_reason = word(last, "park_reason", 40);
-    run.failure_kind = word(last, "failure_kind", 40);
-    run.failure_cause = text(last, "failure_cause").map(|c| cause(&c));
-    run.provider_outage = last.get("provider").and_then(Value::as_bool);
-    run.pr = text(last, "pr").and_then(|u| pr_number(&u));
-    run.how = word(last, "how", 40);
-    let parked = last.get("parked").and_then(Value::as_bool).unwrap_or(false);
+    run.status = word(&last.status, 40);
+    run.exit_code = last.rc.0;
+    run.last_step = word(&last.step, 80).filter(|s| s != "-");
+    run.cap = word(&last.cap, 80);
+    run.park_reason = word(&last.park_reason, 40);
+    run.failure_kind = word(&last.failure_kind, 40);
+    run.failure_cause = text(&last.failure_cause).map(|c| cause(&c));
+    run.provider_outage = last.provider.0;
+    run.pr = text(&last.pr).and_then(|u| pr_number(&u));
+    run.how = word(&last.how, 40);
+    let parked = last.parked.0.unwrap_or(false);
 
-    if let Some(approved) = facts.get("approval").and_then(Value::as_object) {
-        if let Some(how) = word(approved, "how", 40) {
+    if let Some(approved) = facts.approval.object() {
+        if let Some(how) = word(&approved.how, 40) {
             run.how = Some(how);
         }
-        if let Some(at) = approved.get("at").and_then(Value::as_str).and_then(iso_ms) {
+        if let Some(at) = approved.at.get().and_then(|at| iso_ms(at)) {
             let wait = started - at / 1000;
             run.queue_wait = (wait >= 0).then_some(wait);
         }
         // The whole value, not `word`: that strips "le an" down to a driver.
         run.driver = approved
-            .get("driver")
-            .and_then(Value::as_str)
-            .filter(|d| DRIVERS.contains(d))
-            .map(str::to_string);
+            .driver
+            .0
+            .clone()
+            .filter(|d| DRIVERS.contains(&d.as_str()));
     }
 
-    let result = read_json(&note(Note::Result));
-    let schema = result
-        .as_ref()
-        .and_then(|r| r.get("schemaVersion"))
-        .and_then(Value::as_i64);
+    let result = read_json::<Loose<ResultDoc>>(&note(Note::Result)).and_then(|r| r.0);
+    let schema = result.as_ref().and_then(|r| r.schema_version.0);
     let result = result.filter(|_| schema.is_some_and(|s| RESULT_SCHEMAS.contains(&s)));
-    let entry = result.as_ref().and_then(|r| {
-        r.get("issues")?
-            .as_array()?
-            .iter()
-            .find(|e| e.get("issue").and_then(Value::as_i64) == Some(issue))
-            .and_then(Value::as_object)
-    });
+    let entry = result
+        .as_ref()
+        .and_then(|r| r.issues.items().iter().find(|e| e.issue.0 == Some(issue)));
     if let Some(r) = &result {
         run.result_schema = schema;
-        run.rukas_version = r
-            .get("buildVersion")
-            .and_then(Value::as_str)
-            .and_then(plain40);
-        run.rukas_commit = r
-            .get("buildCommit")
-            .and_then(Value::as_str)
-            .filter(|c| is_hex(c, 7, 40))
-            .map(str::to_string);
+        run.rukas_version = r.build_version.get().and_then(|v| plain40(v));
+        run.rukas_commit = r.build_commit.get().filter(|c| is_hex(c, 7, 40)).cloned();
         if run.exit_code.is_none() {
-            run.exit_code = r.get("exitCode").and_then(Value::as_i64);
+            run.exit_code = r.exit_code.0;
         }
     }
     if let Some(e) = entry {
         read_entry(&mut run, e);
     }
 
-    let progress = read_json(&note(Note::Progress));
+    let progress = read_json::<Loose<ProgressFile>>(&note(Note::Progress)).and_then(|p| p.0);
     if let Some(p) = &progress {
-        run.review_held = p.get("reviewHeld").and_then(Value::as_bool);
+        run.review_held = p.review_held.0;
     }
-    let settings = facts.get("settings");
-    let container = settings
-        .and_then(|s| s.get("container"))
-        .and_then(Value::as_object);
-    if let Some(n) = settings
-        .and_then(|s| s.get("concurrentCycles"))
-        .and_then(Value::as_i64)
-    {
+    let container = facts.settings.object().and_then(|s| s.container.get());
+    if let Some(n) = facts.settings.object().and_then(|s| s.concurrent_cycles.0) {
         run.concurrent = Some((n - 1).max(0));
     }
     if run.roles.is_empty() {
-        if let Some(roles) = progress
-            .as_ref()
-            .and_then(|p| p.get("roles"))
-            .and_then(Value::as_array)
-        {
-            run.roles = roles
+        if let Some(p) = &progress {
+            run.roles = p
+                .roles
+                .items()
                 .iter()
-                .filter_map(Value::as_object)
-                .filter_map(|r| role(word(r, "role", 80)?, r))
+                .filter_map(|r| word(&r.role, 80).map(|name| role(name, r)))
                 .collect();
         }
     }
@@ -390,8 +523,8 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
             container.and_then(|c| {
                 c.get(&format!("{own}{suffix}"))
                     .or_else(|| c.get(all))
-                    .and_then(Value::as_str)
-                    .and_then(plain_model)
+                    .and_then(|v| v.get())
+                    .and_then(|s| plain_model(s))
             })
         };
         r.model = pick("PI_ENSEMBLE_MODEL_", "PI_ENSEMBLE_SUBAGENT_MODEL");
@@ -402,9 +535,9 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     if run.rukas_commit.is_none() {
         run.rukas_commit = given.rukas_image.clone().or_else(|| {
             facts
-                .get("rukas")
-                .and_then(Value::as_str)
-                .map(str::trim)
+                .rukas
+                .get()
+                .map(|c| c.trim())
                 .filter(|c| is_hex(c, 7, 40))
                 .map(str::to_string)
         });
@@ -484,95 +617,90 @@ pub fn tehas_version(home: &Path) -> (Option<String>, Option<String>) {
 }
 
 /// The issue's entry of the result: what `tehas-cycle runner outcome` drops too.
-fn read_entry(run: &mut Run, e: &Map<String, Value>) {
+fn read_entry(run: &mut Run, e: &ResultIssue) {
     if run.status.is_none() || run.status.as_deref() == Some("unknown") {
-        run.status = word(e, "status", 40).or(run.status.take());
+        run.status = word(&e.status, 40).or(run.status.take());
     }
-    if let Some(code) = e.get("exitCode").and_then(Value::as_i64) {
+    if let Some(code) = e.exit_code.0 {
         run.exit_code = Some(code);
     }
-    run.runner_ms = e
-        .get("durationMs")
-        .and_then(Value::as_i64)
-        .filter(|n| *n >= 0);
-    run.failed_step = word(e, "failedStep", 80);
+    run.runner_ms = e.duration_ms.whole();
+    run.failed_step = word(&e.failed_step, 80);
     if run.cap.is_none() {
-        run.cap = word(e, "cap", 80);
+        run.cap = word(&e.cap, 80);
     }
     if run.park_reason.is_none() {
-        run.park_reason = word(e, "parkReason", 40);
+        run.park_reason = word(&e.park_reason, 40);
     }
-    if let Some(f) = e.get("failure").and_then(Value::as_object) {
+    if let Some(f) = e.failure.object() {
         if run.failure_kind.is_none() {
-            run.failure_kind = word(f, "kind", 40);
+            run.failure_kind = word(&f.kind, 40);
         }
         // The history's cause is reduced already; the raw one only without it.
         if run.failure_cause.is_none() {
-            run.failure_cause = text(f, "cause").map(|c| cause(&c));
+            run.failure_cause = text(&f.cause).map(|c| cause(&c));
         }
     }
-    if let Some(u) = e.get("usage").and_then(Value::as_object) {
-        run.input = number(u, "input");
-        run.output = number(u, "output");
-        run.cache_read = number(u, "cacheRead");
-        run.cache_write = number(u, "cacheWrite");
-        run.turns = number(u, "turns");
-        run.dispatches = number(u, "dispatches");
-        run.tool_calls = number(u, "toolCalls");
-        run.tool_errors = number(u, "toolErrors");
-        if let Some(by) = u.get("byRole").and_then(Value::as_object) {
+    if let Some(u) = e.usage.object() {
+        run.input = u.input.whole();
+        run.output = u.output.whole();
+        run.cache_read = u.cache_read.whole();
+        run.cache_write = u.cache_write.whole();
+        run.turns = u.turns.whole();
+        run.dispatches = u.dispatches.whole();
+        run.tool_calls = u.tool_calls.whole();
+        run.tool_errors = u.tool_errors.whole();
+        if let Some(by) = u.by_role.get() {
             run.roles = by
                 .iter()
                 .filter_map(|(name, v)| {
                     let name = plain(name, 80).unwrap_or_else(|| "driver".to_string());
-                    role(name, v.as_object()?)
+                    Some(role(name, v.object()?))
                 })
                 .collect();
         }
     }
     run.result_driver = e
-        .get("driver")
-        .and_then(Value::as_str)
-        .filter(|d| DRIVERS.contains(d))
-        .map(str::to_string);
-    if let Some(steps) = e.get("steps").and_then(Value::as_array) {
-        let mut seen: Vec<String> = Vec::new();
-        for s in steps.iter().filter_map(Value::as_object) {
-            let Some(name) = word(s, "step", 80) else {
-                continue;
-            };
-            seen.push(name.clone());
-            let round = seen.iter().filter(|n| **n == name).count() as i64;
-            let from = text(s, "startedAt").and_then(|t| iso_ms(&t));
-            let to = text(s, "endedAt").and_then(|t| iso_ms(&t));
-            run.steps.push(Step {
-                step: name,
-                round,
-                started: from.map(|ms| ms / 1000),
-                ended: to.map(|ms| ms / 1000),
-                seconds: from.zip(to).map(|(a, b)| ((b - a) / 1000).max(0)),
-            });
-        }
-        if let Some(last) = run.steps.last() {
-            run.last_step = Some(last.step.clone());
-        }
+        .driver
+        .0
+        .clone()
+        .filter(|d| DRIVERS.contains(&d.as_str()));
+    let mut seen: Vec<String> = Vec::new();
+    for s in e.steps.items() {
+        let Some(name) = word(&s.step, 80) else {
+            continue;
+        };
+        seen.push(name.clone());
+        let round = seen.iter().filter(|n| **n == name).count() as i64;
+        let from = text(&s.started_at).and_then(|t| iso_ms(&t));
+        let to = text(&s.ended_at).and_then(|t| iso_ms(&t));
+        run.steps.push(Step {
+            step: name,
+            round,
+            started: from.map(|ms| ms / 1000),
+            ended: to.map(|ms| ms / 1000),
+            seconds: from.zip(to).map(|(a, b)| ((b - a) / 1000).max(0)),
+        });
+    }
+    if let Some(last) = run.steps.last() {
+        run.last_step = Some(last.step.clone());
     }
 }
 
-fn role(name: String, r: &Map<String, Value>) -> Option<Role> {
-    Some(Role {
+fn role(name: String, r: &UsageRow) -> Role {
+    Role {
         role: name,
-        dispatches: number(r, "dispatches"),
-        turns: number(r, "turns"),
-        input: number(r, "input"),
-        output: number(r, "output"),
-        cache_read: number(r, "cacheRead"),
-        cache_write: number(r, "cacheWrite"),
-        ms: number(r, "ms").or_else(|| number(r, "durationMs")),
-        tool_calls: number(r, "toolCalls"),
-        tool_errors: number(r, "toolErrors"),
+        dispatches: r.dispatches.whole(),
+        turns: r.turns.whole(),
+        input: r.input.whole(),
+        output: r.output.whole(),
+        cache_read: r.cache_read.whole(),
+        cache_write: r.cache_write.whole(),
+        ms: r.ms.whole().or_else(|| r.duration_ms.whole()),
+        tool_calls: r.tool_calls.whole(),
+        tool_errors: r.tool_errors.whole(),
         ..Role::default()
-    })
+    }
 }
 
 impl Run {
@@ -718,27 +846,23 @@ fn stream_lines(log: &Path, issue: i64, ended: Option<i64>) -> (Vec<Step>, Vec<G
         if !(line.contains("step-started") || line.contains("verify-completed")) {
             continue;
         }
-        let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&line) else {
+        let Ok(line) = serde_json::from_str::<StreamLine>(&line) else {
             continue;
         };
-        let stable = o.get("v").and_then(Value::as_i64) == Some(1)
-            && !o.get("unstable").and_then(Value::as_bool).unwrap_or(false);
-        let kind = o.get("kind").and_then(Value::as_str);
+        let stable = line.v.0 == Some(1) && !line.unstable.0.unwrap_or(false);
+        let kind = line.kind.0.as_deref();
         if !stable || (kind != Some("step-started") && kind != Some("verify-completed")) {
             continue;
         }
-        if o.get("issue")
-            .and_then(Value::as_i64)
-            .is_some_and(|n| n != issue)
-        {
+        if line.issue.0.is_some_and(|n| n != issue) {
             continue;
         }
-        let Some(ev) = o.get("event").and_then(Value::as_object) else {
+        let Some(ev) = line.event.object() else {
             continue;
         };
         match kind {
             Some("step-started") => {
-                let (Some(step), Some(at)) = (word(ev, "step", 80), number(ev, "at")) else {
+                let (Some(step), Some(at)) = (word(&ev.step, 80), ev.at.whole()) else {
                     continue;
                 };
                 starts.push((step, at));
@@ -753,16 +877,16 @@ fn stream_lines(log: &Path, issue: i64, ended: Option<i64>) -> (Vec<Step>, Vec<G
                 if gates.len() >= MAX_GATE_RUNS {
                     continue;
                 }
-                let Some(ms) = bounded(ev, "ms", MAX_GATE_MS) else {
+                let Some(ms) = ev.ms.whole().filter(|n| *n <= MAX_GATE_MS) else {
                     continue;
                 };
                 gates.push(GateRun {
-                    command: word(ev, "command", 200),
-                    tier: word(ev, "target.kind", 40).or_else(|| word(ev, "tier", 40)),
-                    step: word(ev, "step", 80),
-                    ok: ev.get("ok").and_then(Value::as_bool),
+                    command: word(&ev.command, 200),
+                    tier: word(&ev.target_kind, 40).or_else(|| word(&ev.tier, 40)),
+                    step: word(&ev.step, 80),
+                    ok: ev.ok.0,
                     ms: Some(ms),
-                    at: number(ev, "at").map(|at_ms| at_ms / 1000),
+                    at: ev.at.whole().map(|at_ms| at_ms / 1000),
                 });
             }
             _ => {}
@@ -842,13 +966,13 @@ fn read_plain(p: &Path, limit: u64) -> Option<String> {
     Some(s)
 }
 
-pub(crate) fn read_json(p: &Path) -> Option<Value> {
+pub(crate) fn read_json<T: serde::de::DeserializeOwned>(p: &Path) -> Option<T> {
     read_json_of(p, MAX_FILE)
 }
 
-/// A host file read as JSON under a bound of the caller's: the same rule, for a
-/// file of its own kind of size.
-pub(crate) fn read_json_of(p: &Path, limit: u64) -> Option<Value> {
+/// A host file read as JSON of the shape `T`, under a bound of the caller's:
+/// the same rule, for a file of its own kind of size.
+pub(crate) fn read_json_of<T: serde::de::DeserializeOwned>(p: &Path, limit: u64) -> Option<T> {
     serde_json::from_str(&read_plain(p, limit)?).ok()
 }
 
@@ -858,16 +982,13 @@ fn first_line(p: &Path) -> Option<String> {
     (!line.is_empty()).then_some(line)
 }
 
-fn text(o: &Map<String, Value>, key: &str) -> Option<String> {
-    o.get(key)
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+fn text(v: &Loose<String>) -> Option<String> {
+    v.0.clone().filter(|s| !s.is_empty())
 }
 
 /// A field as a word of the published vocabularies: [A-Za-z0-9_.:-], cut.
-fn word(o: &Map<String, Value>, key: &str, max: usize) -> Option<String> {
-    plain(o.get(key)?.as_str()?, max)
+fn word(v: &Loose<String>, max: usize) -> Option<String> {
+    v.get().and_then(|s| plain(s, max))
 }
 
 fn plain(s: &str, max: usize) -> Option<String> {
@@ -890,15 +1011,6 @@ fn plain_model(s: &str) -> Option<String> {
         return Some(s.to_string());
     }
     plain(s, 80)
-}
-
-fn number(o: &Map<String, Value>, key: &str) -> Option<i64> {
-    o.get(key).and_then(Value::as_i64).filter(|n| *n >= 0)
-}
-
-/// A whole number of no more than `max`: a value above it is no figure.
-fn bounded(o: &Map<String, Value>, key: &str, max: i64) -> Option<i64> {
-    number(o, key).filter(|n| *n <= max)
 }
 
 fn pattern(p: &str) -> Regex {
