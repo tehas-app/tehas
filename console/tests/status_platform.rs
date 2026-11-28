@@ -282,11 +282,27 @@ fn release_setup(w: &World, installed: &[&str]) {
     w.store_ok(&["backup"]);
 }
 
-/// The published releases, newest first, as GitHub answers the list.
+/// The published releases, newest first, as GitHub answers the list: the
+/// whole shape the code host port's release read parses, ids and links
+/// among it.
 fn releases(w: &World, tags: &[&str]) {
     let list: Vec<Value> = tags
         .iter()
-        .map(|t| json!({"tag_name": t, "draft": false, "prerelease": false}))
+        .enumerate()
+        .map(|(i, t)| {
+            json!({
+                "id": 700 + i,
+                "tag_name": t,
+                "name": t,
+                "draft": false,
+                "prerelease": false,
+                "created_at": "2026-11-26T14:09:53Z",
+                "published_at": "2026-11-26T14:09:53Z",
+                "body": null,
+                "html_url": format!("https://github.com/tehas-app/tehas-rec-releases/releases/tag/{t}"),
+                "assets": [],
+            })
+        })
         .collect();
     w.fx("rel.json", &format!("{}\n", Value::from(list)));
 }

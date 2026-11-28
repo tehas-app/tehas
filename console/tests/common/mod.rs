@@ -22,7 +22,8 @@ use tehas_core::testing::{copy_exe, write_exe};
 /// The answers of the stub gh. One answer per search: the count is the only
 /// call that asks for a total and no nodes, so that shape tells the two apart.
 /// A file `<x>-down` makes its read fail; GH_MARK_FAILS fails a mark put on an issue and
-/// GH_AUTH is what `gh auth status` exits with.
+/// GH_AUTH makes `gh auth status` fail and the release reads exit 4, as a gh
+/// with no credential does.
 const GH: &str = r####"gh_graphql() {
   case "$1" in
     *"filterBy: {states: [CLOSED], since: "*) [ ! -e "$T/shipped-down" ] || exit 1
@@ -44,8 +45,12 @@ case "$*" in
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
   "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;
-  # The published releases of the platform; nothing until rel.json is there.
-  "api repos/"*"/releases"*) [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
+  # The published releases of the platform, read through the code host port;
+  # nothing until rel.json is there. GH_AUTH says the gh has no credential:
+  # the read then exits 4 as gh does, and the reader falls to curl.
+  "api repos/"*"/releases"*)
+    [ "${GH_AUTH:-0}" = 0 ] || { echo "Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token." >&2; exit 4; }
+    [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
 esac"####;
 
 /// The other stubs, by name: what each does after it records its call.
