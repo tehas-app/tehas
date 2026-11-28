@@ -335,25 +335,59 @@ case "$1 $2" in
         # The control issue carries the labels of $fx/control.json: they
         # hold the pause, and an answer that is no list is no answer. Its
         # state fixture answers first, as it answers `gh issue view`.
+        # The keys a whole ticket read parses are required, not optional:
+        # the body, the close time and the assignees of the issue are named
+        # even when the case wrote none.
         if [ "$n" = 1 ] && [ -e "$T/fx/issue-1.json" ]; then
-          jq -c --arg url "$url" --argjson cnt 0 '{number: 1, body: "", title: "an issue", id: 1001,
+          base=$(jq -c --arg url "$url" --argjson cnt 0 '{number: 1, body: "", title: "an issue", id: 1001,
             created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", comments: $cnt} +
-            . + {html_url: (.html_url // $url), state: ((.state // "OPEN") | ascii_upcase)}' \
-            "$T/fx/issue-1.json"
+            . + {html_url: (.html_url // $url), state: ((.state // "OPEN") | ascii_upcase),
+            closed_at: (.closed_at // null), assignees: (.assignees // [])}' \
+            "$T/fx/issue-1.json")
         elif [ "$n" = 1 ] && [ -e "$T/fx/control.json" ]; then
-          jq -c --arg url "$url" --argjson cnt 0 '{number: 1, state: "open", html_url: $url, body: "",
+          base=$(jq -c --arg url "$url" --argjson cnt 0 '{number: 1, state: "open", html_url: $url, body: "",
             title: "an issue", id: 1001, created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z", comments: $cnt} + .' "$T/fx/control.json"
+            updated_at: "2026-01-01T00:00:00Z", comments: $cnt} +
+            . + {closed_at: (.closed_at // null), assignees: (.assignees // [])}' "$T/fx/control.json")
         elif [ -e "$T/fx/work-$n.json" ]; then
-          jq -c --arg url "$url" --argjson n "$n" --argjson cnt "$cnt" 'if type == "object" then {number: $n, state: "open", title: "an issue",
+          base=$(jq -c --arg url "$url" --argjson n "$n" --argjson cnt "$cnt" 'if type == "object" then {number: $n, state: "open", title: "an issue",
             created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", labels: [], id: (1000 + $n), comments: $cnt}
-            + . + {html_url: (.html_url // $url), body: (.body // "")} else . end' \
-            "$T/fx/work-$n.json" 2>/dev/null || cat "$T/fx/work-$n.json"
+            + . + {html_url: (.html_url // $url), body: (.body // ""), closed_at: (.closed_at // null),
+            assignees: (.assignees // [])} else . end' \
+            "$T/fx/work-$n.json" 2>/dev/null || cat "$T/fx/work-$n.json")
         else
-          jq -c --argjson n "$n" --arg url "$url" --argjson cnt "$cnt" "{number: \$n, state: \"open\", html_url: \$url, body: \"\", title: \"an issue\", id: (1000 + \$n),
-            created_at: \"2026-01-01T00:00:00Z\", updated_at: \"2026-01-01T00:00:00Z\", comments: \$cnt, labels: (if any(.[]?; type == \"object\" and .number == \$n)
-            then [{name: \"tehas:running\"}] else [] end)}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"open\",\"html_url\":\"$url\",\"body\":\"\",\"title\":\"an issue\",\"id\":$((1000 + n)),\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"labels\":[],\"comments\":$cnt}"
-        fi ;;
+          # The state of a case that means a closed issue, read from the
+          # same fixture that answers `gh issue view`, lowercased to the rest
+          # shape the port reads. A closed issue that names no close time is
+          # left without one, as GitHub's read is when it has none.
+          st=$(jq -r '(.state // "open") | ascii_downcase' "$T/fx/state-$n.json" 2>/dev/null || echo open)
+          cs=$(jq -r '.closed_at // empty' "$T/fx/state-$n.json" 2>/dev/null)
+          # A case that means the marks of the issue on the ticket read
+          # writes $fx/labels-<n>.json; else the read carries the running
+          # mark when the list of marked issues names it, as before.
+          if [ -e "$T/fx/labels-$n.json" ]; then
+            lab=$(cat "$T/fx/labels-$n.json")
+          else
+            lab=$(jq -c 'if any(.[]?; type == "object" and .number == '"$n"') then [{name: "tehas:running"}] else [] end' "$T/fx/marked.json" 2>/dev/null || echo "[]")
+          fi
+          base=$(jq -c --argjson n "$n" --arg url "$url" --argjson cnt "$cnt" --arg st "$st" --arg cs "$cs" --argjson lab "$lab" "{number: \$n, state: \$st, html_url: \$url, body: \"\", title: \"an issue\", id: (1000 + \$n),
+            created_at: \"2026-01-01T00:00:00Z\", updated_at: \"2026-01-01T00:00:00Z\", comments: \$cnt, closed_at: (if \$cs == \"\" then null else \$cs end), assignees: [],
+            labels: \$lab}" "$T/fx/marked.json" 2>/dev/null || echo "{\"number\":$n,\"state\":\"$st\",\"html_url\":\"$url\",\"body\":\"\",\"title\":\"an issue\",\"id\":$((1000 + n)),\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"closed_at\":null,\"assignees\":[],\"labels\":$lab,\"comments\":$cnt}")
+        fi
+        # The whole ticket and the plain view of it are read from this one
+        # answer, so the text a case wrote as the issue's view answers the
+        # read too. Its text answers the read; its state and labels do not:
+        # the list fixtures keep what the lists say. An answer that is no
+        # object is given as written, so the read fails, as it failed the
+        # view it was made for.
+        if [ ! "$n" = 1 ] && [ -e "$T/fx/issue-$n.json" ]; then
+          if jq -e 'type == "object"' "$T/fx/issue-$n.json" >/dev/null 2>&1; then
+            base=$(jq -c --argjson base "$base" '$base + {body: (.body // $base.body), title: (.title // $base.title)}' "$T/fx/issue-$n.json")
+          else
+            base=$(cat "$T/fx/issue-$n.json")
+          fi
+        fi
+        printf '%s\n' "$base" ;;
     esac ;;
   # The check runs of a name on the head commit of the branch, and the
   # commit's statuses, as the code host adapter reads them.
