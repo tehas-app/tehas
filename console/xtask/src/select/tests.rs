@@ -55,6 +55,7 @@ const WORKSPACE: &str = r#"{"workspace_root": "/w", "packages": [
   {"name": "console", "manifest_path": "/w/Cargo.toml", "dependencies": [
     {"name": "serde_json", "kind": null},
     {"name": "tehas-core", "kind": null, "path": "/w/core"},
+    {"name": "tehas-github", "kind": null, "path": "/w/github"},
     {"name": "tehas-ops", "kind": null, "path": "/w/ops"}]},
   {"name": "tehas-ops", "manifest_path": "/w/ops/Cargo.toml", "dependencies": [
     {"name": "store", "kind": null, "path": "/w/store"},
@@ -65,6 +66,8 @@ const WORKSPACE: &str = r#"{"workspace_root": "/w", "packages": [
   {"name": "tehas-cycle", "manifest_path": "/w/cycle/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-dispatch", "manifest_path": "/w/dispatch/Cargo.toml", "dependencies": [
+    {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
+  {"name": "tehas-github", "manifest_path": "/w/github/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-mcp", "manifest_path": "/w/mcp/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
@@ -272,7 +275,7 @@ fn a_change_in_the_store_selects_what_depends_on_it_at_any_depth_of_any_kind() {
     let t = Tree::new();
     assert_eq!(
         t.pick_ws(&["console/store/src/db.rs"]),
-        "crate console\ncrate report\ncrate store\ncrate summary\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-ops"
+        "crate console\ncrate report\ncrate store\ncrate summary\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-github\ncrate tehas-ops"
     );
 }
 
@@ -289,11 +292,11 @@ fn a_crate_whose_tests_run_the_stores_program_selects_the_store_and_no_more() {
     );
     assert_eq!(
         t.pick_ws(&["console/src/main.rs"]),
-        "crate console\ncrate store\ncrate tehas-cycle\ncrate tehas-dispatch"
+        "crate console\ncrate store\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-github"
     );
     assert_eq!(
         t.pick_ws(&["console/tests/console.rs"]),
-        "crate console\ncrate store\ncrate tehas-cycle\ncrate tehas-dispatch"
+        "crate console\ncrate store\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-github"
     );
 }
 
@@ -302,7 +305,7 @@ fn a_path_in_the_operations_crate_selects_it_the_console_that_takes_it_and_the_s
     let t = Tree::new();
     assert_eq!(
         t.pick_ws(&["console/ops/src/health.rs"]),
-        "crate console\ncrate store\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-ops"
+        "crate console\ncrate store\ncrate tehas-cycle\ncrate tehas-dispatch\ncrate tehas-github\ncrate tehas-ops"
     );
     let mut v: serde_json::Value = serde_json::from_str(WORKSPACE).unwrap();
     v["packages"][0]["dependencies"]

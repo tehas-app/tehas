@@ -146,8 +146,9 @@ guards".
   `console/dispatch/src/read/run.rs`, inside the poll;
 - the read-only host, `TEHAS_READ_ONLY` (`console/core/src/read_only.rs`),
   asked by the console's shim and by git pushes;
-- the console's gh shim (`host/shim/gh`, with `console/src/gh_shim.rs` and
-  `gh_writes.rs`), under every host `gh` call;
+- the console's gh shim (`host/shim/gh`, with the adapter's
+  `console/github/src/gh_shim.rs` and `gh_writes.rs`), under every host
+  `gh` call;
 - the sandbox's gh shim (`host/sandbox/gh-shim`), in a cycle's container;
 - cycle's relay (`console/cycle/src/relay.rs`), between the container and
   the host.
@@ -502,9 +503,10 @@ The causes, per area:
   `epics.rs` 7), the label ids (`labels.rs` 6), the notice's pull
   request, the preview's pull requests and verdict, the platform's
   release list, `tehas attach` and `tehas start`'s issue read. The
-  console's own security shim, `gh_shim.rs` (18 and 7), which decides
-  whether a gh call writes: the plan keeps the shims where they are
-  unless the owner agrees to merge them (T4). tehas's own `--json` flag,
+  console's own security shim, `gh_shim.rs` (18 and 7), which decided
+  whether a gh call writes: the owner agreed to the merge (T4), and
+  TF-B52's plan PR 14 moved it and `gh_writes.rs` into the adapter, so
+  those counts are gone. tehas's own `--json` flag,
   kept until the end of T4 (Decided 72). And its tests that stub gh with
   GitHub's JSON, not yet on the ports' fakes (`status_summary.rs` 19,
   `status.rs` 12, `status_health.rs`, `status_analytics.rs`,
@@ -649,7 +651,8 @@ read outside the adapter to classify a failure, and most of the count is
 the tests of that reading: core's retry and fault classifiers
 (`retry.rs` 53, `end_fault.rs` 27), dispatch's auto finish and its tests
 (`auto_finish.rs` 14, `dispatch_auto_finish.rs` 11), the console's
-security shim (`gh_shim.rs` 15) and status (`status.rs` 8), cycle's
+security shim (`gh_shim.rs` 15, gone into the adapter with TF-B52's
+plan PR 14) and status (`status.rs` 8), cycle's
 failed end and supervise. The journal's 5 went in #3265. T4 turns them
 into the ports' named outcomes, read in the adapter. End: T4's
 remaining lane, before the beta.
