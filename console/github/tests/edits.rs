@@ -15,13 +15,14 @@
 mod answers;
 
 use serde_json::{json, Value};
+use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_github::GitHub;
 use tehas_ports::laws;
 use tehas_ports::{
-    At, BlueprintNo, Blueprints, Bound, CommentId, Edit, Got, Marker, Outcome, Passing, Pool, Sent,
-    Unread, Whole, ALL_MAX,
+    At, BlueprintNo, Blueprints, Bound, CommentId, Edit, Got, KeyText, Marker, Outcome, Passing,
+    Pool, Refusal, Sent, TicketKey, Tickets, Unread, Whole, Window, ALL_MAX,
 };
 
 const PROJECT: &str = "acme/widget";
@@ -649,4 +650,66 @@ fn the_edits_are_read_by_the_one_reader_of_several() {
         gh.comment_edits_of(&[cid(EDITED)], ALL_MAX)[0].1,
         inconsistent()
     );
+}
+
+/// `Tickets::notes` of a number answers the issue's comments: an issue and
+/// its blueprint are the one item here, so the notes read the same pages
+/// `Blueprints::comments` reads, and `note_edits` is the one-comment read
+/// `comment_edits` is.
+#[test]
+fn notes_are_the_issue_comments_and_note_edits_the_comment_history() {
+    let (mut gh, asked) = adapter("site");
+    let key = TicketKey::Number(7.try_into().unwrap());
+    let notes = gh.notes(&key, Window::Whole(ALL_MAX)).unwrap();
+    let mut other = adapter("site").0;
+    let comments = other.comments(bp(7), ALL_MAX).unwrap();
+    assert_eq!(notes.items.len(), 2, "{notes:?}");
+    assert_eq!(notes.items, comments.items());
+    let mine = gh.note_edits(&cid(EDITED), ALL_MAX).unwrap();
+    let theirs = other.comment_edits(&cid(EDITED), ALL_MAX).unwrap();
+    assert_eq!(
+        mine.items()
+            .iter()
+            .map(|e| e.after.clone())
+            .collect::<Vec<_>>(),
+        ["Which page?", "Which page, the settings or the help?"]
+    );
+    assert_eq!(mine.items(), theirs.items());
+    // The notes' own question carries its markers apart, as the comment
+    // read gives them.
+    assert!(
+        notes
+            .items
+            .iter()
+            .any(|c| !c.markers.is_empty() && !c.body.as_str().contains("<!--")),
+        "the markers stand apart from the body: {:?}",
+        notes.items
+    );
+    // The notes of a `Window::Last` hold the newest alone, oldest first.
+    let last = gh
+        .notes(&key, Window::Last(NonZeroU32::new(1).unwrap()))
+        .unwrap();
+    assert_eq!(last.items.len(), 1);
+    assert_eq!(last.items[0].id, comments.items()[1].id);
+    let _ = asked;
+}
+
+/// A key no number and an id no REST id are refused without a request:
+/// the notes of a keyed ticket, and the history of an id GitHub could not
+/// find by REST.
+#[test]
+fn notes_answer_only_a_number_and_note_edits_only_a_plain_id() {
+    let (mut gh, asked) = adapter("site");
+    let key = TicketKey::Key(KeyText::new("ABC-1").unwrap());
+    assert_eq!(
+        gh.notes(&key, Window::Whole(ALL_MAX)),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+    assert_eq!(
+        gh.note_edits(&CommentId::new("no-such-comment"), ALL_MAX)
+            .map(drop),
+        Err(Outcome::NotFound)
+    );
+    assert!(questions(&asked).is_empty(), "{:?}", questions(&asked));
+    assert_eq!(rest_reads(&asked), 0);
 }

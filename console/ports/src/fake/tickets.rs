@@ -7,7 +7,7 @@ use super::site::{
     comments_of, digest, edit_markers, first, known_mark, list_order, matches, revision, text_of,
     whole, whole_kept, window, writable, Ctx, Handle,
 };
-use super::state::{ItemRec, Layout, State};
+use super::state::{nz, split_key, ItemRec, Layout, State};
 use crate::{
     AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeDigest, ChangeState, ChangeToken,
     CloseReason, Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed,
@@ -20,6 +20,14 @@ use crate::{
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
     s.ticket_at(key).ok_or(Outcome::NotFound)
+}
+
+/// Does the world refuse the comments of this ticket (`World::fail_comments`)?
+/// The same refusal the blueprints port gives its comments.
+fn comments_broken(s: &State, key: &TicketKey) -> bool {
+    s.broken_comments
+        .iter()
+        .any(|n| TicketKey::Number(nz(*n)) == *key || split_key(*n) == *key)
 }
 
 fn open_of(s: &State, key: &TicketKey) -> bool {
@@ -375,6 +383,12 @@ impl Tickets for Handle {
     fn notes(&mut self, key: &TicketKey, w: Window) -> Got<Took<Comment>> {
         self.run(Pool::Calls, |s, _| {
             let at = at_ticket(s, key)?;
+            if comments_broken(s, key) {
+                return Err(Outcome::Unavailable {
+                    why: crate::Passing::Server,
+                    sent: crate::Sent::Maybe,
+                });
+            }
             window(&notes_of(s, at), w)
         })
     }
@@ -667,7 +681,9 @@ fn note(
     writable(markers)?;
     let at = at_ticket(s, key)?;
     let author = Some(ctx.me(s));
-    let id = s.new_comment(author, body, markers.to_vec(), ctx.now);
+    let held = markers.to_vec();
+    let raw = held.is_empty().then(|| body.to_string());
+    let id = s.new_comment(author, body, held, raw, ctx.now);
     s.items[at].comments.push(id.clone());
     s.touch(at, ctx.now);
     ctx.wrote(

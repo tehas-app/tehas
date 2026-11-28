@@ -17,6 +17,7 @@ use serde_json::{json, Map, Value};
 use tehas_core::driver::Driver;
 use tehas_core::question::{q_clean, q_render, Kind};
 use tehas_core::text::disarm;
+use tehas_core::verb::{EndByReport, Verb};
 use tehas_ports::{BlueprintNo, Mark, Marker, MarkerWord, ParkMarker, Sha256, State};
 
 /// What a report asks GitHub, as the bash asks it: each with its tries and
@@ -169,8 +170,9 @@ pub const STUCK: &str =
 /// A park: the label, the record, then the question or the comment.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Park {
-    /// The arguments of `store park`.
-    pub args: Vec<String>,
+    /// The park on the record: the call of `store park`. The report's parks
+    /// all carry one.
+    pub call: Option<Verb>,
     /// What the park says, before what its record and its label add.
     pub text: String,
     /// Said only when the park is on record.
@@ -200,6 +202,12 @@ pub struct Park {
 }
 
 impl Park {
+    /// The park's record as the store's words, without the verb's own name
+    /// first, as the fixtures hold them.
+    pub fn record_words(&self) -> Vec<String> {
+        call_words(self.call.as_ref())
+    }
+
     /// The text of the park once `stuck` (the label stayed) and `on_record`
     /// (the store took the park) are known.
     pub fn parked(&self, stuck: bool, on_record: bool) -> String {
@@ -405,11 +413,11 @@ pub struct Report {
     pub actions: Vec<Action>,
     /// The line logged once the writes are done.
     pub done: String,
-    /// The arguments of `store cycle-end`; the paths of the result and the
-    /// progress are the caller's to add, for each of `files`, at `files_at`.
-    pub end: Vec<String>,
+    /// The end on the cycle's record: the call of `store cycle-end`. The
+    /// paths of the result and the progress are the caller's to add, for
+    /// each of `files`, when it records the end.
+    pub end: Option<Verb>,
     pub files: Vec<String>,
-    pub files_at: usize,
     /// The analytics line, without its time.
     pub history: Value,
     /// The arguments of `analytics run` after the issue, the attempt and the
@@ -1473,24 +1481,17 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 why = "cap:provider-outage".into();
             }
         }
-        let mut args = vec![
-            issue.to_string(),
-            "--attempt".into(),
-            f.attempt.to_string(),
-            "--reason".into(),
-            why,
-        ];
-        if !step.is_empty() {
-            args.extend(["--step".into(), step.to_string()]);
+        Verb::Park {
+            issue,
+            attempt: f.attempt.to_string(),
+            reason: why,
+            step: (!step.is_empty()).then(|| step.to_string()),
+            pr: pr_number(&f.repo, pr),
         }
-        if let Some(n) = pr_number(&f.repo, pr) {
-            args.extend(["--pr".into(), n]);
-        }
-        args
     };
-    let park = |args: Vec<String>, text: String, auto: String| {
+    let park = |call: Verb, text: String, auto: String| {
         Action::Park(Box::new(Park {
-            args,
+            call: Some(call),
             text,
             auto,
             ..base.clone()
@@ -1908,73 +1909,39 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !closed_pr.is_empty() && pr.is_empty() && merged_pr.is_empty() && status != "closed" {
         parked_now = true;
     }
-    // The end on the cycle's record.
-    let mut end: Vec<String> = vec![
-        issue.to_string(),
-        "--attempt".into(),
-        f.attempt.to_string(),
-        "--status".into(),
-        if end_status.is_empty() {
-            status.clone()
-        } else {
-            end_status.clone()
-        },
-        "--step".into(),
-        step.clone(),
-        "--rc".into(),
-        rc.to_string(),
-        "--oom".into(),
-        kills.clone(),
-        "--forks".into(),
-        forks.clone(),
-    ];
-    if watched {
-        end.extend(["--runner-exit".into(), runner_rc.to_string()]);
-    }
-    if work_status == "killed" {
-        end.extend(["--host-saw".into(), "killed".into()]);
-    }
-    if stalled_secs != "0" {
-        end.extend(["--stalled".into(), stalled_secs.clone()]);
-    }
-    if timed_secs != "0" {
-        end.push("--timed".into());
-    }
-    if !branch.is_empty() {
-        end.extend(["--branch".into(), branch.clone()]);
-    }
-    if let Some(n) = pr_number(&f.repo, &pr) {
-        end.extend(["--pr".into(), n]);
-    }
-    r.files_at = end.len();
+    // The end on the cycle's record. The paths of the result and the progress
+    // are the caller's to add, for each of `files`, when it records the end.
+    r.end = Some(Verb::CycleEndByReport(Box::new(EndByReport {
+        issue,
+        attempt: f.attempt.to_string(),
+        status: said_status.to_string(),
+        step: step.clone(),
+        rc: rc.to_string(),
+        oom: kills.clone(),
+        forks: forks.clone(),
+        runner_exit: watched.then(|| runner_rc.to_string()),
+        host_saw: work_status == "killed",
+        stalled: (stalled_secs != "0").then(|| stalled_secs.clone()),
+        timed: timed_secs != "0",
+        branch: (!branch.is_empty()).then(|| branch.clone()),
+        pr: pr_number(&f.repo, &pr),
+        result: None,
+        progress: None,
+        cap: (!cap.is_empty()).then(|| cap.clone()),
+        park_reason: (!park_reason.is_empty()).then(|| park_reason.clone()),
+        failure_kind: (!failure_kind.is_empty()).then(|| failure_kind.clone()),
+        failure_cause: (!failure_cause.is_empty()).then(|| failure_cause.clone()),
+        provider,
+        parked: parked_now,
+        // A signal stopped the cycle: its line of history says so (T11.3).
+        never_ran,
+        signalled: f.signalled,
+    })));
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
         if matches!(f.file(name), File::Text(_) | File::Link) {
             r.files.push(k.to_string());
         }
     }
-    let mut opt = |flag: &str, val: &str| {
-        if !val.is_empty() {
-            end.extend([flag.to_string(), val.to_string()]);
-        }
-    };
-    opt("--cap", &cap);
-    opt("--park-reason", &park_reason);
-    opt("--failure-kind", &failure_kind);
-    opt("--failure-cause", &failure_cause);
-    if provider {
-        end.push("--provider".into());
-    }
-    if parked_now {
-        end.push("--parked".into());
-    }
-    if never_ran {
-        end.push("--never-ran".into());
-    }
-    // A signal stopped the cycle: its line of history says so (T11.3).
-    if f.signalled {
-        end.push("--signalled".into());
-    }
-    r.end = end;
     let mut h = Map::new();
     h.insert("started".into(), json!(f.started));
     h.insert("rc".into(), json!(rc));
@@ -2078,6 +2045,17 @@ fn unparsed(progress: Option<&str>) -> Option<(u64, u64)> {
     (bad > 0).then_some((bad, of))
 }
 
+/// A call's words without the verb's own name first, as the fixtures hold
+/// them.
+fn call_words(call: Option<&Verb>) -> Vec<String> {
+    call.map(|c| {
+        let mut w = c.args();
+        w.remove(0);
+        w
+    })
+    .unwrap_or_default()
+}
+
 pub fn to_json(r: &Report, issue: u64) -> Value {
     let both = |f: &dyn Fn(bool) -> String| json!({"ok": f(false), "stuck": f(true)});
     let actions: Vec<Value> = r
@@ -2087,7 +2065,7 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
             Action::Relabel { remove, add } => json!({"relabel": {"remove": remove, "add": add}}),
             Action::Comment { ok, stuck } => json!({"comment": {"ok": ok, "stuck": stuck}}),
             Action::Park(p) => json!({"park": {
-                "args": p.args,
+                "args": call_words(p.call.as_ref()),
                 "question": both(&|s| p.question(issue, s).1),
                 "comment": both(&|s| p.comment(s, true)),
                 "comment_unrecorded": both(&|s| p.comment(s, false)),
@@ -2099,7 +2077,7 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
         })
         .collect();
     json!({
-        "log": r.log, "actions": actions, "done": r.done, "end": r.end, "files": r.files,
+        "log": r.log, "actions": actions, "done": r.done, "end": call_words(r.end.as_ref()), "files": r.files,
         "history": r.history, "analytics": r.analytics,
         "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
@@ -2310,11 +2288,16 @@ mod tests {
         report(&f, &mut Given(facts["github"].clone()))
     }
 
-    fn arg<'a>(r: &'a Report, flag: &str) -> Option<&'a str> {
-        r.end
+    /// The store's words of the end, as the fixtures hold them.
+    fn end_words(r: &Report) -> Vec<String> {
+        call_words(r.end.as_ref())
+    }
+
+    fn arg(r: &Report, flag: &str) -> Option<String> {
+        end_words(r)
             .windows(2)
             .find(|w| w[0] == flag)
-            .map(|w| w[1].as_str())
+            .map(|w| w[1].clone())
     }
 
     /// A start the runner refused (4) and a lean start tehas work refused (78
@@ -2326,8 +2309,17 @@ mod tests {
         for (rc, lean) in [(4, false), (78, true)] {
             let r = never_started(rc, lean);
             assert_eq!(r.arm, "never-ran", "rc {rc}");
-            assert_eq!(arg(&r, "--status"), Some("refused"), "{:?}", r.end);
-            assert!(r.end.iter().any(|a| a == "--never-ran"), "{:?}", r.end);
+            assert_eq!(
+                arg(&r, "--status"),
+                Some("refused".to_string()),
+                "{:?}",
+                r.end
+            );
+            assert!(
+                end_words(&r).iter().any(|a| a == "--never-ran"),
+                "{:?}",
+                r.end
+            );
             assert!(r.done.contains("status=refused"), "{}", r.done);
             // The park's reason stays the word it was: the poll's hold of a
             // non-run keys on it.
@@ -2335,7 +2327,7 @@ mod tests {
                 .actions
                 .iter()
                 .find_map(|a| match a {
-                    Action::Park(p) => Some(p.args.clone()),
+                    Action::Park(p) => Some(call_words(p.call.as_ref())),
                     _ => None,
                 })
                 .expect("a park");
@@ -2349,12 +2341,23 @@ mod tests {
         // Any other 78 is a cycle that stopped, with the status it reported.
         let r = never_started(78, false);
         assert_eq!(r.arm, "parked");
-        assert_eq!(arg(&r, "--status"), Some("unknown"), "{:?}", r.end);
-        assert!(!r.end.iter().any(|a| a == "--never-ran"), "{:?}", r.end);
+        assert_eq!(
+            arg(&r, "--status"),
+            Some("unknown".to_string()),
+            "{:?}",
+            r.end
+        );
+        assert!(
+            !end_words(&r).iter().any(|a| a == "--never-ran"),
+            "{:?}",
+            r.end
+        );
     }
 
     fn cap_disk(r: &Report) -> bool {
-        r.end.windows(2).any(|w| w[0] == "--cap" && w[1] == "disk")
+        end_words(r)
+            .windows(2)
+            .any(|w| w[0] == "--cap" && w[1] == "disk")
     }
 
     #[test]
@@ -2387,12 +2390,12 @@ mod tests {
     }
 
     /// The value of `--stalled` in the store's arguments, if it is there.
-    fn stalled_arg(r: &Report) -> Option<&str> {
-        r.end
-            .iter()
+    fn stalled_arg(r: &Report) -> Option<String> {
+        let w = end_words(r);
+        w.iter()
             .position(|a| a == "--stalled")
-            .and_then(|i| r.end.get(i + 1))
-            .map(String::as_str)
+            .and_then(|i| w.get(i + 1))
+            .cloned()
     }
 
     /// What the report asks GitHub to write, in order.
@@ -2410,7 +2413,7 @@ mod tests {
     #[test]
     fn a_stall_file_of_its_own_names_the_stop_and_the_step_of_one_read() {
         let r = notes(vec![("stalled", "1800\nstall-step\n")]);
-        assert_eq!(stalled_arg(&r), Some("1800"));
+        assert_eq!(stalled_arg(&r), Some("1800".to_string()));
         assert!(r.done.contains("status=stalled"), "{}", r.done);
         assert_eq!(r.after.ended.status, "stalled");
         assert!(
@@ -2496,7 +2499,7 @@ mod tests {
         );
         assert_eq!(r.after.ended.step, "verify");
         assert!(
-            r.end.windows(2).any(|w| w == ["--cap", "signal"]),
+            end_words(&r).windows(2).any(|w| w == ["--cap", "signal"]),
             "{:?}",
             r.end
         );
@@ -2513,7 +2516,12 @@ mod tests {
     fn a_container_killed_from_outside_is_the_cap_container_killed_with_its_memory_kills() {
         let r = notes(vec![("status", "killed\n"), ("oom", "4\n")]);
         assert!(r.done.contains("status=killed"), "{}", r.done);
-        assert_eq!(end_cap(&r), Some("container-killed"), "{:?}", r.end);
+        assert_eq!(
+            end_cap(&r),
+            Some("container-killed".to_string()),
+            "{:?}",
+            r.end
+        );
         assert_eq!(r.after.ended.cap, "container-killed");
         assert_eq!(
             r.after.ended.reason,
@@ -2602,7 +2610,7 @@ mod tests {
     #[test]
     fn a_timed_file_of_no_count_of_seconds_names_neither_stop_nor_step() {
         let r = notes(vec![("timed", "nope tehas timed-step\n")]);
-        assert!(!r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
+        assert!(!end_words(&r).iter().any(|a| a == "--timed"), "{:?}", r.end);
         assert!(!r.done.contains("status=timeout"), "{}", r.done);
         assert!(
             comments(&r).iter().all(|c| !c.contains("timed-step")),
@@ -2621,7 +2629,7 @@ mod tests {
     #[test]
     fn a_timed_file_of_its_own_names_the_stop_and_the_step_of_one_read() {
         let r = notes(vec![("timed", "21600 runner timed-step\n")]);
-        assert!(r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
+        assert!(end_words(&r).iter().any(|a| a == "--timed"), "{:?}", r.end);
         assert!(r.done.contains("status=timeout"), "{}", r.done);
         assert!(
             comments(&r)
@@ -2651,7 +2659,7 @@ mod tests {
         let f = Facts::from_json(&facts).expect("the facts read");
         let r = report(&f, &mut Given(facts["github"].clone()));
         assert_eq!(stalled_arg(&r), None, "{:?}", r.end);
-        assert!(!r.end.iter().any(|a| a == "--timed"), "{:?}", r.end);
+        assert!(!end_words(&r).iter().any(|a| a == "--timed"), "{:?}", r.end);
         assert!(
             !r.done.contains("stalled") && !r.done.contains("timeout"),
             "{}",
@@ -2772,12 +2780,12 @@ mod tests {
         }
     }
 
-    fn end_cap(r: &Report) -> Option<&str> {
-        r.end
-            .iter()
+    fn end_cap(r: &Report) -> Option<String> {
+        let w = end_words(r);
+        w.iter()
             .position(|a| a == "--cap")
-            .and_then(|i| r.end.get(i + 1))
-            .map(String::as_str)
+            .and_then(|i| w.get(i + 1))
+            .cloned()
     }
 
     // #1411: a stop on the process limit read like a review park, `cap=-`.
@@ -2785,7 +2793,12 @@ mod tests {
     fn refused_starts_with_no_cap_are_the_cause_of_the_stop() {
         let r = refused("6\n", None);
         assert!(r.done.contains("forks_refused=6"), "{}", r.done);
-        assert_eq!(end_cap(&r), Some("process-limit:commit"), "{:?}", r.end);
+        assert_eq!(
+            end_cap(&r),
+            Some("process-limit:commit".to_string()),
+            "{:?}",
+            r.end
+        );
         assert_eq!(r.history["cap"], "process-limit:commit", "{}", r.history);
         assert_eq!(r.after.ended.cap, "process-limit:commit");
         assert!(
@@ -2804,12 +2817,13 @@ mod tests {
                 _ => None,
             })
             .expect("a park");
+        let words = park.record_words();
         assert!(
-            park.args
+            words
                 .windows(2)
                 .any(|w| w == ["--reason", "process-limit:commit"]),
             "{:?}",
-            park.args
+            words
         );
         assert!(
             park.marker.contains("cap=process-limit:commit"),
@@ -2862,7 +2876,12 @@ mod tests {
     #[test]
     fn a_cap_the_run_named_stays_with_refused_starts() {
         let r = refused("6\n", Some("awaiting-human-merge"));
-        assert_eq!(end_cap(&r), Some("awaiting-human-merge"), "{:?}", r.end);
+        assert_eq!(
+            end_cap(&r),
+            Some("awaiting-human-merge".to_string()),
+            "{:?}",
+            r.end
+        );
         assert_eq!(r.history["cap"], "awaiting-human-merge");
         assert!(
             !r.after.ended.reason.contains("limit of processes"),

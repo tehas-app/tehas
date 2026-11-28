@@ -782,6 +782,7 @@ pub fn run_poll(
         wiring.handles,
         wiring.board,
         wiring.mark_name,
+        wiring.marker_text,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
@@ -827,6 +828,7 @@ fn body(
     handles: crate::apply::HandlesOf,
     board: crate::apply::BoardOf,
     mark_name: crate::apply::MarkName,
+    marker_text: crate::apply::MarkerText,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -869,6 +871,7 @@ fn body(
         board: None,
         tickets: None,
         mark_name,
+        marker_text,
         said: Vec::new(),
         faults: Vec::new(),
     };
@@ -1217,7 +1220,15 @@ fn finish_step(
             .iter()
             .any(|l| l["name"] == crate::read::github::RUNNING);
         // The finish asks judge no comment's edits, so no history is read.
-        let comments = crate::read::github::comments_unjudged(&mut src.calls, &settings.repo, n);
+        let words = crate::read::comments::Words {
+            marker: &src.marker_text,
+        };
+        let comments = crate::read::comments::unjudged(
+            src.tickets.as_deref_mut(),
+            src.blueprints.as_deref_mut(),
+            &words,
+            n,
+        );
         let nn = n.to_string();
         let approval = match src.calls.store(&["approval-current", &nn]) {
             Ok(v) => match crate::read::store::approval_shape(&v) {
@@ -1230,7 +1241,7 @@ fn finish_step(
         asks.push(Ask {
             n,
             events: Events::parse(&issue["events"]),
-            comments,
+            comments: (*comments).clone(),
             edit: issue["edit"].clone(),
             approval,
             running: marked || running.contains(&n) || d.picked.contains(&n),
@@ -1700,6 +1711,7 @@ mod tests {
             board: no_board,
             mark_of: |_| None,
             mark_name: |_| String::new(),
+            marker_text: |_| String::new(),
             assignee: None,
         }
     }

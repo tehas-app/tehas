@@ -97,6 +97,24 @@ fn label(m: &Mark) -> &'static str {
     }
 }
 
+/// The store's words of a call, without the verb's own name first, as the
+/// fixtures hold them.
+fn strip(call: Option<&tehas_core::verb::Verb>) -> Vec<String> {
+    call.map(|v| {
+        let mut w = v.args();
+        if !w.is_empty() {
+            w.remove(0);
+        }
+        w
+    })
+    .unwrap_or_default()
+}
+
+/// The store's words of the report's end, without the verb's name.
+fn end_words(r: &tehas_cycle::report::Report) -> Vec<String> {
+    strip(r.end.as_ref())
+}
+
 fn strings(v: &Value) -> Vec<String> {
     v.as_array()
         .map(|a| {
@@ -137,11 +155,15 @@ fn the_reports_of_the_bash_cases() {
                     diff.push(format!("done: {} != {done}", r.done));
                 }
             }
-            if r.end != strings(&e["end"]) {
-                diff.push(format!("end: {:?} != {:?}", r.end, strings(&e["end"])));
+            if end_words(&r) != strings(&e["end"]) {
+                diff.push(format!(
+                    "end: {:?} != {:?}",
+                    end_words(&r),
+                    strings(&e["end"])
+                ));
             }
             let park = r.actions.iter().find_map(|a| match a {
-                Action::Park(p) => Some(p.args.clone()),
+                Action::Park(p) => Some(p.record_words()),
                 _ => None,
             });
             let want = (!e["park"].is_null()).then(|| strings(&e["park"]));
@@ -221,7 +243,7 @@ fn refused(rc: i64, note: bool) -> (Vec<String>, String) {
         Action::Park(p) => Some(format!("{p:?}")),
         _ => None,
     });
-    (r.end, said.unwrap())
+    (end_words(&r), said.unwrap())
 }
 
 #[test]
@@ -273,8 +295,10 @@ fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
     };
     let lead = "To run it on classic instead, take `tehas:lean` off this issue, then reply with one of the choices.";
     let p = parks(78, true);
-    let reason = p.args.iter().position(|a| a == "--reason").unwrap();
-    assert_eq!(p.args[reason + 1], "lean-refused", "{:?}", p.args);
+    let words = p.record_words();
+    let reason = words.iter().position(|a| a == "--reason").unwrap();
+    let words = p.record_words();
+    assert_eq!(words[reason + 1], "lean-refused", "{words:?}");
     let (_, body) = p.question(7, false);
     let at = body.find(lead).unwrap_or_else(|| panic!("{body}"));
     let boxes = body
@@ -283,9 +307,9 @@ fn the_park_of_a_refused_lean_start_puts_the_label_above_its_boxes() {
     assert!(at < boxes, "{body}");
     for p in [parks(4, false), parks(78, false)] {
         assert!(
-            !p.args.contains(&"lean-refused".to_string()),
+            !p.record_words().contains(&"lean-refused".to_string()),
             "{:?}",
-            p.args
+            p.record_words()
         );
         assert!(!p.question(7, false).1.contains(lead));
     }
@@ -357,6 +381,7 @@ fn refresh_parked(note: Option<&str>) -> (Vec<String>, tehas_cycle::report::Park
     }
     let facts = Facts::from_json(&c["facts"]).unwrap();
     let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
+    let end = end_words(&r);
     let park = r
         .actions
         .into_iter()
@@ -365,7 +390,7 @@ fn refresh_parked(note: Option<&str>) -> (Vec<String>, tehas_cycle::report::Park
             _ => None,
         })
         .unwrap();
-    (r.end, park)
+    (end, park)
 }
 
 /// #1727: a refresh that conflicts on an image that cannot finish one is a
@@ -377,8 +402,9 @@ fn a_refresh_that_conflicts_is_parked_naming_its_files() {
     let (end, p) = refresh_parked(Some(note));
     assert!(!end.contains(&"--never-ran".to_string()), "{end:?}");
     assert!(end.contains(&"--parked".to_string()), "{end:?}");
-    let reason = p.args.iter().position(|a| a == "--reason").unwrap();
-    assert_eq!(p.args[reason + 1], "refresh-conflict", "{:?}", p.args);
+    let words = p.record_words();
+    let reason = words.iter().position(|a| a == "--reason").unwrap();
+    assert_eq!(words[reason + 1], "refresh-conflict", "{words:?}");
     let (_, body) = p.question(7, false);
     assert!(
         body.contains("Tehas ran no refresh: pull request #1453 conflicts with `main` in `console/dispatch/src/text.rs`."),
@@ -389,9 +415,9 @@ fn a_refresh_that_conflicts_is_parked_naming_its_files() {
     for note in [None, Some("not json")] {
         let (_, p) = refresh_parked(note);
         assert!(
-            !p.args.contains(&"refresh-conflict".to_string()),
+            !p.record_words().contains(&"refresh-conflict".to_string()),
             "{:?}",
-            p.args
+            p.record_words()
         );
         assert!(p
             .question(7, false)
@@ -434,7 +460,7 @@ fn check_refused(note: Option<&str>, lean: bool) -> (Vec<String>, String) {
             _ => None,
         })
         .unwrap();
-    (p.args.clone(), p.question(7, false).1)
+    (p.record_words(), p.question(7, false).1)
 }
 
 /// A start the check refused says why in its park, which the run log on the
@@ -576,7 +602,11 @@ fn a_start_refused_before_its_runner_logs_the_refusal_not_a_missing_result() {
         r.log,
         vec!["#7: tehas work refused the start before its runner ran (exit 78): the sandbox image lacks what it was given"]
     );
-    let status = r.end.windows(2).find(|w| w[0] == "--status").unwrap()[1].clone();
+    let status = end_words(&r)
+        .windows(2)
+        .find(|w| w[0] == "--status")
+        .unwrap()[1]
+        .clone();
     assert_eq!(status, "refused", "{:?}", r.end);
     assert!(r.done.contains("status=refused"), "{}", r.done);
     assert_eq!(r.refused_why, "the sandbox image lacks what it was given");
@@ -692,7 +722,11 @@ fn a_reason_that_reads_like_an_outage_is_no_outage_without_its_kind() {
     let facts = Facts::from_json(&c["facts"]).unwrap();
     let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
     assert!(r.log.is_empty(), "{:?}", r.log);
-    assert!(!r.end.contains(&"--provider".to_string()), "{:?}", r.end);
+    assert!(
+        !end_words(&r).contains(&"--provider".to_string()),
+        "{:?}",
+        r.end
+    );
     assert_eq!(r.arm, "parked");
 }
 

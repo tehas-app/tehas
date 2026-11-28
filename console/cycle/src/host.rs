@@ -10,6 +10,7 @@ use std::process::Command;
 use std::time::Duration;
 use tehas_core::call;
 use tehas_core::home::Home;
+use tehas_core::verb::Verb;
 
 use crate::runner;
 
@@ -120,15 +121,19 @@ fn file(p: &Path) -> Option<Value> {
     }
 }
 
-/// A failed call of the store: its word, and its line for a log.
+/// A failed call of the store: its word, its line for a log, and the status
+/// it came with: 1 refused, busy or timeout, 64 usage, 78 unusable.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Refused {
     pub word: String,
     pub line: String,
+    pub rc: i32,
 }
 
-/// One verb of the state store, bounded and with its failure as
-/// tehas_core::call keeps it.
+/// One verb of the state store in its words, bounded and with its failure as
+/// tehas_core::call keeps it. The typed entry points are [`store`],
+/// [`store_said`] and [`store_try`]; this one is the journal's seam, which
+/// takes the words `tehas_core::journal` builds (T5 types that seam there).
 pub fn store_value(home: &Path, args: &[&str]) -> Result<Value, Value> {
     let program = home.join("libexec/store");
     let program = program.to_string_lossy();
@@ -151,23 +156,35 @@ fn refused(f: Value) -> Refused {
     Refused {
         word: word("word"),
         line: word("line"),
+        rc: f.get("rc").and_then(Value::as_i64).unwrap_or(78) as i32,
     }
 }
 
-/// One verb of the state store, its JSON answer or the word of its failure.
-pub fn store(home: &Path, args: &[&str]) -> Result<Value, String> {
-    store_value(home, args).map_err(|f| refused(f).word)
+/// A typed call as the store's words, given to `f` as [`store_value`] takes
+/// them.
+fn with_words<T>(call: &Verb, f: impl FnOnce(&[&str]) -> T) -> T {
+    let words = call.args();
+    let args: Vec<&str> = words.iter().map(String::as_str).collect();
+    f(&args)
 }
 
-/// One verb of the state store, the word and line of its failure.
-pub fn store_said(home: &Path, args: &[&str]) -> Result<Value, Refused> {
-    store_value(home, args).map_err(refused)
+/// One verb of the state store, its JSON answer or the word of its failure.
+pub fn store(home: &Path, call: &Verb) -> Result<Value, String> {
+    with_words(call, |a| store_value(home, a)).map_err(|f| refused(f).word)
+}
+
+/// One verb of the state store, the word, line and status of its failure.
+pub fn store_said(home: &Path, call: &Verb) -> Result<Value, Refused> {
+    with_words(call, |a| store_value(home, a)).map_err(refused)
 }
 
 /// tehas_store_try: asked again, a second apart, while the store is busy or
 /// did not answer in time.
-pub fn store_try(home: &Path, tries: u32, args: &[&str]) -> Result<Value, Refused> {
-    call::store_try(tries, Duration::from_secs(1), || store_value(home, args)).map_err(refused)
+pub fn store_try(home: &Path, tries: u32, call: &Verb) -> Result<Value, Refused> {
+    call::store_try(tries, Duration::from_secs(1), || {
+        with_words(call, |a| store_value(home, a))
+    })
+    .map_err(refused)
 }
 
 /// The facts of the cycle `s`, read from the host under `home`, with the
@@ -208,10 +225,11 @@ pub fn facts_with(home: &Path, s: &Start, env: &dyn Fn(&str) -> String) -> Value
     if let Some(log) = newest_log(&home.join("logs"), issue) {
         f["run_log"] = run_log(&log);
     }
-    let n = issue.to_string();
-    f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
-    f["approval"] = store(home, &["approval-current", &n]).unwrap_or_else(|w| json!({"error": w}));
-    f["history"] = store(home, &["history-show", &n]).unwrap_or_else(|w| json!({"error": w}));
+    f["record"] = store(home, &Verb::CycleShow { issue }).unwrap_or_else(|w| json!({"error": w}));
+    f["approval"] =
+        store(home, &Verb::ApprovalCurrent { issue }).unwrap_or_else(|w| json!({"error": w}));
+    f["history"] = store(home, &Verb::HistoryShow { issue: Some(issue) })
+        .unwrap_or_else(|w| json!({"error": w}));
     if let Some(state) = work_state(&workdir, issue) {
         f["work_state"] = state;
     }

@@ -596,6 +596,7 @@ fn read_comments(
         let link = WebLink::new(url).map_err(|_| MALFORMED)?;
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref(), bot);
+        comment.raw = Some(raw.to_string());
         if updated != created {
             let node = c.node_id.filter(|n| is_node_id(n)).ok_or(MALFORMED)?;
             touched.push((comments.len(), node, updated));
