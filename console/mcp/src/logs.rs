@@ -10,7 +10,7 @@
 
 use crate::args::{Arg, Args, Shape};
 use crate::sessions;
-use crate::snapshot::Snapshot;
+use crate::snapshot::{LogRow, SearchResume, Session, Snapshot};
 use crate::tools::{self, Dirs, Output, ToolError};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -96,10 +96,10 @@ pub struct Resume<'a> {
 /// once, with a name its pattern allows. A word the snapshot lists twice, or
 /// under a name it does not allow, answers as the reader of one log does: a
 /// file error that names the snapshot or the word, never the bad name.
-fn logs_of(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
-    let id = s["id"].as_str().unwrap_or("");
-    let kind = s["kind"].as_str().unwrap_or("");
-    let issue = match (words_of(kind), s["issue"].as_u64().filter(|n| *n > 0)) {
+fn logs_of(s: &Session) -> Result<Vec<LogFile<'_>>, ToolError> {
+    let id = s.text("id").unwrap_or("");
+    let kind = s.text("kind").unwrap_or("");
+    let issue = match (words_of(kind), s.whole("issue").filter(|n| *n > 0)) {
         (w, Some(n)) if !w.is_empty() && id.starts_with(&format!("{kind}-{n}-")) => n,
         _ => {
             return Err(file_error(
@@ -108,8 +108,8 @@ fn logs_of(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
             ))
         }
     };
-    let listed = listed_of(s);
-    let mut seen: Vec<&str> = listed.iter().filter_map(|l| l["word"].as_str()).collect();
+    let listed = s.logs();
+    let mut seen: Vec<&str> = listed.iter().filter_map(LogRow::word).collect();
     seen.sort_unstable();
     if let Some(w) = seen.windows(2).find(|p| p[0] == p[1]).map(|p| p[0]) {
         return Err(file_error(
@@ -119,10 +119,10 @@ fn logs_of(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
     }
     let mut out = Vec::new();
     for word in words_of(kind) {
-        let Some(entry) = listed.iter().find(|l| l["word"].as_str() == Some(*word)) else {
+        let Some(entry) = listed.iter().find(|l| l.word() == Some(*word)) else {
             continue;
         };
-        let name = entry["name"].as_str().unwrap_or("");
+        let name = entry.name().unwrap_or("");
         if !name_ok(kind, issue, word, name) {
             return Err(file_error(
                 word,
@@ -432,36 +432,32 @@ fn asked(args: &Args) -> Result<Asked, ToolError> {
 /// it ends has an id built from the supervisor's start, which is later. None
 /// when no cycle of the issue is running; a cycle the store marked lost is
 /// not.
-fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Value>, ToolError> {
-    let Some(file) = sessions::published(dirs, "running.json")? else {
-        return Ok(None);
-    };
-    let Some(t) = file["cycles"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|c| c["issue"].as_u64() == Some(issue) && c["running"] == true)
-        .filter_map(|c| c["startedAt"].as_i64())
+fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Session>, ToolError> {
+    let file = sessions::live::<sessions::Running>(dirs, "running.json")?;
+    let Some(t) = file
+        .cycles
+        .list()
+        .iter()
+        .filter(|c| c.issue.whole() == Some(issue) && c.running.get() == Some(&true))
+        .filter_map(|c| c.started_at.count())
         .find(|t| started.is_none_or(|s| s == *t))
     else {
         return Ok(None);
     };
     let names = log_names(&dirs.logs);
     let found = running_log_files(&dirs.logs, &names, "work", issue as i64, t, tools::now());
-    let logs: Vec<Value> = found
+    let logs = found
         .into_iter()
-        .map(|(word, name, bytes)| json!({"word": word, "name": name, "bytes": bytes}))
+        .map(|(word, name, bytes)| LogRow::found(word, name, bytes))
         .collect();
-    Ok(Some(json!({
-        "id": format!("work-{issue}-{t}"), "kind": "work", "issue": issue, "logs": logs,
-    })))
+    Ok(Some(Session::running_cycle(issue, t, logs)))
 }
 
 /// The session a call names: by id the snapshot's, else a running cycle that
 /// has that id; by issue its running cycle. A snapshot that is not written or
 /// cannot be read does not hide a running cycle: its error is the answer only
 /// when no running cycle has the id.
-fn session_of(dirs: &Dirs, asked: &Asked) -> Result<Value, ToolError> {
+fn session_of(dirs: &Dirs, asked: &Asked) -> Result<Session, ToolError> {
     match asked {
         &Asked::Issue(n) => {
             running(dirs, n, None)?.ok_or_else(|| bad(&format!("no running cycle for issue {n}")))
@@ -553,16 +549,16 @@ pub(crate) fn call(dirs: &Dirs, args: &LogArgs) -> Result<(Output, LogGuard), To
     let place =
         acquire().ok_or_else(|| bad("two logs are being sent; try again in a few seconds"))?;
     let s = session_of(dirs, asked)?;
-    let id = s["id"].as_str().unwrap_or("");
-    let kind = s["kind"].as_str().unwrap_or("");
-    let issue = s["issue"].as_u64().filter(|n| *n > 0);
+    let id = s.text("id").unwrap_or("");
+    let kind = s.text("kind").unwrap_or("");
+    let issue = s.whole("issue").filter(|n| *n > 0);
     let (words, issue) = match (words_of(kind), issue) {
         (w, Some(n)) if !w.is_empty() && id.starts_with(&format!("{kind}-{n}-")) => (w, n),
         _ => return Err(bad("the session has no kind and issue to find its logs by")),
     };
-    let listed = listed_of(&s);
+    let listed = s.logs();
     // Two files under one word would be two runs' logs: neither is served.
-    let mut seen: Vec<&str> = listed.iter().filter_map(|l| l["word"].as_str()).collect();
+    let mut seen: Vec<&str> = listed.iter().filter_map(LogRow::word).collect();
     seen.sort_unstable();
     if let Some(w) = seen.windows(2).find(|p| p[0] == p[1]).map(|p| p[0]) {
         return Err(file_error(
@@ -572,13 +568,13 @@ pub(crate) fn call(dirs: &Dirs, args: &LogArgs) -> Result<(Output, LogGuard), To
     }
     let entry = listed
         .iter()
-        .find(|l| l["word"].as_str() == Some(word))
+        .find(|l| l.word() == Some(word))
         .filter(|_| words.contains(&word));
     let Some(entry) = entry else {
         let has: Vec<&str> = words
             .iter()
             .copied()
-            .filter(|w| listed.iter().any(|l| l["word"].as_str() == Some(w)))
+            .filter(|w| listed.iter().any(|l| l.word() == Some(*w)))
             .collect();
         let logs = if has.is_empty() {
             "none".to_string()
@@ -589,7 +585,7 @@ pub(crate) fn call(dirs: &Dirs, args: &LogArgs) -> Result<(Output, LogGuard), To
             "the session has no {word} log; its logs are {logs}"
         )));
     };
-    let name = entry["name"].as_str().unwrap_or("");
+    let name = entry.name().unwrap_or("");
     if !name_ok(kind, issue, word, name) {
         return Err(file_error(
             word,
@@ -647,12 +643,6 @@ pub(crate) fn call(dirs: &Dirs, args: &LogArgs) -> Result<(Output, LogGuard), To
     }
     out.insert("text".into(), json!(&text[start..end]));
     Ok((Output::Json(Value::Object(out)), place))
-}
-
-/// The logs a snapshot line lists: `word`, `name` and `bytes` each. Neither the
-/// reader of one log nor the search opens a file that is not on the list.
-fn listed_of(s: &Value) -> Vec<&Value> {
-    s["logs"].as_array().into_iter().flatten().collect()
 }
 
 /// What `factory_search` takes: the text, the sessions to read by their
@@ -778,19 +768,19 @@ pub(crate) fn search_call(dirs: &Dirs, args: &SearchArgs) -> Result<(Output, Log
     // The sessions of the snapshot the call names, in the snapshot's own order:
     // newest first, which is the order the matches of the answer come in.
     let snap = Snapshot::open(&dirs.sessions, tools::now())?;
-    let mut wanted: Vec<Value> = match (&issue, &ids) {
+    let mut wanted: Vec<Session> = match (&issue, &ids) {
         (Some(n), _) => snap
             .sessions()
-            .filter(|s| s["issue"].as_u64() == Some(*n))
+            .filter(|s| s.whole("issue") == Some(*n))
             .collect(),
         (_, Some(list)) => {
             let mut left: Vec<&str> = list.clone();
-            let mut found: Vec<Value> = Vec::with_capacity(list.len());
+            let mut found: Vec<Session> = Vec::with_capacity(list.len());
             for s in snap.sessions() {
                 // One session answers for its id however often the caller names
                 // it, so every name of it is taken out of the list at once: what
                 // is left at the end is a name of no session.
-                match s["id"].as_str().and_then(|id| {
+                match s.text("id").and_then(|id| {
                     left.iter()
                         .position(|w| *w == id)
                         .map(|at| (at, left.iter().filter(|w| **w == id).count()))
@@ -822,8 +812,8 @@ pub(crate) fn search_call(dirs: &Dirs, args: &SearchArgs) -> Result<(Output, Log
     if let Some(ids) = &ids {
         let mut left: Vec<&str> = ids.clone();
         wanted.retain(|s| {
-            match s["id"]
-                .as_str()
+            match s
+                .text("id")
                 .and_then(|id| left.iter().position(|w| *w == id))
             {
                 Some(at) => {
@@ -1000,12 +990,13 @@ fn cut(line: &str) -> String {
 /// The `logs` of one session record, in the order its kind lists the words,
 /// with the one place a stopped search reads that log on from: the record's own
 /// `searchResume`, or the start of it.
-fn logs_with_resume(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
+fn logs_with_resume(s: &Session) -> Result<Vec<LogFile<'_>>, ToolError> {
     let mut out = logs_of(s)?;
-    let r = &s["searchResume"];
-    for l in &mut out {
-        if r["word"].as_str() == Some(l.word) {
-            l.offset = r["offset"].as_u64().unwrap_or(0);
+    if let Some(r) = s.resume() {
+        for l in &mut out {
+            if r.word() == Some(l.word) {
+                l.offset = r.offset().unwrap_or(0);
+            }
         }
     }
     Ok(out)
@@ -1023,8 +1014,8 @@ pub struct Found<'a> {
 }
 
 /// The lines of the logs of `sessions` that hold `text`, a fixed string, not a
-/// pattern, and where the reading got to. Each session is one snapshot record;
-/// nothing here opens a file a record's `logs` list does not name.
+/// pattern, and where the reading got to. Each session is one snapshot row;
+/// nothing here opens a file a row's `logs` list does not name.
 ///
 /// A log is masked line by line as `factory_log` masks a file, so a search
 /// cannot find what the mask takes out. It stops when `limit` matches are found
@@ -1046,7 +1037,7 @@ pub struct Found<'a> {
 /// whose lines the answer holds, or by a later call.
 pub fn search<'a>(
     dirs: &Dirs,
-    sessions: &'a [Value],
+    sessions: &'a [Session],
     text: &str,
     files: Option<&'a [&'a str]>,
     limit: u64,
@@ -1081,14 +1072,14 @@ pub fn search<'a>(
     // a byte of any log is read.
     let mut logs = Vec::with_capacity(sessions.len());
     for s in sessions {
-        let id = s["id"].as_str().unwrap_or("");
+        let id = s.text("id").unwrap_or("");
         if !sessions::ID.is_match(id) {
             return Err(bad("id is like work-12-1792485967"));
         }
         // Of a record that carries a `searchResume` only the log it names is
         // read, from its offset on: of the rest, every log `files` names, or
         // every log of the session without them.
-        let resumed = s["searchResume"]["word"].as_str();
+        let resumed = s.resume().and_then(SearchResume::word);
         let wanted = |word: &str| match resumed {
             Some(w) => w == word,
             None => files.is_none_or(|fs| fs.contains(&word)),
