@@ -829,13 +829,18 @@ impl World {
         let sent = sent.borrow().clone();
         // The end as tehas-cycle records it after the writes: the report's
         // words, the files it keeps named at their place.
-        let mut end = vec!["cycle-end".to_string()];
-        end.extend_from_slice(&r.end[..r.files_at]);
-        for k in &r.files {
-            end.push(format!("--{k}"));
-            end.push(cycles.join(format!("7.{k}.json")).display().to_string());
+        let mut end_call = r.end.clone().expect("the report's end");
+        if let tehas_core::verb::Verb::CycleEndByReport(e) = &mut end_call {
+            for k in &r.files {
+                let path = cycles.join(format!("7.{k}.json")).display().to_string();
+                match k.as_str() {
+                    "result" => e.result = Some(path),
+                    "progress" => e.progress = Some(path),
+                    _ => {}
+                }
+            }
         }
-        end.extend_from_slice(&r.end[r.files_at..]);
+        let end = end_call.args();
         Tried {
             applied: site.wrote().into_iter().map(|w| w.what).collect(),
             sent,

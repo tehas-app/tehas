@@ -54,9 +54,7 @@ pub fn read_ended(
     site_at: &mut dyn FnMut(tehas_ports::ChangeNo) -> Option<tehas_ports::At>,
 ) -> Ended {
     let mut ask = |v: &Verb| {
-        let words = v.args();
-        let args: Vec<&str> = words.iter().map(String::as_str).collect();
-        host::store_try(home, 3, &args)
+        host::store_try(home, 3, v)
             .map(|v| v.to_string())
             .map_err(|r| r.word)
     };

@@ -30,6 +30,7 @@ use tehas_core::cycle_notes::Note;
 use tehas_core::exit::work;
 use tehas_core::home::Home;
 use tehas_core::sandbox;
+use tehas_core::verb::Verb;
 use tehas_core::{call, time};
 
 /// How often a stop is looked for while something else is waited on.
@@ -246,8 +247,8 @@ fn now_lines(file: &Path) -> (String, String, String) {
 
 /// The flags of `store cycle-heartbeat` for the console's third line: each pair
 /// it knows, of a value of digits alone.
-fn progress_flags(line: &str) -> Vec<String> {
-    let mut flags = Vec::new();
+fn progress_flags(line: &str) -> Vec<(String, String)> {
+    let mut flags: Vec<(String, String)> = Vec::new();
     for pair in line.split(' ') {
         let Some((k, v)) = pair.split_once('=') else {
             continue;
@@ -263,8 +264,8 @@ fn progress_flags(line: &str) -> Vec<String> {
         if v.is_empty() || v.len() > 12 || !v.bytes().all(|b| b.is_ascii_digit()) {
             continue;
         }
-        if !flags.iter().any(|f| f == flag) {
-            flags.extend([flag.to_string(), v.to_string()]);
+        if !flags.iter().any(|(f, _)| f == flag) {
+            flags.push((flag.to_string(), v.to_string()));
         }
     }
     flags
@@ -832,17 +833,17 @@ impl Watch<'_> {
         if step.is_empty() {
             step = "starting".to_string();
         }
-        let n = self.g.issue.to_string();
-        let mut args = vec!["cycle-heartbeat", &n];
         let attempt = &self.g.attempt;
-        if attempt_shaped(attempt) {
-            args.extend(["--attempt", attempt]);
-        }
-        args.extend([if running { "--running" } else { "--ended" }]);
-        args.extend(["--status", status, "--step", &step, "--text", &note]);
-        let progress = progress_flags(&progress);
-        args.extend(progress.iter().map(String::as_str));
-        let beat = host::store_said(self.home, &args)
+        let beat_call = Verb::CycleHeartbeat {
+            issue: self.g.issue,
+            attempt: attempt_shaped(attempt).then(|| attempt.clone()),
+            running,
+            status: status.to_string(),
+            step: Some(step),
+            text: note,
+            progress: progress_flags(&progress),
+        };
+        let beat = host::store_said(self.home, &beat_call)
             .map(drop)
             .map_err(|r| (r.word, r.line));
         if let Some((word, line)) = say_again(&mut self.beat_said, beat) {
@@ -853,7 +854,7 @@ impl Watch<'_> {
             });
         }
         // One try: the next tick publishes again, and a stop must not wait on it.
-        let publish = host::store_said(self.home, &["publish"])
+        let publish = host::store_said(self.home, &Verb::Publish { health: None })
             .map(drop)
             .map_err(|r| (r.word, r.line));
         if let Some((word, line)) = say_again(&mut self.publish_said, publish) {
@@ -2254,8 +2255,14 @@ mod tests {
 
     #[test]
     fn the_third_line_gives_the_heartbeat_its_progress_flags() {
+        let flat = |line: &str| -> Vec<String> {
+            progress_flags(line)
+                .into_iter()
+                .flat_map(|(k, v)| [k, v])
+                .collect()
+        };
         assert_eq!(
-            progress_flags("stepNumber=7 stepTotal=9 round=2 roundLimit=3 stepSince=1760700000"),
+            flat("stepNumber=7 stepTotal=9 round=2 roundLimit=3 stepSince=1760700000"),
             [
                 "--step-number",
                 "7",
@@ -2272,7 +2279,7 @@ mod tests {
         // What it does not know, a value not of digits and a second of a pair
         // are left out.
         assert_eq!(
-            progress_flags("eta=5 round=-1 round=x stepTotal=9 stepTotal=8 stepNumber= junk"),
+            flat("eta=5 round=-1 round=x stepTotal=9 stepTotal=8 stepNumber= junk"),
             ["--step-total", "9"]
         );
     }
