@@ -566,10 +566,7 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
             ["issue-comment", 4002, null, "alice", "retry"]
         ])
     );
-    has(
-        &w.gh(),
-        "states: [OPEN, CLOSED, MERGED]",
-    );
+    has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
 }
 
 #[test]

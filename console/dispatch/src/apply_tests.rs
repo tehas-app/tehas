@@ -2625,10 +2625,25 @@ fn a_comments_retry_leaves_out_what_does_not_count() {
                     fake_at("2026-10-26T10:05:00Z"),
                     "edited after the tick",
                 )
-                .note(3, "tehas-bot", fake_at("2026-10-26T09:00:00Z"), "Tehas cycle stopped.")
+                .note(
+                    3,
+                    "tehas-bot",
+                    fake_at("2026-10-26T09:00:00Z"),
+                    "Tehas cycle stopped.",
+                )
                 .note(4, "mallory", fake_at("2026-10-26T09:20:00Z"), "not listed")
-                .note(5, "carol", fake_at("2026-10-26T09:30:00Z"), "listed, may not write")
-                .note(6, "alice", fake_at("2026-10-26T10:01:00Z"), "after the tick")
+                .note(
+                    5,
+                    "carol",
+                    fake_at("2026-10-26T09:30:00Z"),
+                    "listed, may not write",
+                )
+                .note(
+                    6,
+                    "alice",
+                    fake_at("2026-10-26T10:01:00Z"),
+                    "after the tick",
+                )
         })
         .change(30, "feature/issue-7-x", |c| {
             c.talk(
@@ -2658,7 +2673,9 @@ fn a_comments_retry_leaves_out_what_does_not_count() {
     // the log. Alice counts and may write, and is kept; carol is listed
     // but may not write, and is left out without a word.
     assert!(
-        !r.log.iter().any(|l| l.contains("tehas-bot") || l.contains("mallory")),
+        !r.log
+            .iter()
+            .any(|l| l.contains("tehas-bot") || l.contains("mallory")),
         "{:?}",
         r.log
     );
@@ -2673,7 +2690,12 @@ fn a_permission_that_cannot_be_read_leaves_that_author_out_and_says_so() {
     let w = open_issues()
         .ticket(7, |i| {
             i.note(1, "alice", fake_at("2026-10-26T09:05:00Z"), "counts")
-                .note(2, "carol", fake_at("2026-10-26T09:06:00Z"), "unread permission")
+                .note(
+                    2,
+                    "carol",
+                    fake_at("2026-10-26T09:06:00Z"),
+                    "unread permission",
+                )
         })
         .with_account(
             "alice",
@@ -2711,13 +2733,11 @@ fn a_comments_retry_over_the_record_bound_keeps_the_newest() {
             &"y".repeat(4000),
         )
     });
-    let w = open_issues()
-        .ticket(7, |_| many)
-        .with_account(
-            "alice",
-            tehas_ports::AccountKind::Person,
-            tehas_ports::Standing::Write,
-        );
+    let w = open_issues().ticket(7, |_| many).with_account(
+        "alice",
+        tehas_ports::AccountKind::Person,
+        tehas_ports::Standing::Write,
+    );
     reads_from(&mut t, &w);
     let r = t.apply(json!([comments_retry()]));
     let ctx = input_of(&t)["retry_context"].as_array().unwrap().clone();

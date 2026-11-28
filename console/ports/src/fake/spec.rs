@@ -133,14 +133,7 @@ impl TicketSpec {
 
     /// A comment as `note` gives it, edited at `edited`: its later time,
     /// which a window of the reads can see.
-    pub fn note_edited(
-        mut self,
-        id: u64,
-        login: &str,
-        at: At,
-        edited: At,
-        body: &str,
-    ) -> Self {
+    pub fn note_edited(mut self, id: u64, login: &str, at: At, edited: At, body: &str) -> Self {
         self.notes
             .push((id, login.to_string(), at, Some(edited), body.to_string()));
         self
@@ -490,7 +483,8 @@ impl ChangeSpec {
     /// A comment of its conversation: numbered `id`, by `login`, at `at`,
     /// with this text.
     pub fn talk(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
-        self.talks.push((id, login.to_string(), at, body.to_string()));
+        self.talks
+            .push((id, login.to_string(), at, body.to_string()));
         self
     }
 

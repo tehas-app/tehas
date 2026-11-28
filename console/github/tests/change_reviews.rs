@@ -13,9 +13,7 @@ use tehas_core::forge::{Failed, GhRunner};
 use tehas_core::time::from_iso;
 use tehas_github::GitHub;
 use tehas_ports::laws;
-use tehas_ports::{
-    At, Bound, ChangeNo, CodeHost, Login, Outcome, Refusal, Unread, ALL_MAX,
-};
+use tehas_ports::{At, Bound, ChangeNo, CodeHost, Login, Outcome, Refusal, Unread, ALL_MAX};
 
 type Asked = Arc<Mutex<Vec<String>>>;
 
@@ -35,13 +33,7 @@ fn read_name(args: &[&str]) -> Option<String> {
     let path = args.get(1)?.strip_prefix("repos/acme/widget/")?;
     Some(
         path.chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c
-                } else {
-                    '_'
-                }
-            })
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
             .collect(),
     )
 }
@@ -49,7 +41,11 @@ fn read_name(args: &[&str]) -> Option<String> {
 impl GhRunner for Rec {
     fn run_answer(&mut self, args: &[&str]) -> Result<String, Failed> {
         let answer = read_name(args).and_then(|read| {
-            let at = answers::at("change-reviews", &self.state, &format!("{read}.answer.json"));
+            let at = answers::at(
+                "change-reviews",
+                &self.state,
+                &format!("{read}.answer.json"),
+            );
             std::fs::read_to_string(at).ok()
         });
         self.run(args).map_err(|why| Failed { why, answer })
@@ -133,12 +129,7 @@ fn the_laws_answer_reviews_and_notes_over_the_recordings() {
         cn(7),
         &[
             (11, "alice", at("2026-10-26T09:20:00Z"), "looks well done"),
-            (
-                13,
-                "bob",
-                at("2026-10-26T09:40:00Z"),
-                "one thing to fix",
-            ),
+            (13, "bob", at("2026-10-26T09:40:00Z"), "one thing to fix"),
         ],
         &[
             (
@@ -160,7 +151,10 @@ fn the_laws_answer_reviews_and_notes_over_the_recordings() {
         ],
     ));
     let (mut gh, _asked) = adapter("widget");
-    ok(laws::code_host::a_change_without_reviews_gives_none(&mut gh, cn(9)));
+    ok(laws::code_host::a_change_without_reviews_gives_none(
+        &mut gh,
+        cn(9),
+    ));
     let (mut gh, _asked) = adapter("widget");
     ok(
         laws::code_host::may_write_never_guesses_a_name_it_does_not_know(
@@ -183,7 +177,10 @@ fn a_review_of_another_pull_request_is_inconsistent() {
 #[test]
 fn notes_name_their_file_and_merge_the_line_the_site_gives() {
     let (mut gh, asked) = adapter("widget");
-    let notes = gh.review_comments(cn(7), ALL_MAX).expect("notes").into_items();
+    let notes = gh
+        .review_comments(cn(7), ALL_MAX)
+        .expect("notes")
+        .into_items();
     assert_eq!(
         asked.lock().unwrap().as_slice(),
         ["api repos/acme/widget/pulls/7/comments?per_page=100&page=1"]
@@ -245,4 +242,3 @@ fn the_write_answer_is_asked_of_the_handles_own_project() {
     );
     assert!(asked.lock().unwrap().is_empty(), "no request was sent");
 }
-

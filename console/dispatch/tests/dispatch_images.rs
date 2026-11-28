@@ -405,7 +405,10 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
     // The pull request comment of the doubtful id is not carried; only the
     // reply that ticked the box, of alice's own recorded id, is.
     assert_eq!(w.at_mark(".retry_context | length"), "1");
-    lacks(&w.at_mark(".retry_context | map(.text) | tostring"), "The button goes here");
+    lacks(
+        &w.at_mark(".retry_context | map(.text) | tostring"),
+        "The button goes here",
+    );
 }
 
 #[test]
