@@ -23,12 +23,13 @@
 //! minutes, and a paused one writes none, so an older one is an earlier
 //! poll's.
 
+use crate::loose::Loose;
 use crate::run::{iso_ms, read_json};
 use rusqlite::{params, Connection};
-use serde_json::Value;
+use serde::de::IgnoredAny;
+use serde::Deserialize;
 use std::path::Path;
 use tehas_core::home::{Home, Live};
-use tehas_core::queue_lists;
 
 /// Seconds after which a live file no longer describes the poll.
 const STALE: i64 = 600;
@@ -46,44 +47,68 @@ pub struct Sample {
     pub held: Option<String>,
 }
 
+/// `live/status.json`, as tehasbot status writes it. The list keys are those
+/// of `tehas_core::queue_lists` and the time key `generatedAt`: a field of
+/// another shape reads as nothing, and the tests that write a status.json by
+/// the core's names keep these ones true.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct StatusFile {
+    #[serde(rename = "generatedAt")]
+    generated_at: Loose<String>,
+    queued: Loose<Vec<IgnoredAny>>,
+    running: Loose<Vec<IgnoredAny>>,
+    awaiting: Loose<Vec<IgnoredAny>>,
+    stopped: Loose<Vec<IgnoredAny>>,
+    planning: Loose<i64>,
+    paused: Loose<bool>,
+}
+
+/// `live/dispatch.json`, the report of `tehas_core::hold::Report`. The keys
+/// are the core's, named by the tests that write a report through the type.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct DispatchFile {
+    time: Loose<String>,
+    why: Loose<String>,
+    count: Loose<i64>,
+    free: Loose<i64>,
+    limit_room: Loose<i64>,
+}
+
 pub fn read(home: &Path, now: i64) -> Sample {
     let home = Home::new(home);
-    let fresh = |view: Live, key: &str, stale: i64| {
-        let v = read_json(&home.live(view))?;
-        let at = iso_ms(v.get(key)?.as_str()?)? / 1000;
-        (now - at <= stale).then_some(v)
-    };
     let mut s = Sample::default();
-    if let Some(st) = fresh(Live::Status, "generatedAt", STALE) {
-        let len = |k: &str| st.get(k).and_then(Value::as_array).map(|a| a.len() as i64);
-        s.in_line = len(queue_lists::QUEUED);
-        s.running = len(queue_lists::RUNNING);
-        s.awaiting = len(queue_lists::AWAITING);
-        s.stopped = len(queue_lists::STOPPED);
-        s.paused = st.get("paused").and_then(Value::as_bool);
-        s.planning = st
-            .get("planning")
-            .and_then(Value::as_i64)
-            .filter(|n| *n >= 0);
+    if let Some(st) = read_json::<StatusFile>(&home.live(Live::Status)).filter(|st| {
+        st.generated_at
+            .get()
+            .and_then(|at| iso_ms(at))
+            .is_some_and(|ms| now - ms / 1000 <= STALE)
+    }) {
+        let len = |v: &Loose<Vec<IgnoredAny>>| v.get().map(|a| a.len() as i64);
+        s.in_line = len(&st.queued);
+        s.running = len(&st.running);
+        s.awaiting = len(&st.awaiting);
+        s.stopped = len(&st.stopped);
+        s.paused = st.paused.0;
+        s.planning = st.planning.whole();
     }
-    if let Some(d) = fresh(Live::Dispatch, tehas_core::hold::KEY_TIME, STALE_DISPATCH) {
-        let n = |k: &str| d.get(k).and_then(Value::as_i64);
-        s.held = d
-            .get(tehas_core::hold::KEY_WHY)
-            .and_then(Value::as_str)
-            .and_then(|w| {
-                // The word is open by shape, not by the core's list: a row
-                // with a word a future poll added is a held poll, and dropping
-                // it would read as no hold at all.
-                let ok = w.len() <= 40 && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
-                ok.then(|| w.to_string())
-            });
-        if let (Some(count), Some(free)) = (
-            n(tehas_core::hold::KEY_COUNT),
-            n(tehas_core::hold::KEY_FREE),
-        ) {
+    if let Some(d) = read_json::<DispatchFile>(&home.live(Live::Dispatch)).filter(|d| {
+        d.time
+            .get()
+            .and_then(|at| iso_ms(at))
+            .is_some_and(|ms| now - ms / 1000 <= STALE_DISPATCH)
+    }) {
+        s.held = d.why.get().and_then(|w| {
+            // The word is open by shape, not by the core's list: a row
+            // with a word a future poll added is a held poll, and dropping
+            // it would read as no hold at all.
+            let ok = w.len() <= 40 && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
+            ok.then(|| w.to_string())
+        });
+        if let (Some(count), Some(free)) = (d.count.0, d.free.0) {
             let mut limit = count + free;
-            if let Some(room) = n(tehas_core::hold::KEY_LIMIT_ROOM) {
+            if let Some(room) = d.limit_room.0 {
                 limit = limit.min(count + room);
             }
             s.cycle_limit = Some(limit.max(0));
