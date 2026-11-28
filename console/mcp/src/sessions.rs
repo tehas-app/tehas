@@ -411,12 +411,13 @@ pub(crate) struct Status {
     pub stages: BTreeMap<String, Many<StageRow>>,
 }
 
-/// One row of a stage list: its number, and its title as a scalar, which
-/// `tools::title` serves on one line.
+/// One row of a stage list: its number and its title, each as a scalar: the
+/// readers compare the number as `as_i64` compared it, so a whole-valued
+/// fraction still matches, and `tools::title` serves the title on one line.
 #[derive(Deserialize, Default)]
 pub(crate) struct StageRow {
     #[serde(default)]
-    pub number: Loose<i64>,
+    pub number: Fact,
     #[serde(default)]
     pub title: Fact,
 }
@@ -438,7 +439,7 @@ pub(crate) struct CycleRow {
     #[serde(default)]
     pub running: Loose<bool>,
     #[serde(rename = "startedAt", default)]
-    pub started_at: Loose<i64>,
+    pub started_at: Fact,
     #[serde(default)]
     pub step: Fact,
     #[serde(default)]
@@ -461,7 +462,7 @@ pub(crate) struct Checks {
 #[derive(Deserialize, Default)]
 pub(crate) struct Planned {
     #[serde(default)]
-    pub issue: Loose<i64>,
+    pub issue: Fact,
 }
 
 /// A published file, read and typed: a file the host has not written reads as
@@ -968,7 +969,7 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
             .get(name)
             .into_iter()
             .flat_map(|m| m.list())
-            .find(|r| r.number.get() == Some(&issue));
+            .find(|r| r.number.count() == Some(issue));
         if let Some(r) = row {
             stage = Some(name);
             title = r.title.0.clone();
@@ -985,7 +986,12 @@ pub(crate) fn issue(dirs: &Dirs, asked: &IssueArgs) -> Result<Map<String, Value>
         let planning = live::<Health>(dirs, "health.json")?
             .checks
             .into_inner()
-            .is_some_and(|c| c.plans.list().iter().any(|p| p.issue.get() == Some(&issue)));
+            .is_some_and(|c| {
+                c.plans
+                    .list()
+                    .iter()
+                    .any(|p| p.issue.count() == Some(issue))
+            });
         if planning {
             stage = Some("planning");
         }

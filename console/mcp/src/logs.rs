@@ -439,7 +439,7 @@ fn running(dirs: &Dirs, issue: u64, started: Option<i64>) -> Result<Option<Sessi
         .list()
         .iter()
         .filter(|c| c.issue.whole() == Some(issue) && c.running.get() == Some(&true))
-        .filter_map(|c| c.started_at.get().copied())
+        .filter_map(|c| c.started_at.count())
         .find(|t| started.is_none_or(|s| s == *t))
     else {
         return Ok(None);
