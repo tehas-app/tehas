@@ -2240,7 +2240,6 @@ esac"#,
     #[test]
     fn the_blocked_issues_read_their_comments_side_by_side_and_their_blockers_once() {
         let w = world();
-        let blocked_len = w["blocked"].as_array().unwrap().len();
         let (snap, calls, gh_count, store, blocker_reads) =
             poll_h_asked(&blocked(), &w, &[], &settings(), true);
 
@@ -2253,7 +2252,6 @@ esac"#,
                 .all(|c| !c.contains("comments(last") && !c.contains("nodes(ids:")),
             "no gh call reads a comment: {calls:?}"
         );
-        let _ = blocked_len;
         // The states of every blocker are one read of the board. #23 names
         // #13, which no other issue names, so a read of the same list one
         // issue at a time costs three reads here, not one.

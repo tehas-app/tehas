@@ -10,7 +10,7 @@
 use serde_json::{json, Value};
 use tehas_core::time::iso;
 use tehas_ports::{
-    At, Blueprints, Comment, Marker, Outcome, TicketKey, Tickets, Unread, Window, ALL_MAX,
+    At, Bound, Blueprints, Comment, Marker, Outcome, TicketKey, Tickets, Unread, Window,
 };
 
 /// A comment answer no read failed: the failed read of a handle the wiring
@@ -21,6 +21,13 @@ const NO_HANDLE: &str = "ERROR: the poll has no handle to read the comments by";
 /// The page's field that names when a comment was made, spelled once here
 /// and read by its name everywhere else.
 pub(crate) const CREATED_AT: &str = "createdAt";
+
+/// The hundred the old read asked with: `comments(last: 100)`, and the
+/// same bound its `userContentEdits(last: 100)` had. The notes take it as
+/// the port's tail window, the blueprint's comments and a comment's edit
+/// histories as its bound: a busy issue's older comments, and an edited
+/// comment's older versions, were never judged and are not judged now.
+const NEWEST: std::num::NonZeroU32 = std::num::NonZeroU32::new(100).unwrap();
 
 /// One issue's comment answer as the rules read it: the page's shape, with
 /// its comment nodes or its failed read. The poll's one reader writes it
@@ -127,7 +134,7 @@ fn one(
             page: json!({"failed": true, "line": NO_HANDLE}),
         };
     };
-    let mut comments = match t.notes(&key, Window::Whole(ALL_MAX)) {
+    let mut comments = match t.notes(&key, Window::Last(NEWEST)) {
         Ok(took) => took.items,
         Err(o) => return fail(&o),
     };
@@ -135,7 +142,7 @@ fn one(
         // Where ticket and blueprint are one item and the ticket answers no
         // notes, the item's comments are the blueprint's, as the port says.
         if let (Some(no), Some(b)) = (key.same_item(), blueprints) {
-            match b.comments(no, ALL_MAX) {
+            match b.comments(no, Bound::from(NEWEST)) {
                 Ok(whole) => comments = whole.into_items(),
                 Err(o) => return fail(&o),
             }
@@ -152,7 +159,7 @@ fn one(
         // failure is the read's own failed marker, which ends the poll as
         // unread when a rule needs the history.
         let history = match (histories, c.edited) {
-            (true, Some(_)) => Some(match t.note_edits(&c.id, ALL_MAX) {
+            (true, Some(_)) => Some(match t.note_edits(&c.id, Bound::from(NEWEST)) {
                 Ok(whole) => {
                     let edits = whole.into_items();
                     let mut versions: Vec<Value> = edits
@@ -439,6 +446,44 @@ mod tests {
             !edit_history_unread(&ns[0], &ours),
             "the poll does not wait"
         );
+    }
+
+    #[test]
+    fn the_read_judges_the_hundred_the_old_one_asked() {
+        // The old read asked `comments(last: 100)`; the new one asks the
+        // port for the same hundred, as a tail window where the ticket
+        // carries the notes (the adapter's `notes` tests pin the newest
+        // alone, oldest first) and as the same bound where a site's
+        // comments are only ever read whole, as a same-item world's are.
+        // There a hundred stand and are judged; a hundred and one is a
+        // read the poll cannot make, and it fails closed as a refused
+        // read does rather than judge comments the old read never saw.
+        let world = |count: u64| {
+            World::new().ticket(7, |t| {
+                let mut t = t.comment("alice", "note 1");
+                for i in 2..=count {
+                    t = t.comment("alice", &format!("note {i}"));
+                }
+                t
+            })
+        };
+        let ns = read(&world(100), 7);
+        assert_eq!(ns.len(), 100);
+        assert_eq!(ns[0]["body"], "note 1");
+        assert_eq!(ns[99]["body"], "note 100", "the newest, last");
+        let site = FakeSite::new(&world(101));
+        let (by, caller) = (Actor::Ours(Scope::Full), Caller::new("test"));
+        let mut tickets = site.tickets(&by, caller).unwrap();
+        let mut blueprints = site.blueprints(&by, caller).unwrap();
+        let a = all(
+            Some(tickets.as_mut()),
+            Some(blueprints.as_mut()),
+            &words(),
+            &[7],
+        )
+        .pop()
+        .unwrap();
+        assert_eq!(a["failed"], json!(true), "a hundred and one are Cut: {a}");
     }
 
     #[test]
