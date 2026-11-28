@@ -27,7 +27,7 @@ use tehas_core::time::from_iso;
 use tehas_core::units;
 use tehas_core::verb::Verb;
 use tehas_ports::{
-    At, Author, ChangeFilter, ChangeNo, ChangeStates, Comment, Login, TicketKey, Window, Write,
+    At, Author, ChangeFilter, ChangeNo, ChangeStates, Login, TicketKey, Window, Write,
     ALL_MAX,
 };
 
@@ -325,17 +325,6 @@ fn stamp(at: At) -> String {
 /// A comment of the ports in the shape `window` reads: its number where
 /// the site's is one, its author's login, its text as it was read, its
 /// times as the site's words, and its link.
-fn comment_of(c: &Comment) -> Value {
-    json!({
-        "id": c.id.as_str().parse::<u64>().ok(),
-        "user": c.author.as_ref().map(|a| json!({"login": a.login.as_str()})),
-        "body": c.raw.clone().unwrap_or_else(|| c.body.clone()),
-        "created_at": stamp(c.created),
-        "updated_at": stamp(c.edited.unwrap_or(c.created)),
-        "html_url": c.link.as_str(),
-    })
-}
-
 /// The number of a change, when it is one.
 fn change_no(n: u64) -> Option<ChangeNo> {
     NonZeroU64::new(n).map(ChangeNo::from)
@@ -1061,68 +1050,17 @@ impl Writer {
                 }
             }
         }
-        Some(Value::Array(items.iter().map(comment_of).collect()))
-    }
-
-    /// The conversation of pull request `pr`, same shape. None when the
-    /// read failed.
-    fn talk(&mut self, pr: u64) -> Option<Value> {
-        let h = self.ports.as_mut()?;
-        let items = h
-            .code_host
-            .conversation(change_no(pr)?, ALL_MAX)
-            .ok()?
-            .into_items();
-        Some(Value::Array(items.iter().map(comment_of).collect()))
-    }
-
-    /// The review bodies of pull request `pr`, in the shape
-    /// `review_as_comment` reads. None when the read failed.
-    fn reviews(&mut self, pr: u64) -> Option<Value> {
-        let h = self.ports.as_mut()?;
-        let items = h
-            .code_host
-            .reviews(change_no(pr)?, ALL_MAX)
-            .ok()?
-            .into_items();
-        Some(Value::Array(
-            items
-                .iter()
-                .map(|r| {
-                    json!({
-                        "id": r.id,
-                        "user": r.by.as_ref().map(|a| json!({"login": a.login.as_str()})),
-                        "body": r.body,
-                        "submitted_at": stamp(r.at),
-                        "html_url": r.link.as_str(),
-                    })
-                })
-                .collect(),
-        ))
-    }
-
-    /// The notes reviewers left on files of pull request `pr`, in the shape
-    /// `window` reads. None when the read failed.
-    fn inline(&mut self, pr: u64) -> Option<Value> {
-        let h = self.ports.as_mut()?;
-        let items = h
-            .code_host
-            .review_comments(change_no(pr)?, ALL_MAX)
-            .ok()?
-            .into_items();
         Some(Value::Array(
             items
                 .iter()
                 .map(|c| {
                     json!({
-                        "id": c.id,
-                        "user": c.by.as_ref().map(|a| json!({"login": a.login.as_str()})),
-                        "body": c.body,
-                        "created_at": stamp(c.at),
-                        "updated_at": stamp(c.edited.unwrap_or(c.at)),
+                        "id": c.id.as_str().parse::<u64>().ok(),
+                        "user": c.author.as_ref().map(|a| json!({"login": a.login.as_str()})),
+                        "body": c.raw.clone().unwrap_or_else(|| c.body.clone()),
+                        "created_at": stamp(c.created),
+                        "updated_at": stamp(c.edited.unwrap_or(c.created)),
                         "html_url": c.link.as_str(),
-                        "path": c.path.as_ref().map(|p| p.as_str()),
-                        "line": c.line.map(|l| l as u64),
                     })
                 })
                 .collect(),
@@ -1176,10 +1114,55 @@ impl Writer {
         mine.sort_unstable();
         mine.dedup();
         for pr in mine {
-            for c in window(&self.talk(pr)?, "", at, &who)? {
+            let no = change_no(pr)?;
+            // The conversation: GitHub's comments of the pull request page.
+            let talk = {
+                let h = self.ports.as_mut()?;
+                let got = h.code_host.conversation(no, ALL_MAX).ok()?;
+                Value::Array(
+                    got.into_items()
+                        .iter()
+                        .map(|c| {
+                            json!({
+                                "id": c.id.as_str().parse::<u64>().ok(),
+                                "user": c
+                                    .author
+                                    .as_ref()
+                                    .map(|a| json!({"login": a.login.as_str()})),
+                                "body": c.raw.clone().unwrap_or_else(|| c.body.clone()),
+                                "created_at": stamp(c.created),
+                                "updated_at": stamp(c.edited.unwrap_or(c.created)),
+                                "html_url": c.link.as_str(),
+                            })
+                        })
+                        .collect(),
+                )
+            };
+            for c in window(&talk, "", at, &who)? {
                 items.push(item(&c, "pr-comment", Some(pr)));
             }
-            let reviews = self.reviews(pr)?;
+            // The review bodies, oldest first, in the shape `window` reads.
+            let reviews = {
+                let h = self.ports.as_mut()?;
+                let got = h.code_host.reviews(no, ALL_MAX).ok()?;
+                Value::Array(
+                    got.into_items()
+                        .iter()
+                        .map(|r| {
+                            json!({
+                                "id": r.id,
+                                "user": r
+                                    .by
+                                    .as_ref()
+                                    .map(|a| json!({"login": a.login.as_str()})),
+                                "body": r.body,
+                                "submitted_at": stamp(r.at),
+                                "html_url": r.link.as_str(),
+                            })
+                        })
+                        .collect(),
+                )
+            };
             let reviews: Vec<Value> = reviews
                 .as_array()?
                 .iter()
@@ -1188,7 +1171,32 @@ impl Writer {
             for c in window(&Value::Array(reviews), "", at, &who)? {
                 items.push(item(&c, "review", Some(pr)));
             }
-            for c in window(&self.inline(pr)?, "", at, &who)? {
+            // The notes reviewers left on files.
+            let inline = {
+                let h = self.ports.as_mut()?;
+                let got = h.code_host.review_comments(no, ALL_MAX).ok()?;
+                Value::Array(
+                    got.into_items()
+                        .iter()
+                        .map(|c| {
+                            json!({
+                                "id": c.id,
+                                "user": c
+                                    .by
+                                    .as_ref()
+                                    .map(|a| json!({"login": a.login.as_str()})),
+                                "body": c.body,
+                                "created_at": stamp(c.at),
+                                "updated_at": stamp(c.edited.unwrap_or(c.at)),
+                                "html_url": c.link.as_str(),
+                                "path": c.path.as_ref().map(|p| p.as_str()),
+                                "line": c.line.map(|l| l as u64),
+                            })
+                        })
+                        .collect(),
+                )
+            };
+            for c in window(&inline, "", at, &who)? {
                 items.push(item(&c, "review-comment", Some(pr)));
             }
         }

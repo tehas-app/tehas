@@ -363,36 +363,37 @@ fn an_outsiders_comment_one_written_after_the_label_and_one_edited_after_it_are_
 /// #7 parked on alice's label, its clean-start box ticked by alice, with
 /// images on unless `off`.
 fn retry_world(w: &World, off: bool, boxes: &[&str]) {
-    retry_world_after(w, off, boxes, vec![]);
-}
-
-/// As `retry_world`, with `after` written as the comments the issue got
-/// after the question.
-fn retry_world_after(w: &World, off: bool, boxes: &[&str], after: Vec<Value>) {
     w.parked("failed", "alice");
     if !off {
         instance(w, IMAGES);
     }
-    w.comments(7, &park_body(boxes), "alice", json!(after));
+    w.comments(7, &park_body(boxes), "alice", json!([]));
 }
 
-/// The comment `who` wrote at `created`, in the shape of the read's nodes.
-/// The read numbers it, so a list of them agrees with itself.
-fn gcomment(who: &str, created: &str, body: &str) -> Value {
-    json!({"author": {"login": who, "databaseId": uid(who)}, "body": body,
-        "createdAt": created})
+/// A parked retry whose issue got, after the question, one comment per
+/// entry of `after`: who wrote it, when, and its text.
+fn retry_parked_after(w: &World, boxes: &[&str], after: &[(&str, &str, &str)]) {
+    w.parked("failed", "alice");
+    instance(w, IMAGES);
+    let nodes = after
+        .iter()
+        .map(|(who, at, body)| {
+            json!({"author": {"login": who, "databaseId": uid(who)},
+                "body": body, "createdAt": at})
+        })
+        .collect();
+    w.comments(7, &park_body(boxes), "alice", Value::Array(nodes));
 }
 
 #[test]
 fn a_retry_ticks_record_takes_the_comments_written_before_the_tick() {
     let w = World::new("ap-retry");
-    retry_world_after(
+    retry_parked_after(
         &w,
-        false,
         &["x", " "],
-        vec![
-            gcomment("alice", "2026-01-01T00:30:00Z", &format!("![r]({A}/9191)")),
-            gcomment("alice", "2026-01-01T01:00:01Z", &format!("![s]({A}/9292)")),
+        &[
+            ("alice", "2026-01-01T00:30:00Z", &format!("![r]({A}/9191)")),
+            ("alice", "2026-01-01T01:00:01Z", &format!("![s]({A}/9292)")),
         ],
     );
     let r = w.poll();
@@ -598,15 +599,14 @@ fn a_start_by_label_reads_no_pull_request() {
 #[test]
 fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     let w = World::new("ap-retry-off");
-    retry_world_after(
-        &w,
-        true,
-        &["x", " "],
-        vec![gcomment(
-            "alice",
-            "2026-01-01T00:30:00Z",
-            &format!("said ![r]({A}/9191)"),
-        )],
+    w.parked("failed", "alice");
+    w.comments(
+        7,
+        &park_body(&["x", " "]),
+        "alice",
+        json!([{"author": {"login": "alice", "databaseId": uid("alice")},
+            "body": format!("said ![r]({A}/9191)"),
+            "createdAt": "2026-01-01T00:30:00Z"}]),
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);

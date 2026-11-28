@@ -13,10 +13,11 @@
 
 use serde::Deserialize;
 
+use super::super::named::{ends_with_folded, Named};
 use super::change::{author, on_pull, parse, time, User, PER_PAGE};
 use crate::forge::uri;
 use crate::markers;
-use crate::port::blueprint_writes::{comment_revision, ends_with_folded};
+use crate::port::blueprint_writes::comment_revision;
 use crate::GitHub;
 use tehas_ports::{
     Bound, ChangeNo, ChangeReview, Comment, CommentId, Got, Login, Outcome, Refusal, RepoPath,
@@ -101,9 +102,10 @@ impl GitHub {
                     continue;
                 }
                 let id = r.id.ok_or(MALFORMED.clone())?;
-                if id <= last || !on_pull(r.pull_request_url.as_deref(), &self.repo, no)? {
+                if id <= last {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
+                on_pull(r.pull_request_url.as_deref(), Named::As(&self.repo), no)?;
                 last = id;
                 let at = time(r.submitted_at.as_deref())?;
                 let url = r.html_url.as_deref().ok_or(MALFORMED.clone())?;
@@ -146,9 +148,10 @@ impl GitHub {
             let short = read.len() < PER_PAGE;
             for n in read {
                 let id = n.id.ok_or(MALFORMED.clone())?;
-                if id <= last || !on_pull(n.pull_request_url.as_deref(), &self.repo, no)? {
+                if id <= last {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
+                on_pull(n.pull_request_url.as_deref(), Named::As(&self.repo), no)?;
                 last = id;
                 let at = time(n.created_at.as_deref())?;
                 let updated = time(n.updated_at.as_deref())?;
