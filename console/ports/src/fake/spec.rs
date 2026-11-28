@@ -22,7 +22,7 @@ pub struct TicketSpec {
     pub(crate) target: Option<TargetId>,
     pub(crate) author: Option<String>,
     pub(crate) comments: Vec<(String, String, Vec<Marker>)>,
-    pub(crate) notes: Vec<(u64, String, At, String)>,
+    pub(crate) notes: Vec<(u64, String, At, Option<At>, String)>,
     pub(crate) assignees: Vec<String>,
     pub(crate) parts: Vec<TicketKey>,
     pub(crate) blockers: Vec<Item>,
@@ -127,7 +127,22 @@ impl TicketSpec {
     /// A comment numbered `id` by the site, by `login`, written at `at`.
     pub fn note(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
         self.notes
-            .push((id, login.to_string(), at, body.to_string()));
+            .push((id, login.to_string(), at, None, body.to_string()));
+        self
+    }
+
+    /// A comment as `note` gives it, edited at `edited`: its later time,
+    /// which a window of the reads can see.
+    pub fn note_edited(
+        mut self,
+        id: u64,
+        login: &str,
+        at: At,
+        edited: At,
+        body: &str,
+    ) -> Self {
+        self.notes
+            .push((id, login.to_string(), at, Some(edited), body.to_string()));
         self
     }
 
@@ -241,14 +256,14 @@ impl TicketSpec {
             let id = s.new_comment(author, &body, markers, raw, now);
             s.items[at].comments.push(id);
         }
-        for (id, login, created, body) in self.notes {
+        for (id, login, created, edited, body) in self.notes {
             let author = Some(s.account(&login, comment_realm));
             let id = s.new_comment_at(
                 author,
                 crate::CommentId::new(id.to_string()),
                 &body,
                 created,
-                None,
+                edited,
             );
             s.items[at].comments.push(id);
         }
@@ -416,6 +431,7 @@ pub struct ChangeSpec {
     pub(crate) closes: Vec<BlueprintNo>,
     pub(crate) files: Vec<ChangedFile>,
     pub(crate) comments: Vec<(String, String)>,
+    pub(crate) talks: Vec<(u64, String, At, String)>,
     pub(crate) reviews: Vec<(u64, String, At, String)>,
     pub(crate) notes: Vec<super::state::NoteRec>,
     pub(crate) events: Vec<(String, crate::ChangeHappened)>,
@@ -468,6 +484,13 @@ impl ChangeSpec {
     /// A comment by `login`.
     pub fn comment(mut self, login: &str, body: &str) -> Self {
         self.comments.push((login.to_string(), body.to_string()));
+        self
+    }
+
+    /// A comment of its conversation: numbered `id`, by `login`, at `at`,
+    /// with this text.
+    pub fn talk(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
+        self.talks.push((id, login.to_string(), at, body.to_string()));
         self
     }
 
