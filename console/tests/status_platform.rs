@@ -285,7 +285,7 @@ fn release_setup(w: &World, installed: &[&str]) {
 /// The published releases, newest first, as GitHub answers the list: the
 /// whole shape the code host port's release read parses, ids and links
 /// among it.
-fn releases(w: &World, tags: &[&str]) {
+fn rel_json(tags: &[&str]) -> String {
     let list: Vec<Value> = tags
         .iter()
         .enumerate()
@@ -304,7 +304,17 @@ fn releases(w: &World, tags: &[&str]) {
             })
         })
         .collect();
-    w.fx("rel.json", &format!("{}\n", Value::from(list)));
+    format!("{}\n", Value::from(list))
+}
+
+fn releases(w: &World, tags: &[&str]) {
+    w.fx("rel.json", &rel_json(tags));
+}
+
+/// The same list as curl answers it to the anonymous handle, which asks it
+/// of the public address with no credential.
+fn curl_releases(w: &World, tags: &[&str]) {
+    w.fx("curl-rel.json", &rel_json(tags));
 }
 
 /// Two hours ago, the host read `newest`.
@@ -407,6 +417,29 @@ fn platform_a_release_host_keeps_the_newest_of_the_last_read_when_github_goes_do
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(platform(&w)["newest"], "v0.9.1");
     has(&r.out, "platform  v0.9.0, v0.9.1 is out, fetched ");
+}
+
+/// The fallback of finding 1, against the real adapter rather than a fake:
+/// gh is signed out, so the signed handle is refused and the anonymous one,
+/// which reads the same list with curl and no credential, must answer. The
+/// unit test on the ports' fake cannot see this: the fake answers every
+/// method, the real anonymous handle answers only the ones the adapter
+/// implements.
+#[test]
+fn platform_a_signed_out_host_reads_the_newest_over_anonymous_curl() {
+    let w = World::new("release-anon-curl");
+    release_setup(&w, &["v0.9.0"]);
+    curl_releases(&w, &["v0.10.0", "v0.9.0"]);
+    w.set_env(&["GH_AUTH=1"]);
+    let r = status_then_summary(&w);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(platform(&w)["newest"], "v0.10.0");
+    has(&r.out, "platform  v0.9.0, v0.10.0 is out, fetched ");
+    assert_eq!(
+        w.read_home(w.at().state(State::PlatformNewest)).trim_end(),
+        "v0.10.0"
+    );
+    has(&w.calls("curl"), "/releases");
 }
 
 // A cached newest is an answer from an earlier read, so it is only believed
