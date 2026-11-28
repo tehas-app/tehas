@@ -16,16 +16,20 @@ use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use crate::settings::account;
 use serde_json::{json, Map, Value};
 use std::io::Write as _;
+use std::num::NonZeroU64;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, State};
-use tehas_core::issue_pull::names_issue;
+use tehas_core::issue_pull::names_change;
 use tehas_core::time::from_iso;
 use tehas_core::units;
 use tehas_core::verb::Verb;
-use tehas_ports::{TicketKey, Write};
+use tehas_ports::{
+    At, Author, ChangeFilter, ChangeNo, ChangeStates, Comment, Login, TicketKey, Window, Write,
+    ALL_MAX,
+};
 
 /// What a claim answers when a poll before T4.7 made it whole: its parts
 /// after the mark are done already.
@@ -312,15 +316,29 @@ fn review_as_comment(r: &Value) -> Option<Value> {
     Some(c)
 }
 
-/// Whether a permission answer of `collaborators/{login}/permission` lets the
-/// account write: write, maintain or admin. `role_name` names maintain, which
-/// `permission` folds into write.
-fn may_write(answer: &Value) -> Option<bool> {
-    let role = answer
-        .get("role_name")
-        .and_then(Value::as_str)
-        .or_else(|| answer.get("permission").and_then(Value::as_str))?;
-    Some(matches!(role, "admin" | "maintain" | "write"))
+/// A port time as the site's own stamp, the shape `date -u` gives; empty
+/// for seconds out of its range, which the window then leaves out.
+fn stamp(at: At) -> String {
+    iso(at.secs().max(0) as u64)
+}
+
+/// A comment of the ports in the shape `window` reads: its number where
+/// the site's is one, its author's login, its text as it was read, its
+/// times as the site's words, and its link.
+fn comment_of(c: &Comment) -> Value {
+    json!({
+        "id": c.id.as_str().parse::<u64>().ok(),
+        "user": c.author.as_ref().map(|a| json!({"login": a.login.as_str()})),
+        "body": c.raw.clone().unwrap_or_else(|| c.body.clone()),
+        "created_at": stamp(c.created),
+        "updated_at": stamp(c.edited.unwrap_or(c.created)),
+        "html_url": c.link.as_str(),
+    })
+}
+
+/// The number of a change, when it is one.
+fn change_no(n: u64) -> Option<ChangeNo> {
+    NonZeroU64::new(n).map(ChangeNo::from)
 }
 
 /// The newest items whose text fits `RECORD_TEXT`, oldest first, and how many
@@ -1024,9 +1042,91 @@ impl Writer {
         None
     }
 
+    /// The comments of the issue, in the shape `window` reads: the ticket's
+    /// notes, or, where ticket and blueprint are one item and the ticket
+    /// answers no notes, the item's comments as the blueprints give them.
+    /// None when the read failed.
     fn comments(&mut self, n: u64) -> Option<Value> {
-        let path = format!("repos/{}/issues/{n}/comments?per_page=100", self.repo);
-        self.calls.gh(&["api", &path, "--paginate"]).ok()
+        let key = super::ticket(n)?;
+        let h = self.ports.as_mut()?;
+        let mut items = match h.tickets.notes(&key, Window::Whole(ALL_MAX)) {
+            Ok(t) => t.items,
+            Err(_) => return None,
+        };
+        if items.is_empty() {
+            if let Some(no) = key.same_item() {
+                match h.blueprints.comments(no, ALL_MAX) {
+                    Ok(w) => items = w.into_items(),
+                    Err(_) => return None,
+                }
+            }
+        }
+        Some(Value::Array(items.iter().map(comment_of).collect()))
+    }
+
+    /// The conversation of pull request `pr`, same shape. None when the
+    /// read failed.
+    fn talk(&mut self, pr: u64) -> Option<Value> {
+        let h = self.ports.as_mut()?;
+        let items = h
+            .code_host
+            .conversation(change_no(pr)?, ALL_MAX)
+            .ok()?
+            .into_items();
+        Some(Value::Array(items.iter().map(comment_of).collect()))
+    }
+
+    /// The review bodies of pull request `pr`, in the shape
+    /// `review_as_comment` reads. None when the read failed.
+    fn reviews(&mut self, pr: u64) -> Option<Value> {
+        let h = self.ports.as_mut()?;
+        let items = h
+            .code_host
+            .reviews(change_no(pr)?, ALL_MAX)
+            .ok()?
+            .into_items();
+        Some(Value::Array(
+            items
+                .iter()
+                .map(|r| {
+                    json!({
+                        "id": r.id,
+                        "user": r.by.as_ref().map(|a| json!({"login": a.login.as_str()})),
+                        "body": r.body,
+                        "submitted_at": stamp(r.at),
+                        "html_url": r.link.as_str(),
+                    })
+                })
+                .collect(),
+        ))
+    }
+
+    /// The notes reviewers left on files of pull request `pr`, in the shape
+    /// `window` reads. None when the read failed.
+    fn inline(&mut self, pr: u64) -> Option<Value> {
+        let h = self.ports.as_mut()?;
+        let items = h
+            .code_host
+            .review_comments(change_no(pr)?, ALL_MAX)
+            .ok()?
+            .into_items();
+        Some(Value::Array(
+            items
+                .iter()
+                .map(|c| {
+                    json!({
+                        "id": c.id,
+                        "user": c.by.as_ref().map(|a| json!({"login": a.login.as_str()})),
+                        "body": c.body,
+                        "created_at": stamp(c.at),
+                        "updated_at": stamp(c.edited.unwrap_or(c.at)),
+                        "html_url": c.link.as_str(),
+                        "path": c.path.as_ref().map(|p| p.as_str()),
+                        "line": c.line.map(|l| l as u64),
+                    })
+                })
+                .collect(),
+        ))
     }
 
     /// What a comments retry is given, as {links, context, left_out}: the
@@ -1055,41 +1155,31 @@ impl Writer {
         for c in window(list, "", at, &who)? {
             items.push(item(&c, "issue-comment", None));
         }
-        let authors = [bot.clone()];
+        // The bot's pull requests for the issue: its own changes whose head
+        // names the issue, or whose body closes it.
         let mut mine: Vec<u64> = Vec::new();
-        for author in &authors {
-            let prs = self
-                .calls
-                .gh(&[
-                    "pr",
-                    "list",
-                    "--repo",
-                    &repo,
-                    "--author",
-                    author,
-                    "--state",
-                    "all",
-                    "--json",
-                    "number,body,headRefName",
-                    "--limit",
-                    "100",
-                ])
-                .ok()?;
-            mine.extend(
-                prs.as_array()?
-                    .iter()
-                    .filter(|p| p.is_object() && names_issue(p, n))
-                    .filter_map(|p| p.get("number").and_then(Value::as_u64)),
-            );
+        {
+            let h = self.ports.as_mut()?;
+            let filter = ChangeFilter {
+                states: ChangeStates::All,
+                author: Some(Author::Me),
+                bodies: true,
+                ..Default::default()
+            };
+            let all = h.code_host.changes(&filter, ALL_MAX).ok()?;
+            for d in all.into_items() {
+                if names_change(d.head.as_str(), d.body.as_deref(), n) {
+                    mine.push(d.no.get());
+                }
+            }
         }
         mine.sort_unstable();
         mine.dedup();
         for pr in mine {
-            for c in window(&self.comments(pr)?, "", at, &who)? {
+            for c in window(&self.talk(pr)?, "", at, &who)? {
                 items.push(item(&c, "pr-comment", Some(pr)));
             }
-            let path = format!("repos/{repo}/pulls/{pr}/reviews?per_page=100");
-            let reviews = self.calls.gh(&["api", &path, "--paginate"]).ok()?;
+            let reviews = self.reviews(pr)?;
             let reviews: Vec<Value> = reviews
                 .as_array()?
                 .iter()
@@ -1098,9 +1188,7 @@ impl Writer {
             for c in window(&Value::Array(reviews), "", at, &who)? {
                 items.push(item(&c, "review", Some(pr)));
             }
-            let path = format!("repos/{repo}/pulls/{pr}/comments?per_page=100");
-            let inline = self.calls.gh(&["api", &path, "--paginate"]).ok()?;
-            for c in window(&inline, "", at, &who)? {
+            for c in window(&self.inline(pr)?, "", at, &who)? {
                 items.push(item(&c, "review-comment", Some(pr)));
             }
         }
@@ -1114,14 +1202,11 @@ impl Writer {
         let mut keep = Vec::new();
         let mut left_out = Vec::new();
         for login in authors {
-            let path = format!("repos/{repo}/collaborators/{login}/permission");
-            match self
-                .calls
-                .gh(&["api", &path])
-                .ok()
-                .as_ref()
-                .and_then(may_write)
-            {
+            let answer = {
+                let h = self.ports.as_mut()?;
+                h.code_host.may_write(&Login::new(&login))
+            };
+            match answer.ok() {
                 Some(true) => keep.push(login),
                 Some(false) => {}
                 None => {
