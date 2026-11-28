@@ -63,7 +63,7 @@ impl GitHub {
             args.extend(["-f", &query]);
             let out = match self.call("the tags", &args) {
                 Ok(out) => out,
-                Err(e) => return Err(self.query_outcome(&e)),
+                Err(e) => return Err(self.query_outcome(&e, false)),
             };
             let page = read_tags(&out)?;
             let count = *total.get_or_insert(page.total);
@@ -109,7 +109,7 @@ impl GitHub {
         ];
         let out = match self.call("the tag", &args) {
             Ok(out) => out,
-            Err(e) => return Err(self.query_outcome(&e)),
+            Err(e) => return Err(self.query_outcome(&e, false)),
         };
         let v: OneAnswer = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
         let node = v
@@ -220,8 +220,10 @@ impl GitHub {
     }
 }
 
-/// The first `n` of `all`, and whether there were more.
-fn took<T>(mut all: Vec<T>, n: NonZeroU32) -> Took<T> {
+/// The first `n` of `all`, and whether there were more. Also the anonymous
+/// handle's `recent_releases` (anonymous.rs), so both sides answer the
+/// same read the same way.
+pub(crate) fn took<T>(mut all: Vec<T>, n: NonZeroU32) -> Took<T> {
     let more = all.len() > n.get() as usize;
     all.truncate(n.get() as usize);
     let mut t = Took::default();

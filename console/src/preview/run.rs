@@ -395,7 +395,7 @@ impl Preview {
             .collect()
     }
 
-    fn remove_closed(&self, open: &BTreeSet<u64>) {
+    fn remove_closed(&self, open: &BTreeSet<u64>, host: &mut super::Host) {
         for n in self.on_host().difference(open) {
             // Membership in the list is not enough to remove something. The
             // pages are asked for one at a time: when the list moves while they
@@ -403,7 +403,7 @@ impl Preview {
             // neither, and one that is open would then look closed. So the run
             // asks about each number it means to remove, as the sweep does, and
             // keeps what GitHub says is open of ours.
-            let said = match verdict::ask(*n, &self.repo, &self.bot) {
+            let said = match verdict::ask(host, *n, &self.bot) {
                 Pull::Closed | Pull::Gone => "pull request no longer open, removed".to_string(),
                 Pull::Elsewhere => format!("its branch is not in {}, removed", self.repo),
                 Pull::Outside => format!("it was not opened by someone of {}, removed", self.repo),
@@ -423,10 +423,10 @@ impl Preview {
         }
     }
 
-    fn tell(&self, n: u64, seen: &str) {
+    fn tell(&self, host: &mut super::Host, n: u64, seen: &str) {
         let number = n.to_string();
         let address = self.address(&number);
-        notice::tell(&number, seen, &self.repo, &self.root, &address);
+        notice::tell(&number, seen, &self.repo, &self.root, &address, host);
     }
 
     /// The state of a pull request the console chose past the limit. Said once,
@@ -446,7 +446,7 @@ impl Preview {
     /// The chosen pull requests, newest first: their title and state, and the
     /// ones past the limit dealt with. False when a directory or a file of one
     /// could not be written.
-    fn take_chosen(&self, chosen: &[Verdict], pulls: &[Value]) -> bool {
+    fn take_chosen(&self, chosen: &[Verdict], pulls: &[Value], host: &mut super::Host) -> bool {
         for row in chosen {
             let (Verdict::Build { number, sha, seen } | Verdict::OverLimit { number, sha, seen }) =
                 row
@@ -467,13 +467,13 @@ impl Preview {
             self.retitle(&n);
             if matches!(row, Verdict::OverLimit { .. }) {
                 self.over_limit(&n, sha);
-                self.tell(*number, seen);
+                self.tell(host, *number, seen);
             }
         }
         true
     }
 
-    pub(super) fn run(&mut self) -> u8 {
+    pub(super) fn run(&mut self, host: &mut super::Host) -> u8 {
         // A run that stops here or at the network still writes the list. Its
         // time is what the dashboard shows and what tehasbot health goes by,
         // and a list that stopped changing would look like a timer that
@@ -545,7 +545,7 @@ impl Preview {
             "pull requests opened by someone outside the repository",
         );
 
-        if !self.take_chosen(&chosen, &pulls) {
+        if !self.take_chosen(&chosen, &pulls, host) {
             self.write_list();
             return 1;
         }
@@ -558,12 +558,12 @@ impl Preview {
                 _ => None,
             })
             .collect();
-        self.remove_closed(&open);
+        self.remove_closed(&open, host);
 
         for row in &chosen {
             if let Verdict::Build { number, sha, seen } = row {
                 self.bring(&number.to_string(), sha, "");
-                self.tell(*number, seen);
+                self.tell(host, *number, seen);
             }
         }
         u8::from(!self.write_list())
@@ -580,7 +580,7 @@ fn say_skipped(count: usize, one: &str, many: &str) {
 
 /// The command of a timer. The sweep waits for a run to end; a run does not
 /// wait for anything.
-pub fn main(sweep: bool) -> u8 {
+pub fn main(sweep: bool, host_of: super::HostOf) -> u8 {
     let mut preview = match Preview::of_this_run() {
         Ok(preview) => preview,
         Err(why) => {
@@ -607,10 +607,13 @@ pub fn main(sweep: bool) -> u8 {
         }
         return 0;
     };
+    // The one reader of changes, made by the wiring in main.rs: none when
+    // it cannot be wired, which both reads as no answer and keeps.
+    let mut host = host_of(&preview.home, &preview.repo);
     if sweep {
-        preview.sweep()
+        preview.sweep(&mut host)
     } else {
-        preview.run()
+        preview.run(&mut host)
     }
 }
 

@@ -28,7 +28,7 @@
 
 use crate::after::log;
 use crate::apply;
-use crate::host::{self, Refused, Start};
+use crate::host::{self, Start};
 use crate::start::attempt_shaped;
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
@@ -41,6 +41,7 @@ use std::time::Duration;
 use tehas_core::call::{gh_why, run_full, GRACE};
 use tehas_core::home::Home;
 use tehas_core::raise::{EndAnswer, StartRow, Writer};
+use tehas_core::verb::{End, Verb};
 use tehas_core::{cycle_notes, time};
 use tehas_ports::events::Dispatcher;
 
@@ -118,18 +119,6 @@ fn took_late(shown: &Value, began: i64) -> Option<String> {
     (open && since && attempt_shaped(&attempt)).then_some(attempt)
 }
 
-fn refused(f: Value) -> Refused {
-    let word = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-    Refused {
-        word: word("word"),
-        line: word("line"),
-    }
-}
-
-fn rc_of(f: &Value) -> i64 {
-    f.get("rc").and_then(Value::as_i64).unwrap_or(78)
-}
-
 fn by_hand() -> bool {
     let var = |k: &str| std::env::var(k).unwrap_or_default();
     var("TEHAS_CYCLE_FROM") != "unit" && var("INVOCATION_ID").is_empty()
@@ -172,29 +161,27 @@ fn commit_of(cmd: &[&str], image: &str, bound: Duration) -> Option<String> {
 }
 
 /// The start on record, or the status to exit with.
-fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i32> {
-    let rukas = rukas_commit();
-    let mut args = vec!["cycle-start", n];
-    if let Some(r) = &rukas {
-        args.extend(["--rukas", r]);
-    }
-    if by_hand() {
-        args.push("--by-hand");
-    }
+fn start_on_record(home: &Path, issue: u64, events: &Dispatcher) -> Result<Value, i32> {
+    let n = issue.to_string();
+    let call = Verb::CycleStart {
+        issue,
+        rukas: rukas_commit(),
+        by_hand: by_hand(),
+    };
     // A busy store committed nothing, so the start is asked again. A store that
     // timed out may have committed it. It is then ended as refused and nothing
     // runs.
     let began = time::now();
     let mut failed = None;
     for attempt in 1..=3 {
-        let failure = match host::store_value(home, &args) {
+        let said = match host::store_said(home, &call) {
             Ok(v) => return Ok(v),
-            Err(f) => f,
+            Err(s) => s,
         };
-        let (rc, said) = (rc_of(&failure), refused(failure));
-        match (rc, said.word.as_str()) {
+        let (rc, word) = (said.rc, said.word.clone());
+        match (rc, word.as_str()) {
             (1, "busy") => {}
-            (1, "timeout") => match host::store_try(home, 3, &["cycle-show", n]) {
+            (1, "timeout") => match host::store_try(home, 3, &Verb::CycleShow { issue }) {
                 Err(r) => {
                     log(&format!("refuse #{n}: the state store did not answer the start in time, and whether it took it is not known ({}): {}", r.word, said.line));
                     return Err(75);
@@ -211,17 +198,13 @@ fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i
                         {
                             crate::events::raise(events, p);
                         }
-                        let end = [
-                            "cycle-end",
-                            n,
-                            "--attempt",
-                            &took,
-                            "--refused",
-                            "--rc",
-                            "75",
-                        ];
+                        let end = Verb::CycleEnd {
+                            issue,
+                            attempt: took.clone(),
+                            end: End::Refused(75),
+                        };
                         match host::store_try(home, 5, &end) {
-                            Ok(v) => raise_short(home, n, &took, &v.to_string(), events),
+                            Ok(v) => raise_short(home, &n, &took, &v.to_string(), events),
                             Err(r) => log(&format!("ERROR: the start of #{n} the store took late is not ended ({}): cycle-end {n} --attempt {took} --refused --rc 75", r.word)),
                         }
                         log(&format!(
@@ -233,31 +216,31 @@ fn start_on_record(home: &Path, n: &str, events: &Dispatcher) -> Result<Value, i
                 }
             },
             _ => {
-                failed = Some((rc, said));
+                failed = Some(said);
                 break;
             }
         }
-        failed = Some((rc, said));
+        failed = Some(said);
         if attempt < 3 {
             std::thread::sleep(Duration::from_secs(1));
         }
     }
     match failed {
-        Some((1, s)) if matches!(s.word.as_str(), "busy" | "timeout") => {
+        Some(s) if s.rc == 1 && matches!(s.word.as_str(), "busy" | "timeout") => {
             log(&format!(
                 "refuse #{n}: the state store did not take the start ({}): {}",
                 s.word, s.line
             ));
             Err(75)
         }
-        Some((1, s)) => {
+        Some(s) if s.rc == 1 => {
             log(&format!(
                 "refuse #{n}: the state store refused the start: {}",
                 s.line
             ));
             Err(77)
         }
-        Some((_, s)) => {
+        Some(s) => {
             log(&format!(
                 "ERROR: #{n}: the state store cannot be used: {}",
                 s.line
@@ -280,19 +263,16 @@ fn raise_short(home: &Path, n: &str, attempt: &str, answer: &str, events: &Dispa
 /// A start that refuses its number ends its record, so the next start of the
 /// issue is not one that replaces an open row, and its line of history keeps
 /// the exit status the unit leaves. Its `cycle.ended` is raised here.
-fn end_refused(home: &Path, n: &str, attempt: &str, rc: u8, events: &Dispatcher) {
+fn end_refused(home: &Path, issue: u64, attempt: &str, rc: u8, events: &Dispatcher) {
+    let n = issue.to_string();
     let rc = rc.to_string();
-    let end = [
-        "cycle-end",
-        n,
-        "--attempt",
-        attempt,
-        "--refused",
-        "--rc",
-        &rc,
-    ];
+    let end = Verb::CycleEnd {
+        issue,
+        attempt: attempt.to_string(),
+        end: End::Refused(rc.parse().unwrap_or_default()),
+    };
     match host::store_try(home, 5, &end) {
-        Ok(v) => raise_short(home, n, attempt, &v.to_string(), events),
+        Ok(v) => raise_short(home, &n, attempt, &v.to_string(), events),
         Err(r) => log(&format!(
             "ERROR: the refused start of #{n} is not on record ({}): cycle-end {n} --attempt {attempt} --refused --rc {rc}",
             r.word
@@ -427,7 +407,7 @@ fn supervise(
 /// on `events`. Its exit status.
 pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     let n = g.issue.to_string();
-    let answer = match start_on_record(home, &n, events) {
+    let answer = match start_on_record(home, g.issue, events) {
         Ok(a) => a,
         Err(rc) => return rc,
     };
@@ -469,7 +449,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
             log(&format!(
                 "refuse #{n}: GitHub could not be asked what the number is (3 tries, the last: {why})"
             ));
-            end_refused(home, &n, &attempt, 65, events);
+            end_refused(home, g.issue, &attempt, 65, events);
             return 65;
         }
     };
@@ -483,17 +463,17 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
                 Number::Closed => format!("refuse #{n}: the issue is closed"),
                 _ => format!("refuse #{n}: GitHub's answer for it could not be read"),
             });
-            end_refused(home, &n, &attempt, 65, events);
+            end_refused(home, g.issue, &attempt, 65, events);
             return 65;
         }
     }
     let started = time::now();
     let restart = wants_restart(&issue);
-    let cycles = Home::new(home).cycles_dir();
+    let at = Home::new(home);
     // The notes of an earlier cycle, killed outright before it could report. A
     // freeze left by one would pause this cycle the moment it starts.
     for note in cycle_notes::started() {
-        let _ = fs::remove_file(cycles.join(format!("{n}.{note}")));
+        let _ = fs::remove_file(at.cycle_note(g.issue, note));
     }
     // The driver's record of the cycle before this one, had it kept one. Its
     // one reader was that cycle's run of the analytics, and a start comes here
@@ -501,7 +481,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     // this is where the note goes. Left behind it would be read as this
     // cycle's own steps, the analytics read the file by its issue alone, and
     // it would hold the place this cycle's copy needs.
-    let _ = fs::remove_file(cycles.join(format!("{n}.{}", apply::LEAN_STATE)));
+    let _ = fs::remove_file(at.cycle_note(g.issue, cycle_notes::Note::LeanState));
     let stop = Arc::new(AtomicBool::new(false));
     for sig in [
         signal_hook::consts::SIGTERM,
@@ -510,7 +490,7 @@ pub fn run(home: &Path, g: &Given, events: &Dispatcher) -> i32 {
     ] {
         if signal_hook::flag::register(sig, Arc::clone(&stop)).is_err() {
             log(&format!("ERROR: #{n}: cannot listen for signal {sig}"));
-            end_refused(home, &n, &attempt, 78, events);
+            end_refused(home, g.issue, &attempt, 78, events);
             return 78;
         }
     }

@@ -11,7 +11,7 @@ use crate::ran_with::ran_with;
 use serde_json::Value;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
+use tehas_core::verb::Verb;
 
 /// A call of the analytics may take this long: a stopped cycle has
 /// TimeoutStopSec for its whole report, and two calls are part of it.
@@ -76,10 +77,10 @@ pub struct Ended {
 fn fresh(
     dir: &Path,
     prefix: &str,
-    mut make: impl FnMut(&Path) -> std::io::Result<()>,
+    make: impl FnMut(&Path) -> std::io::Result<()>,
 ) -> Option<PathBuf> {
     static N: AtomicU32 = AtomicU32::new(0);
-    for _ in 0..100 {
+    let next = |_| {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
@@ -93,14 +94,9 @@ fn fresh(
                 c as char
             })
             .collect();
-        let p = dir.join(format!("{prefix}{tail}"));
-        match make(&p) {
-            Ok(()) => return Some(p),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return None,
-        }
-    }
-    None
+        Ok(format!("{prefix}{tail}"))
+    };
+    tehas_core::file::fresh(dir, 100, next, make).ok()
 }
 
 /// A file made new with mode 0600 under `dir`, holding `text`.
@@ -158,8 +154,7 @@ fn analytics_bin(home: &Path) -> PathBuf {
 /// feed that program asks this, so a host with it off leaves no such note.
 pub fn analytics_on(home: &Path) -> bool {
     let bin = analytics_bin(home);
-    env("TEHAS_ANALYTICS") == "on"
-        && fs::metadata(bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    env("TEHAS_ANALYTICS") == "on" && tehas_core::file::runnable(&bin)
 }
 
 fn analytics_wait() -> u32 {
@@ -218,8 +213,13 @@ pub fn approved(home: &Path, issue: u64, attempt: u64) -> String {
     if !analytics_on(home) {
         return "null".into();
     }
-    let (n, a) = (issue.to_string(), attempt.to_string());
-    match host::store(home, &["approval-view", &n, "--attempt", &a]) {
+    match host::store(
+        home,
+        &Verb::ApprovalView {
+            issue,
+            attempt: Some(attempt.to_string()),
+        },
+    ) {
         Ok(a) => approval_of(&a).dump(),
         Err(_) => "null".into(),
     }
@@ -286,7 +286,13 @@ fn analytics_run(home: &Path, a: &After) {
     let e = &a.ended;
     let at = iso(now());
     let (n, attempt) = (e.issue.to_string(), a.attempt.to_string());
-    let view = host::store(home, &["settings-view", &n, "--attempt", &attempt]);
+    let view = host::store(
+        home,
+        &Verb::SettingsView {
+            issue: e.issue,
+            attempt: attempt.clone(),
+        },
+    );
     let facts = run_facts(
         &history_line(a, &at),
         Some(a.attempt),
@@ -325,7 +331,7 @@ fn analytics_run(home: &Path, a: &After) {
 pub fn after(home: &Path, a: &After) {
     let e = &a.ended;
     let n = e.issue;
-    if let Err(f) = host::store_try(home, 3, &["publish"]) {
+    if let Err(f) = host::store_try(home, 3, &Verb::Publish { health: None }) {
         log(&format!(
             "WARN: the live view is not published after the end of #{n} ({}: {})",
             f.word, f.line

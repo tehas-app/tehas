@@ -87,6 +87,10 @@ pub struct Comment {
     pub markers: Vec<Marker>,
     /// What it looked like when read.
     pub revision: Revision,
+    /// The text as it was read, markers and all; None when the reader did
+    /// not keep it. A caller that shows or sums the text shows this, so
+    /// the bytes a person wrote stand.
+    pub raw: Option<String>,
     /// Where a person opens it.
     pub link: WebLink,
 }
@@ -102,7 +106,8 @@ new!(
     editor,
     edited,
     body,
-    markers
+    markers,
+    raw
 );
 
 /// One edit of a body or a comment: who, when, the text after it without
@@ -252,6 +257,19 @@ pub trait Blueprints: Reports + Cites {
         nos.iter()
             .map(|&no| (no, self.body_edits(no, bound)))
             .collect()
+    }
+    /// `body_edits_of`, but a failure the site names no one number for,
+    /// the project's among them, fails the read: `Err`, where
+    /// `body_edits_of` gives it to each number. A caller that holds one
+    /// item on that item's failure tells the two apart by this. The
+    /// default asks `body_edits_of`, so no failure is the read's
+    /// (Decided 131).
+    fn body_edits_together(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>> {
+        Ok(self.body_edits_of(nos, bound))
     }
     /// The edits of several comments, as `body_edits_of` for bodies.
     fn comment_edits_of(

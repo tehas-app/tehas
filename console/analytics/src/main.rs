@@ -93,6 +93,7 @@
 //! file; 78 TEHAS_HOME is unset or not a directory.
 
 mod db;
+mod loose;
 mod outcomes;
 mod plan;
 mod publish;

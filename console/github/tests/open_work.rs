@@ -672,17 +672,20 @@ fn a_failed_or_odd_page_fails_the_read_never_a_short_list() {
         why,
         sent: tehas_ports::Sent::Maybe,
     };
+    // A bare 403 is this read's bad minute, so the queue asks again; a 403
+    // naming its permission is a refusal the queue never asks again.
     for (state, want) in [
         (
             "rate-limited",
             Outcome::Spent {
                 pool: tehas_ports::Pool::Calls,
-                until: At::new(replay_now()),
+                until: At::new(replay_now() + 60),
             },
         ),
         ("server-error", maybe(tehas_ports::Passing::Server)),
         ("timeout", maybe(tehas_ports::Passing::Timeout)),
-        ("forbidden", Outcome::Forbidden),
+        ("forbidden", maybe(tehas_ports::Passing::Server)),
+        ("forbidden-named", Outcome::Forbidden),
         ("errors-beside-data", Outcome::Unread(Unread::Inconsistent)),
         ("same-twice", Outcome::Unread(Unread::Inconsistent)),
         ("short", Outcome::Unread(Unread::Inconsistent)),

@@ -527,9 +527,20 @@ pub(crate) fn path_ok(path: &str) -> bool {
 }
 
 /// The path of an address GitHub gave (a page's next, a redirect), if it
-/// is under [`API`] and keeps [`path_ok`].
+/// is under [`API`] and keeps [`path_ok`], its path hiding no `/`, `.` or
+/// backslash in an escape: the adapter did not escape it itself.
 pub(crate) fn api_path(address: &str) -> Option<&str> {
-    address.strip_prefix(API).filter(|p| path_ok(p))
+    address.strip_prefix(API).filter(|p| {
+        let path = p.split_once('?').map_or(*p, |(path, _)| path);
+        path_ok(p) && !hides_a_separator(path)
+    })
+}
+
+/// Whether `path` holds an escaped `/`, `.` or backslash, which a server
+/// may read as a segment or a step up.
+fn hides_a_separator(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    ["%2f", "%2e", "%5c"].iter().any(|e| lower.contains(e))
 }
 
 /// An address taken apart as curl takes it: its host, the path and the
@@ -569,14 +580,11 @@ pub(crate) fn address_ok(address: &str) -> bool {
     let plain = |b: u8, more: &[u8]| {
         b.is_ascii_alphanumeric() || b"-._~%+:,;".contains(&b) || more.contains(&b)
     };
-    let lower = parsed.path.to_ascii_lowercase();
     HOSTS.contains(&parsed.host)
         && parsed.path.starts_with('/')
         && !parsed.path.contains("//")
         && !parsed.path.contains("..")
-        && !lower.contains("%2f")
-        && !lower.contains("%2e")
-        && !lower.contains("%5c")
+        && !hides_a_separator(parsed.path)
         && parsed.path.bytes().all(|b| plain(b, b"/"))
         && parsed
             .query
@@ -663,6 +671,25 @@ mod tests {
         ] {
             assert_eq!(api_path(other), None, "{other}");
         }
+    }
+
+    /// A page's next or a redirect is GitHub's address, not one the adapter
+    /// escaped: its path may not hide a `/`, a `.` or a backslash, in either
+    /// case. Its query keeps its escapes.
+    #[test]
+    fn an_api_address_whose_path_hides_a_separator_gives_no_path() {
+        for bad in [
+            "https://api.github.com/repos/a/b/%2e%2e/c",
+            "https://api.github.com/repos/a/b/%2E%2E/c",
+            "https://api.github.com/repos/a%2Fb/tags",
+            "https://api.github.com/repos/a/b%5Cc/tags",
+        ] {
+            assert_eq!(api_path(bad), None, "{bad}");
+        }
+        assert_eq!(
+            api_path("https://api.github.com/repos/a/b/tags?after=v1%2E0&page=2"),
+            Some("repos/a/b/tags?after=v1%2E0&page=2")
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
-//! What a snapshot asks of GitHub: the open issues in pages of 25 with
-//! everything the rules read of each, the marks on closed issues and pull
+//! What a snapshot asks of GitHub: the marks on closed issues and pull
 //! requests, and the reads the bash makes of one issue at a time, in the
-//! shapes the bash dispatcher read them.
+//! shapes the bash dispatcher read them. The queue's own page moved onto the
+//! ports (`read::board`, `read::build::queue`); what is left here shapes
+//! what the board's answer already holds.
 
 use super::run::{Calls, GhFail};
 use serde_json::{json, Map, Value};
@@ -17,374 +18,8 @@ use tehas_core::events::Events;
 ///
 /// `host/labels.tsv` is where the label is created and described, and
 /// `console/dispatch/src/finish.rs`, `console/cycle/src/report.rs`,
-/// `console/ops/src/stop.rs` and `console/ops/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites, and the two
-/// tests below tie it to the queue's page and the guard's exemption.
+/// `console/ops/src/stop.rs` and `console/ops/src/tidy.rs` name it in their commands: a rename has to reach this constant and those sites. The test below ties it to the guard's exemption; the queue's read asks for it through the ports, as `Mark::State(State::Running)`.
 pub const RUNNING: &str = "tehas:running";
-
-/// The open issues one page asks for. A page over GitHub's budget for nested
-/// items comes back with its timelines cut short and no error, so the size is
-/// load-bearing for correctness, and the page count rather than the points is
-/// what the poll pays in: each page is one `gh` process run before any
-/// decision. `tests/dispatch_poll.rs` pins the number in the query, so a
-/// change has to be a deliberate one.
-const ISSUE_PAGE: usize = 25;
-
-/// The queue's page. `{ISSUE_PAGE}` is filled in from the constant above by
-/// `page_query`, so the number lives in one place.
-const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
-  repository(owner: $owner, name: $name) {
-    nameWithOwner
-    issues(states: OPEN, first: {ISSUE_PAGE}, after: $cursor) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        number title body createdAt author { login ...on User { databaseId } ...on Bot { databaseId } } lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } }
-        labels(first: 50) { nodes { name } }
-        subIssuesSummary { total completed }
-        issueDependenciesSummary { blockedBy }
-        parent { number }
-        timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
-          nodes {
-            __typename
-            ... on LabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { id name } }
-            ... on UnlabeledEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } label { id name } }
-            ... on RenamedTitleEvent { createdAt actor { login ...on User { databaseId } ...on Bot { databaseId } } }
-          }
-        }
-        closedByPullRequestsReferences(first: 20) { nodes { url state isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner } } }{TYPE}
-      }
-    }
-    closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
-  }
-}"#;
-
-/// The repository's `tehas:` labels with their node ids, on the first page
-/// alone: what `crate::pins` compares with the ids it pinned.
-const TEHAS_LABELS: &str = r#"
-    tehasLabels: labels(first: 100, query: "tehas:") { nodes { id name } }"#;
-
-/// What the hold of rule 6 reads of an open pull request. `body` is read
-/// whole, and it is the one field of the page that a description can make
-/// long. The author and head repository are what `build::own_pull` reads.
-macro_rules! open_pull_fields {
-    () => {
-        "number body isCrossRepository author { login ...on User { databaseId } ...on Bot { databaseId } } headRepository { nameWithOwner }"
-    };
-}
-
-/// The open pull requests, on the first page: the hold of rule 6 that reads a
-/// body for a closing keyword needs no call of its own while they fit in one
-/// list. Last in the page, and small, for the budget `ISSUE_PAGE` names. More
-/// than one list are read on with `MORE_OPEN_PULLS`.
-const OPEN_PULLS: &str = concat!(
-    r#"
-    openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
-      pageInfo { hasNextPage endCursor }
-      nodes { "#,
-    open_pull_fields!(),
-    " }\n    }"
-);
-
-/// The open pull requests after the first list of the queue's page.
-const MORE_OPEN_PULLS: &str = concat!(
-    r#"query($owner: String!, $name: String!, $cursor: String) { repository(owner: $owner, name: $name) {
-      openPulls: pullRequests(states: OPEN, first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
-        pageInfo { hasNextPage endCursor }
-        nodes { "#,
-    open_pull_fields!(),
-    " } } } }"
-);
-
-/// The most lists of 100 a read of the open pull requests goes on to. A
-/// repository with more open is a read that failed.
-const PULL_PAGES: usize = 50;
-
-// The page above names `tehas:running` inside a GraphQL string, where the
-// constant cannot reach it; this test is what ties the word in the query to
-// `RUNNING`.
-
-/// With `TEHAS_ISSUE_TYPES` mapping improvement: each issue's type.
-const TYPE: &str = "\n        issueType { name }";
-
-/// With `TEHAS_ISSUE_TYPES` mapping improvement, on the first page: the issue
-/// types of the repository's owner.
-const OWNER_TYPES: &str = "\n    issueTypes(first: 50) { nodes { name } }";
-
-/// The queue's page as it is sent, its page size filled in from `ISSUE_PAGE`.
-#[cfg(test)]
-fn page_query(first: bool) -> String {
-    page_query_typed(first, false)
-}
-
-/// The same, and with `types` each issue's type and, on the first page, the
-/// owner's types.
-fn page_query_typed(first: bool, types: bool) -> String {
-    let owner_types = if first && types { OWNER_TYPES } else { "" };
-    PAGE.replace("{ISSUE_PAGE}", &ISSUE_PAGE.to_string())
-        .replace("{TYPE}", if types { TYPE } else { "" })
-        .replace(
-            "{OPEN_PULLS}",
-            &format!(
-                "{}{owner_types}",
-                if first {
-                    format!("{OPEN_PULLS}{TEHAS_LABELS}")
-                } else {
-                    String::new()
-                }
-            ),
-        )
-}
-
-/// What a comment read asks of one issue: the one-issue query and the chunked
-/// one ask the same fields, so an issue's answer is the same either way. A
-/// comment's edit history is not asked here: nested under every comment it
-/// was nearly all of the read's cost, and only an edited comment has one.
-/// `with_comment_edits` reads it for the comments GitHub says were edited
-/// and puts it back where it was, so a rule reads the same answer.
-macro_rules! comment_fields {
-    () => {
-        r#"comments(last: 100) { nodes { databaseId id author { login ...on User { databaseId } ...on Bot { databaseId } } body createdAt lastEditedAt editor { login ...on User { databaseId } ...on Bot { databaseId } } } }"#
-    };
-}
-
-/// A comment's edit history, as the comment read asked it before.
-macro_rules! comment_edit_fields {
-    () => {
-        r#"userContentEdits(last: 100) { totalCount nodes { editor { login ...on User { databaseId } ...on Bot { databaseId } } } }"#
-    };
-}
-
-/// The most comments one edit history query asks of.
-pub const COMMENT_EDIT_CHUNK: usize = 20;
-
-/// One query for the edit histories of a chunk of comments, by node id.
-fn comment_edits_query(ids: &[String]) -> String {
-    let list: Vec<String> = ids.iter().map(|id| format!("\"{id}\"")).collect();
-    format!(
-        "query {{ nodes(ids: [{}]) {{ ... on IssueComment {{ id {} }} }} }}",
-        list.join(", "),
-        comment_edit_fields!()
-    )
-}
-
-/// Whether `id` is a node id as GitHub writes them, so it can go into a
-/// query as it is.
-fn is_node_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 100
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'=')
-}
-
-/// The comment nodes of one issue's comment read, as `comments_of` gives it.
-fn comment_nodes(answer: &mut Value) -> Option<&mut Vec<Value>> {
-    answer
-        .pointer_mut("/data/repository/issue/comments/nodes")
-        .and_then(Value::as_array_mut)
-}
-
-/// Whether GitHub says the comment was edited: a stamped `lastEditedAt`, as
-/// `edit_holds` reads it. GitHub stamps every edit it saves.
-fn was_edited(comment: &Value) -> bool {
-    comment
-        .get("lastEditedAt")
-        .and_then(Value::as_str)
-        .is_some_and(|at| !at.is_empty())
-}
-
-/// The history a comment already carries, when its answer holds one.
-fn carried(comment: &Value) -> Option<&Value> {
-    comment
-        .get("userContentEdits")
-        .filter(|h| h.get("totalCount").is_some() || h.get("failed").is_some())
-}
-
-/// The ids of the edited comments in `answers`, each once. An edited comment
-/// with no id usable in a query is left out: `fill_comment_edits` gives it a
-/// history that failed, which holds.
-pub fn edited_comment_ids(answers: &mut [Value]) -> Vec<String> {
-    let mut ids = Vec::new();
-    for a in answers.iter_mut() {
-        for c in comment_nodes(a).into_iter().flatten() {
-            let Some(id) = c.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if was_edited(c)
-                && carried(c).is_none()
-                && is_node_id(id)
-                && !ids.iter().any(|x| x == id)
-            {
-                ids.push(id.to_string());
-            }
-        }
-    }
-    ids
-}
-
-/// Puts each comment's edit history back on it, as the comment read asked it
-/// before: the history read by its id for an edited comment, the one its
-/// answer already carries if any, none for a comment GitHub says was not
-/// edited, and a read that failed (the read's own marker, or `{"failed":
-/// true}` when the answer left the comment out) otherwise, so
-/// `edit_holds` holds and `edit_history_unread` ends the poll as it did when
-/// the comment read itself failed. Pure.
-pub fn fill_comment_edits(answers: &mut [Value], edits: &Map<String, Value>) {
-    for a in answers.iter_mut() {
-        for c in comment_nodes(a).into_iter().flatten() {
-            let read = c
-                .get("id")
-                .and_then(Value::as_str)
-                .and_then(|id| edits.get(id))
-                .cloned();
-            let history = match (read, carried(c)) {
-                (Some(h), _) => h,
-                (None, Some(h)) => h.clone(),
-                (None, None) if !was_edited(c) => json!({"totalCount": 0, "nodes": []}),
-                (None, None) => json!({"failed": true}),
-            };
-            if let Some(o) = c.as_object_mut() {
-                o.insert("userContentEdits".into(), history);
-            }
-        }
-    }
-}
-
-/// Reads the edit histories of the edited comments in `answers` and puts
-/// every comment's history back on it (`fill_comment_edits`). A chunk that
-/// failed gives each of its comments that failed read.
-fn with_comment_edits(calls: &mut Calls, answers: &mut [Value]) {
-    let ids = edited_comment_ids(answers);
-    let mut edits = Map::new();
-    if !ids.is_empty() {
-        let list: Vec<Vec<String>> = ids
-            .chunks(COMMENT_EDIT_CHUNK)
-            .map(|chunk| {
-                vec![
-                    "api".to_string(),
-                    "graphql".to_string(),
-                    "-f".to_string(),
-                    format!("query={}", comment_edits_query(chunk)),
-                ]
-            })
-            .collect();
-        let answers = calls.gh_all(&list);
-        for (chunk, answer) in ids.chunks(COMMENT_EDIT_CHUNK).zip(answers) {
-            match answer {
-                Ok(v) => {
-                    for node in v
-                        .pointer("/data/nodes")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                    {
-                        let id = node.get("id").and_then(Value::as_str);
-                        let h = node.get("userContentEdits").filter(|h| h.is_object());
-                        if let (Some(id), Some(h)) = (id, h) {
-                            if chunk.iter().any(|c| c == id) {
-                                edits.insert(id.to_string(), h.clone());
-                            }
-                        }
-                    }
-                }
-                Err(f) => {
-                    for id in chunk {
-                        edits.insert(id.clone(), failed_read(&f));
-                    }
-                }
-            }
-        }
-    }
-    fill_comment_edits(answers, &edits);
-}
-
-const COMMENTS: &str = concat!(
-    r#"query($owner: String!, $name: String!, $number: Int!) {
-      repository(owner: $owner, name: $name) { issue(number: $number) {
-        "#,
-    comment_fields!(),
-    " } } }"
-);
-
-/// The most issues one comment query asks of. Each asks up to 100 comments,
-/// so ten issues stay well under GitHub's 500,000 nodes a query.
-pub const COMMENT_CHUNK: usize = 10;
-
-/// One aliased query for the comments of a chunk of issues: `i{n}` answers #n.
-fn comments_query(chunk: &[u64]) -> String {
-    let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
-    );
-    for n in chunk {
-        q.push_str(&format!(
-            " i{n}: issue(number: {n}) {{ {} }}",
-            comment_fields!()
-        ));
-    }
-    q.push_str(" } }");
-    q
-}
-
-/// The most issues one edit history query asks of. Each asks up to 100 edits,
-/// so a query stays far under GitHub's budget for nested items.
-pub const EDIT_CHUNK: usize = 25;
-
-/// One aliased query for the body edits of a chunk of issues: `i{n}`
-/// answers #n. The queue's page asks only for the last edit, as its size is
-/// load-bearing (`ISSUE_PAGE`); `edit_holds` judges every edit after an
-/// approval, so the issues a rule may start read their history here.
-fn edits_query(chunk: &[u64]) -> String {
-    let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
-    );
-    for n in chunk {
-        q.push_str(&format!(
-            " i{n}: issue(number: {n}) {{ userContentEdits(last: 100) {{ totalCount nodes {{ editedAt editor {{ login ...on User {{ databaseId }} ...on Bot {{ databaseId }} }} }} }} }}"
-        ));
-    }
-    q.push_str(" } }");
-    q
-}
-
-/// The body edit histories of several issues, one aliased query per chunk of
-/// `EDIT_CHUNK`, the chunks side by side: each issue's `userContentEdits`,
-/// or `failed_read` when its chunk failed, or `{"failed": true}` when the
-/// answer left it out. `edit_holds` holds on any of those.
-pub fn edits_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value> {
-    let (owner, name) = split(repo);
-    let list: Vec<Vec<String>> = numbers
-        .chunks(EDIT_CHUNK)
-        .map(|chunk| {
-            vec![
-                "api".to_string(),
-                "graphql".to_string(),
-                "-F".to_string(),
-                owner.clone(),
-                "-F".to_string(),
-                name.clone(),
-                "-f".to_string(),
-                format!("query={}", edits_query(chunk)),
-            ]
-        })
-        .collect();
-    let answers = calls.gh_all(&list);
-    numbers
-        .chunks(EDIT_CHUNK)
-        .zip(answers)
-        .flat_map(|(chunk, answer)| {
-            chunk
-                .iter()
-                .map(|n| match &answer {
-                    Ok(v) => v
-                        .pointer(&format!("/data/repository/i{n}/userContentEdits"))
-                        .filter(|h| h.is_object())
-                        .cloned()
-                        .unwrap_or_else(|| json!({"failed": true})),
-                    Err(f) => failed_read(f),
-                })
-                .collect::<Vec<Value>>()
-        })
-        .collect()
-}
 
 /// What the refresh rule reads of a pull request and of the issue it closes.
 macro_rules! pull_fields {
@@ -417,161 +52,27 @@ pub struct Open {
 }
 
 /// The open issues, the repository's name, the closed issues still marked
-/// tehas:running and the open pull requests, as the first page gave them.
+/// tehas:running and the open pull requests: the queue's shapes, as
+/// `read::board` maps the board's answer and `read::build::queue` fills what
+/// the board does not answer.
 pub struct Queue {
-    pub repo: Option<String>,
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
-    /// The nodes of `openPulls` as the first page gave them: None when the page
-    /// answered no such list, which is how a page cut short of GitHub's nested
-    /// budget reads as nothing known rather than nothing open. Only the first
-    /// page asks for the list, so a page after the first says nothing about it.
+    /// The open pull requests as nodes the hold of rule 6 reads: None when
+    /// the code host was not wired, which reads as nothing known rather
+    /// than nothing open.
     pub open_pulls: Option<Value>,
     /// The issue types of the repository's owner, when the queue asked for
-    /// them and the first page answered the repository: empty for an owner
-    /// with none.
+    /// them: empty for an owner with none.
     pub issue_types: Option<Vec<String>>,
-    /// The nodes of `tehasLabels` as the first page gave them, or None.
+    /// The repository's `tehas:` labels with their ids, as `crate::pins`
+    /// compares them with the ids it pinned, or None.
     pub labels: Option<Value>,
-}
-
-fn names(v: Option<&Value>) -> Vec<String> {
-    v.and_then(|l| l.get("nodes"))
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn split(repo: &str) -> (String, String) {
     let (o, n) = repo.split_once('/').unwrap_or((repo, ""));
     (format!("owner={o}"), format!("name={n}"))
-}
-
-/// The open issues, page by page. `types` asks for the issue types too.
-pub fn queue(calls: &mut Calls, repo: &str, types: bool) -> Result<Queue, GhFail> {
-    let (owner, name) = split(repo);
-    let mut q = Queue {
-        repo: None,
-        open: Vec::new(),
-        closed_running: Vec::new(),
-        open_pulls: None,
-        issue_types: None,
-        labels: None,
-    };
-    let mut cursor: Option<String> = None;
-    loop {
-        let query = format!("query={}", page_query_typed(cursor.is_none(), types));
-        let cur = cursor.as_ref().map(|c| format!("cursor={c}"));
-        let mut args = vec!["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
-        if let Some(c) = cur.as_deref() {
-            args.extend(["-f", c]);
-        }
-        let v = calls.gh(&args)?;
-        let r = v
-            .pointer("/data/repository")
-            .cloned()
-            .unwrap_or(Value::Null);
-        q.repo = r
-            .get("nameWithOwner")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        for n in r
-            .pointer("/issues/nodes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some(number) = n.get("number").and_then(Value::as_u64) else {
-                continue;
-            };
-            q.open.push(Open {
-                number,
-                labels: names(n.get("labels")),
-                node: n.clone(),
-            });
-        }
-        if cursor.is_none() && types && r.is_object() {
-            q.issue_types = Some(names(r.get("issueTypes")));
-        }
-        if cursor.is_none() {
-            q.open_pulls = rest_of(&r, "/openPulls", |c| {
-                let cur = format!("cursor={c}");
-                let query = format!("query={MORE_OPEN_PULLS}");
-                calls
-                    .gh(&[
-                        "api", "graphql", "-F", &owner, "-F", &name, "-f", &query, "-f", &cur,
-                    ])
-                    .map(|v| {
-                        v.pointer("/data/repository")
-                            .cloned()
-                            .unwrap_or(Value::Null)
-                    })
-            })?;
-            q.labels = r.pointer("/tehasLabels/nodes").cloned();
-            q.closed_running = r
-                .pointer("/closedRunning/nodes")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|x| x.get("number").and_then(Value::as_u64))
-                        .collect()
-                })
-                .unwrap_or_default();
-        }
-        let more = r.pointer("/issues/pageInfo/hasNextPage") == Some(&json!(true));
-        let next = r
-            .pointer("/issues/pageInfo/endCursor")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        match (more, next) {
-            (true, Some(n)) => cursor = Some(n),
-            _ => break,
-        }
-    }
-    Ok(q)
-}
-
-/// The nodes of a list read on to its last page: `first` is the answer that
-/// holds the first list at `at`, and `more` reads the list after a cursor,
-/// answering what holds it at the same `at`. None when an answer holds no
-/// list, which is nothing known rather than nothing there.
-fn rest_of(
-    first: &Value,
-    at: &str,
-    mut more: impl FnMut(&str) -> Result<Value, GhFail>,
-) -> Result<Option<Value>, GhFail> {
-    let mut page = first.clone();
-    let mut nodes = Vec::new();
-    for _ in 0..PULL_PAGES {
-        let Some(list) = page
-            .pointer(&format!("{at}/nodes"))
-            .and_then(Value::as_array)
-        else {
-            return Ok(None);
-        };
-        nodes.extend(list.iter().cloned());
-        let next = page
-            .pointer(&format!("{at}/pageInfo"))
-            .filter(|p| p.get("hasNextPage") == Some(&json!(true)))
-            .and_then(|p| p.get("endCursor"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let Some(cursor) = next else {
-            return Ok(Some(Value::Array(nodes)));
-        };
-        page = more(&cursor)?;
-    }
-    Err(GhFail {
-        line: format!(
-            "ERROR: more than {} open pull requests to read",
-            PULL_PAGES * 100
-        ),
-        ran: None,
-    })
 }
 
 /// The label events of an issue as the REST events list gives them.
@@ -759,106 +260,12 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     m
 }
 
-/// The comments of several issues, one aliased query per chunk of
-/// `COMMENT_CHUNK`, the chunks side by side. Each issue's answer has the shape
-/// the one-issue query `COMMENTS` gives, so a rule cannot tell the two reads apart. A chunk that
-/// failed reads every issue of it as `failed_read`, as a failed `comments`
-/// does, so a hold stays a hold; an alias the answer left out or null is that
-/// one issue's failed read, with no line: no gh call failed.
-pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value> {
-    let (owner, name) = split(repo);
-    let list: Vec<Vec<String>> = numbers
-        .chunks(COMMENT_CHUNK)
-        .map(|chunk| {
-            [
-                "api".to_string(),
-                "graphql".to_string(),
-                "-F".to_string(),
-                owner.clone(),
-                "-F".to_string(),
-                name.clone(),
-                "-f".to_string(),
-                format!("query={}", comments_query(chunk)),
-            ]
-            .to_vec()
-        })
-        .collect();
-    let answers = calls.gh_all(&list);
-    let mut out: Vec<Value> = numbers
-        .chunks(COMMENT_CHUNK)
-        .zip(answers)
-        .flat_map(|(chunk, answer)| {
-            chunk
-                .iter()
-                .map(|n| match &answer {
-                    Ok(v) => match v.pointer(&format!("/data/repository/i{n}")) {
-                        Some(issue) if issue.is_object() => {
-                            json!({"data": {"repository": {"issue": issue}}})
-                        }
-                        _ => json!({"failed": true}),
-                    },
-                    Err(f) => failed_read(f),
-                })
-                .collect::<Vec<Value>>()
-        })
-        .collect();
-    with_comment_edits(calls, &mut out);
-    out
-}
-
-/// The comments of one issue, with no edit history read: for a reader that
-/// reads no comment's edit history (the finish asks, which read only
-/// `lastEditedAt` and the editor), which so pays no history read.
-/// `failed_read` when the call failed.
-pub fn comments_unjudged(calls: &mut Calls, repo: &str, n: u64) -> Value {
-    let (owner, name) = split(repo);
-    let num = format!("number={n}");
-    let query = format!("query={COMMENTS}");
-    calls
-        .gh(&[
-            "api", "graphql", "-F", &owner, "-F", &name, "-F", &num, "-f", &query,
-        ])
-        .unwrap_or_else(|f| failed_read(&f))
-}
-
 /// The marker of a read whose gh call failed, with the call's line: a rule
 /// that ends the poll on the marker says what gh said, and a marker with no
 /// line is a read no gh call failed for. The line holds only the words of
 /// `gh_why`'s fixed list, so nothing gh printed beyond them reaches the log.
 pub fn failed_read(f: &GhFail) -> Value {
     json!({"failed": true, "line": f.line})
-}
-
-/// The states of the issues a blocker comment names, by number.
-pub fn blocker_states(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Map<String, Value> {
-    let mut out = Map::new();
-    if numbers.is_empty() {
-        return out;
-    }
-    let (owner, name) = split(repo);
-    let mut q = String::from(
-        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
-    );
-    for b in numbers {
-        q.push_str(&format!(
-            " b{b}: issueOrPullRequest(number: {b}) {{ ... on Issue {{ state }} ... on PullRequest {{ state }} }}"
-        ));
-    }
-    q.push_str(" } }");
-    let query = format!("query={q}");
-    // As the bash: what came back counts, whatever gh's exit, so a number
-    // GitHub does not know spoils only itself.
-    if let Some(v) = calls.gh_any(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query]) {
-        for b in numbers {
-            if let Some(s) = v
-                .pointer(&format!("/data/repository/b{b}/state"))
-                .and_then(Value::as_str)
-            {
-                out.insert(b.to_string(), json!(s));
-            }
-        }
-    }
-    out
 }
 
 /// One pull request as a refresh reads it: .data.repository.pullRequest.
@@ -890,8 +297,6 @@ mod tests {
     fn the_one_pull_request_asks_the_refresh_rules_fields() {
         let fields = pull_fields!();
         assert!(PULL.contains(&format!("{{ state {fields} }}")));
-        assert!(OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
-        assert!(MORE_OPEN_PULLS.contains(&format!("nodes {{ {} }}", open_pull_fields!())));
         let args = [
             "api".to_string(),
             "graphql".to_string(),
@@ -903,158 +308,21 @@ mod tests {
         assert!(crate::read::run::gh_reads(&args));
     }
 
-    fn list(nodes: &[u64], next: Option<&str>) -> Value {
-        json!({"l": {"pageInfo": {"hasNextPage": next.is_some(), "endCursor": next},
-            "nodes": nodes.iter().map(|n| json!({"number": n})).collect::<Vec<_>>()}})
-    }
-
-    #[test]
-    fn a_list_of_more_than_one_page_is_read_to_its_end() {
-        let mut asked = Vec::new();
-        let all = rest_of(&list(&[1, 2], Some("a")), "/l", |c| {
-            asked.push(c.to_string());
-            Ok(match c {
-                "a" => list(&[3], Some("b")),
-                _ => list(&[4], None),
-            })
-        });
-        assert_eq!(asked, ["a", "b"]);
-        assert_eq!(
-            all.ok().flatten(),
-            Some(json!([{"number": 1}, {"number": 2}, {"number": 3}, {"number": 4}]))
-        );
-    }
-
-    #[test]
-    fn a_list_that_one_page_does_not_answer_is_not_known() {
-        let all = rest_of(&list(&[1], Some("a")), "/l", |_| Ok(json!({})));
-        assert_eq!(all.ok(), Some(None));
-        let failed = rest_of(&list(&[1], Some("a")), "/l", |_| {
-            Err(GhFail {
-                line: "ERROR: gh failed".into(),
-                ran: None,
-            })
-        });
-        assert!(failed.is_err());
-        let endless = rest_of(&list(&[1], Some("a")), "/l", |_| Ok(list(&[1], Some("a"))));
-        assert!(endless.is_err());
-    }
-
     #[test]
     fn every_account_a_query_reads_comes_with_its_user_id() {
         // tehas_core::accounts counts a listed login only with its recorded id.
         let with_id = "{ login ...on User { databaseId } ...on Bot { databaseId } }";
-        for q in [
-            page_query(true),
-            COMMENTS.to_string(),
-            comments_query(&[7, 8]),
-            comment_edits_query(&["IC_a".to_string()]),
-            PULL.to_string(),
-            MORE_OPEN_PULLS.to_string(),
-        ] {
-            assert_eq!(
-                q.matches("login").count(),
-                q.matches(with_id).count(),
-                "{q}"
-            );
-            assert!(q.contains(with_id), "{q}");
-        }
-    }
-
-    #[test]
-    fn a_comment_read_asks_no_history_and_the_history_read_asks_it_as_before() {
-        assert!(!COMMENTS.contains("userContentEdits"), "{COMMENTS}");
-        assert!(!comments_query(&[7]).contains("userContentEdits"));
-        let q = comment_edits_query(&["IC_a".to_string(), "IC_b".to_string()]);
-        assert!(q.contains(r#"nodes(ids: ["IC_a", "IC_b"])"#), "{q}");
-        assert!(q.contains(comment_edit_fields!()), "{q}");
-    }
-
-    #[test]
-    fn only_edited_comments_with_a_plain_id_are_asked_for_once() {
-        let answer = |nodes: Value| json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
-        let mut answers = vec![
-            answer(json!([
-                {"id": "IC_a", "lastEditedAt": "2026-10-04T00:00:00Z"},
-                {"id": "IC_b", "lastEditedAt": null},
-                {"id": "IC_c", "lastEditedAt": ""},
-                {"id": "IC_\" x", "lastEditedAt": "2026-10-04T00:00:00Z"}
-            ])),
-            answer(json!([{"id": "IC_a", "lastEditedAt": "2026-10-04T00:00:00Z"}])),
-            json!({"failed": true}),
-        ];
-        assert_eq!(edited_comment_ids(&mut answers), vec!["IC_a".to_string()]);
-        let mut edits = Map::new();
-        edits.insert(
-            "IC_a".into(),
-            json!({"totalCount": 1, "nodes": [{"editor": {"login": "mallory"}}]}),
-        );
-        fill_comment_edits(&mut answers, &edits);
-        let nodes = &answers[0]["data"]["repository"]["issue"]["comments"]["nodes"];
-        assert_eq!(nodes[0]["userContentEdits"]["totalCount"], json!(1));
+        let q = PULL.to_string();
         assert_eq!(
-            nodes[1]["userContentEdits"],
-            json!({"totalCount": 0, "nodes": []})
+            q.matches("login").count(),
+            q.matches(with_id).count(),
+            "{q}"
         );
-        assert_eq!(
-            nodes[2]["userContentEdits"],
-            json!({"totalCount": 0, "nodes": []})
-        );
-        // An id that cannot go into a query is never asked, and holds.
-        assert_eq!(nodes[3]["userContentEdits"], json!({"failed": true}));
-        // A read that failed whole is left as it was.
-        assert_eq!(answers[2], json!({"failed": true}));
+        assert!(q.contains(with_id), "{q}");
     }
 
     #[test]
-    fn an_outside_edit_of_a_marker_comment_still_holds_after_the_history_is_put_back() {
-        let ours = |w: &str| w == "tehas-bot";
-        let marker = json!({"id": "IC_m", "body": "<!-- tehas:retry -->",
-            "author": {"login": "tehas-bot"},
-            "lastEditedAt": "2026-10-04T00:00:00Z", "editor": {"login": "tehas-bot"}});
-        let mut answers =
-            vec![json!({"data": {"repository": {"issue": {"comments": {"nodes": [marker]}}}}})];
-        let mut edits = Map::new();
-        edits.insert(
-            "IC_m".into(),
-            json!({"totalCount": 2, "nodes": [
-            {"editor": {"login": "mallory"}}, {"editor": {"login": "tehas-bot"}}]}),
-        );
-        fill_comment_edits(&mut answers, &edits);
-        let c = &answers[0]["data"]["repository"]["issue"]["comments"]["nodes"][0];
-        assert_eq!(
-            tehas_core::events::edit_holds(c, "", "", &ours).as_deref(),
-            Some("mallory")
-        );
-        // A history cut short holds too, as before.
-        let mut cut = vec![answers[0].clone()];
-        let mut edits = Map::new();
-        edits.insert(
-            "IC_m".into(),
-            json!({"totalCount": 101, "nodes": [{"editor": {"login": "tehas-bot"}}]}),
-        );
-        fill_comment_edits(&mut cut, &edits);
-        let c = &cut[0]["data"]["repository"]["issue"]["comments"]["nodes"][0];
-        assert!(tehas_core::events::edit_holds(c, "", "", &ours).is_some());
-        // A history read that failed holds, and ends the poll as unread.
-        let mut failed = vec![answers[0].clone()];
-        let mut edits = Map::new();
-        edits.insert(
-            "IC_m".into(),
-            failed_read(&GhFail {
-                line: "ERROR: gh api graphql failed".into(),
-                ran: None,
-            }),
-        );
-        fill_comment_edits(&mut failed, &edits);
-        let c = &failed[0]["data"]["repository"]["issue"]["comments"]["nodes"][0];
-        assert!(tehas_core::events::edit_holds(c, "", "", &ours).is_some());
-        assert!(tehas_core::events::edit_history_unread(c, &ours));
-    }
-
-    #[test]
-    fn an_issue_names_its_epic_and_the_page_asks_for_it() {
-        assert!(PAGE.contains("parent { number }"));
+    fn an_issue_names_its_epic() {
         let o = |node: Value| Open {
             number: 7,
             labels: vec![],
@@ -1068,13 +336,12 @@ mod tests {
         assert!(alone["work"].get("parent").is_none());
     }
 
-    /// The page asks how many open issues block each one through a native
-    /// blocked-by link, and the issue's REST-shaped answer carries the count.
+    /// How many open issues block each one through a native blocked-by link,
+    /// as the issue's REST-shaped answer carries it.
     /// A forge answer without the field, or with one that is no count, carries
     /// nothing, so no link holds the issue.
     #[test]
-    fn an_issue_carries_its_open_blocked_by_links_and_the_page_asks_for_them() {
-        assert!(PAGE.contains("issueDependenciesSummary { blockedBy }"));
+    fn an_issue_carries_its_open_blocked_by_links() {
         let o = |node: Value| Open {
             number: 7,
             labels: vec![],
@@ -1366,47 +633,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_page_asks_for_the_open_pull_requests() {
-        assert!(page_query(true).contains("openPulls: pullRequests(states: OPEN"));
-        assert!(!page_query(false).contains("pullRequests"));
-        assert!(!page_query(false).contains("{OPEN_PULLS}"));
-    }
-
-    #[test]
-    fn the_issue_types_are_asked_only_with_the_setting_and_the_owners_on_the_first_page() {
-        for first in [true, false] {
-            let off = page_query(first);
-            assert!(!off.contains("issueType") && !off.contains("{TYPE}"));
-            let on = page_query_typed(first, true);
-            assert!(on.contains("issueType { name }"));
-            assert_eq!(on.contains("issueTypes(first: 50)"), first);
-        }
-    }
-
-    #[test]
-    fn the_page_asks_for_the_page_size_the_guard_rests_on() {
-        // `first:` is not a tuning number: a page over GitHub's budget for
-        // nested items answers with timelines cut short and no error. An edit
-        // to the constant is caught here and in the shell poll test.
-        let q = page_query(true);
-        assert!(
-            q.contains(&format!("first: {ISSUE_PAGE}, after: $cursor")),
-            "the queue's page does not ask for ISSUE_PAGE: {q}"
-        );
-        assert!(
-            !q.contains("{ISSUE_PAGE}"),
-            "the page size was not filled in"
-        );
-    }
-
-    #[test]
-    fn the_running_mark_the_page_selects_is_the_mark_the_guard_exempts() {
-        // The queue's page names the mark inside a GraphQL string the
-        // compiler cannot check, so the exemption and the query could drift
-        // apart: the page would go on selecting the closed marks while the
-        // guard exempted a name no issue carries, and every running issue
-        // would pay a paginated read on every poll with nothing failing.
-        assert!(PAGE.contains(&format!("labels: [\"{RUNNING}\"]")));
+    fn the_running_mark_the_guard_exempts_is_the_one_the_table_spells() {
+        // The queue's page used to name the mark inside a GraphQL string the
+        // compiler could not check; the read now asks it as a typed mark, and
+        // the guard's exemption stays tied to the table's word for it.
         assert_eq!(RUNNING, "tehas:running");
     }
 }

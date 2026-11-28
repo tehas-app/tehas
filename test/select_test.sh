@@ -47,7 +47,7 @@ workspace() {
 {"workspace_root": "/w", "packages": [
   {"name": "console", "manifest_path": "/w/Cargo.toml", "dependencies": [
     {"name": "serde_json", "kind": null},
-    {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
+    {"name": "tehas-core", "kind": null, "path": "/w/core"}, {"name": "tehas-github", "kind": null, "path": "/w/github"}]},
   {"name": "store", "manifest_path": "/w/store/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-core", "manifest_path": "/w/core/Cargo.toml", "dependencies": []},
@@ -55,7 +55,7 @@ workspace() {
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "tehas-dispatch", "manifest_path": "/w/dispatch/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
-  {"name": "tehas-mcp", "manifest_path": "/w/mcp/Cargo.toml", "dependencies": [
+  {"name": "tehas-github", "manifest_path": "/w/github/Cargo.toml", "dependencies": [{"name": "tehas-core", "kind": null, "path": "/w/core"}]}, {"name": "tehas-mcp", "manifest_path": "/w/mcp/Cargo.toml", "dependencies": [
     {"name": "tehas-core", "kind": null, "path": "/w/core"}]},
   {"name": "report", "manifest_path": "/w/report/Cargo.toml", "dependencies": [
     {"name": "store", "kind": "dev", "path": "/w/store"}]},
@@ -85,10 +85,10 @@ t_case "the real workspace: an MCP change selects the crates that read its tools
 # analytics/tests/sessions_contract.rs reads the snapshot with the MCP
 # server's tools and the console's surface test reads the tool table, so an
 # MCP change selects the server, the console package and their dependents.
-t_eq "$(real_pick console/mcp/src/tools.rs)" "$(printf 'crate %s\n' analytics console store tehas-cycle tehas-dispatch tehas-mcp tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
+t_eq "$(real_pick console/mcp/src/tools.rs)" "$(printf 'crate %s\n' analytics console store tehas-cycle tehas-dispatch tehas-github tehas-mcp tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
 
 t_case "the real workspace: a store change selects the crates that run the store"
-t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' console store tehas-cycle tehas-dispatch tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
+t_eq "$(real_pick console/store/src/db.rs)" "$(printf 'crate %s\n' analytics console store tehas-cycle tehas-dispatch tehas-github tehas-mcp tehas-ops tehas-plugin tehas-plugin-gate tehas-xtask)"
 
 t_case "the real workspace: a core change selects the whole workspace"
 t_eq "$(real_pick console/core/src/lib.rs)" "cargo"

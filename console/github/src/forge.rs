@@ -125,6 +125,9 @@ pub struct GitHub {
     /// token's) and for a handle made with [`GitHub::new`].
     /// `edit_comment` edits nothing through any other handle.
     pub(crate) as_bot: bool,
+    /// A site made the handle for the factory's account at read scope: its
+    /// remote is for a fetch alone, a push `Forbidden`.
+    pub(crate) fetch_only: bool,
     /// The node id and the issue of each comment a read of comments found
     /// edited, by its REST id: an edit history is asked by node id.
     pub(crate) comment_nodes: std::collections::HashMap<u64, (String, tehas_ports::BlueprintNo)>,
@@ -170,6 +173,7 @@ impl GitHub {
             lines: Vec::new(),
             bot: None,
             as_bot: false,
+            fetch_only: false,
             comment_nodes: std::collections::HashMap::new(),
             people: None,
             here: Here::Unknown,

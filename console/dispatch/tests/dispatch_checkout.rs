@@ -150,6 +150,14 @@ fn an_index_that_runs_as_its_own_unit_holds_the_cycles_until_the_poll_after_it()
 #[test]
 fn the_poll_after_the_index_run_says_how_it_ended_and_starts_the_cycles() {
     let w = World::new("co-index-after");
+    // The marks the poll reads and keeps as pins, as a running host has
+    // them: an empty answer would keep an empty pins file and refuse the
+    // application below. The name is the one `LABELLED` applies.
+    let named: serde_json::Value = serde_json::from_str(LABELLED).unwrap();
+    w.fx(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": named[0]["label"]["name"]}]).to_string(),
+    );
     index_unit(&w);
     let base = git(&w.checkout(), &["rev-parse", "origin/main"]);
     w.home_file(
@@ -263,6 +271,9 @@ fn a_cycle_does_not_start_when_the_issue_cannot_be_marked_as_running() {
     assert_eq!(w.started(), "");
 }
 
+/// The label that approves a start, as the pins name it.
+const READY: &str = tehas_core::label_pins::GRANTING[0];
+
 const LABELLED: &str = r#"[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]"#;
 
 #[test]
@@ -275,18 +286,18 @@ fn an_outside_edit_after_the_label_is_not_approved_though_an_allowed_account_edi
     );
     w.fx(
         "edits-7.json",
-        r#"{"totalCount":2,"nodes":[{"editedAt":"2026-01-02T10:01:00Z","editor":{"login":"mallory"}},{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}]}"#,
+        r#"{"totalCount":3,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"__typename":"User","login":"alice"},"diff":"b"},{"editedAt":"2026-01-02T10:01:00Z","editor":{"__typename":"User","login":"mallory"},"diff":"a"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
     has(
         &r.out,
         "skip #7: its text was changed by 'mallory' after alice applied tehas:ready",
     );
-    has(&w.gh(), "userContentEdits(last: 100)");
+    has(&w.gh(), "userContentEdits(first: 100)");
     // A history longer than the poll read holds it too.
     w.fx(
         "edits-7.json",
-        r#"{"totalCount":101,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}]}"#,
+        r#"{"totalCount":101,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"},"diff":"b"}]}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
     has(
@@ -303,7 +314,9 @@ fn an_outside_edit_after_the_label_is_not_approved_though_an_allowed_account_edi
 }
 
 // The list may name a GitHub account called unknown: a change by no account is
-// still nobody's. The rename variant is a fixture of approval.json.
+// still nobody's. The board adapter names an editor GitHub no longer gives
+// ghost, so the line says ghost and that account is on no list either way.
+// The rename variant is a fixture of approval.json.
 #[test]
 fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_edit_variant() {
     let w = World::new("co-unknown-edit");
@@ -319,9 +332,135 @@ fn with_the_account_unknown_on_the_list_a_change_by_no_account_is_not_approved_e
         r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":null}}}}"#,
     );
     let r = w.dispatch(&["--dry-run"]);
+    has(&r.out, "skip #7: its text was changed by 'ghost'");
+    lacks(&r.out, "would run a cycle");
+    has(&w.gh(), "userContentEdits(first: 100)");
+}
+
+// An edit in the history GitHub names no account for, a deleted one, is
+// nobody's through the adapter too, even to a list that names its ghost.
+#[test]
+fn with_the_ghost_on_the_list_an_edit_by_no_account_in_the_history_is_not_approved() {
+    let w = World::new("co-ghost-edit");
+    let mut lines = MINIMAL.to_vec();
+    lines.extend([
+        "TEHAS_MAX_CYCLES=1",
+        r#"TEHAS_ALLOWED_LABELERS="alice ghost""#,
+    ]);
+    w.instance(&lines);
+    w.fx("events-7.json", LABELLED);
+    w.fx(
+        "edit-7.json",
+        r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}}}}"#,
+    );
+    w.fx(
+        "edits-7.json",
+        r#"{"totalCount":3,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"__typename":"User","login":"alice"},"diff":"b"},{"editedAt":"2026-01-02T10:01:00Z","editor":null,"diff":"a"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#,
+    );
+    let r = w.dispatch(&["--dry-run"]);
     has(&r.out, "skip #7: its text was changed by 'unknown'");
     lacks(&r.out, "would run a cycle");
-    has(&w.gh(), "userContentEdits(last: 100)");
+}
+
+// The GitHub adapter's recorded answer of a body's history, through the
+// poll's wiring to the holds: an edit after the label by a bot that is not
+// the factory's by its id holds the issue, and a label after every edit is
+// not held.
+#[test]
+fn a_recorded_body_history_reads_through_the_adapter_to_the_holds() {
+    let at = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../github/tests/recorded/edits/site/issue-7.json"
+    );
+    let issue: Value = serde_json::from_str(&std::fs::read_to_string(at).unwrap()).unwrap();
+    for (label, held) in [
+        ("2026-11-20T10:00:00Z", true),
+        ("2026-11-21T09:00:00Z", false),
+    ] {
+        let w = World::new("co-recorded-edits");
+        let mut lines = MINIMAL.to_vec();
+        lines.extend(["TEHAS_MAX_CYCLES=1", r#"TEHAS_ALLOWED_LABELERS="octo-dev""#]);
+        w.instance(&lines);
+        // The recording's id of octo-dev, for the label and the edits alike.
+        let ids = Home::new(&w.home).state(home::State::AccountIds);
+        let known = std::fs::read_to_string(&ids).unwrap_or_default();
+        w.home_file(&ids, &format!("{known}octo-dev 5001\n"));
+        let octo = r#"{"login":"octo-dev","id":5001}"#;
+        let event = LABELLED
+            .replace(r#"{"login":"alice"}"#, octo)
+            .replace("2026-01-02T10:00:00Z", label);
+        w.fx("events-7.json", &event);
+        let mut edit = issue.clone();
+        edit.as_object_mut().unwrap().remove("userContentEdits");
+        edit["editor"] = json!({"login": "octo-dev", "databaseId": 5001});
+        w.fx(
+            "edit-7.json",
+            &json!({"data": {"repository": {"issue": edit}}}).to_string(),
+        );
+        w.fx("edits-7.json", &issue["userContentEdits"].to_string());
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 0, "{}", r.out);
+        if held {
+            let by = "its text was changed by 'tehas-bot#100001' after octo-dev applied";
+            has(&r.out, &format!("skip #7: {by} {READY}"));
+        } else {
+            lacks(&r.out, "skip #7");
+            has(&r.out, "would run a cycle for #7");
+        }
+    }
+}
+
+/// Issues 7 and 8 labelled and edited by alice alone, so the poll reads
+/// both histories in one question, GitHub answering it with `errors`.
+fn two_edited_with_errors(w: &World, errors: &str) {
+    let ready = json!([{"number": 7, "labels": [{"name": READY}]},
+        {"number": 8, "labels": [{"name": READY}]}]);
+    w.fx("ready.json", &ready.to_string());
+    let edited = r#"{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","editor":{"login":"alice"}}}}}"#;
+    let by_alice = r#"{"totalCount":2,"nodes":[{"editedAt":"2026-01-02T10:05:00Z","editor":{"__typename":"User","login":"alice"},"diff":"b"},{"editedAt":"2000-01-01T00:00:00Z","editor":null,"diff":""}]}"#;
+    for n in [7, 8] {
+        w.fx(&format!("events-{n}.json"), LABELLED);
+        w.fx(&format!("edit-{n}.json"), edited);
+        w.fx(&format!("edits-{n}.json"), by_alice);
+    }
+    w.fx("edits-errors.json", errors);
+}
+
+// An error GitHub's answer names no issue for, the repository's among them,
+// is the question's: no history of it is known, and the poll ends.
+#[test]
+fn an_error_of_the_whole_edit_question_ends_the_poll() {
+    for errors in [
+        r#"[{"type":"SERVICE_UNAVAILABLE","message":"try again"}]"#,
+        r#"[{"type":"NOT_FOUND","path":["repository"],"message":"Could not resolve"}]"#,
+    ] {
+        let w = World::new("co-edits-whole");
+        two_edited_with_errors(&w, errors);
+        let r = w.dispatch(&["--dry-run"]);
+        assert_eq!(r.rc, 1, "{errors}: {}", r.out);
+        has(
+            &r.out,
+            "ERROR: unreadable edit history of #7: the answer does not agree with itself",
+        );
+        lacks(&r.out, "would run a cycle");
+        lacks(&r.out, "its text was changed by");
+    }
+}
+
+// An error GitHub names one issue for holds that issue alone.
+#[test]
+fn an_error_at_one_issue_s_edit_history_holds_that_issue_alone() {
+    let w = World::new("co-edits-item");
+    two_edited_with_errors(
+        &w,
+        r#"[{"type":"FORBIDDEN","path":["repository","i7","userContentEdits"],"message":"refused"}]"#,
+    );
+    let r = w.dispatch(&["--dry-run"]);
+    assert_eq!(r.rc, 0, "{}", r.out);
+    let by = "its text was changed by 'unknown' after alice applied";
+    has(&r.out, &format!("skip #7: {by} {READY}"));
+    has(&r.out, "would run a cycle for #8");
+    lacks(&r.out, "ERROR");
 }
 
 #[test]
@@ -330,10 +469,7 @@ fn an_issue_never_edited_asks_for_no_edit_history() {
     w.fx("events-7.json", LABELLED);
     let r = w.dispatch(&["--dry-run"]);
     has(&r.out, "would run a cycle for #7");
-    lacks(
-        &w.gh(),
-        "userContentEdits(last: 100) { totalCount nodes { editedAt",
-    );
+    lacks(&w.gh(), "userContentEdits(first");
 }
 
 /// The one rename the poll's own read can differ on: no time. No edit record

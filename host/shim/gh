@@ -39,7 +39,7 @@ else
 fi
 
 # Which call is a write and the line it leaves are the console's (`console gh`,
-# console/src/gh_shim.rs): a read execs gh from there at once. A console that
+# console/github/src/gh_shim.rs): a read execs gh from there at once. A console that
 # is missing or cannot be run still leaves gh working, with the token above
 # and no line in the log, so a host that needs repair keeps its gh.
 shopt -s execfail

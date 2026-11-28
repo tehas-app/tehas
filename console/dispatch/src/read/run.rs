@@ -13,6 +13,7 @@ pub use tehas_core::call::{
     gh_env, gh_why, run, run_grace, run_grace_env, run_input, run_input_bounded, run_input_env,
     run_quiet, wait, Ran,
 };
+use tehas_core::verb::Verb;
 
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -752,23 +753,8 @@ impl Calls {
         Ok(parse(&outcome.ran.out))
     }
 
-    /// gh's output as JSON, whatever its exit status: the bash reads some
-    /// answers so, keeping what came back of a partial one.
-    pub fn gh_any(&mut self, args: &[&str]) -> Option<Value> {
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        if !gh_reads(&args) {
-            return None;
-        }
-        self.gh_count += 1;
-        let extra = gh_env(self.gh_token.as_deref());
-        let r = run_input_env(&self.gh, &args, None, self.bound, &extra);
-        let mut v = serde_json::from_str(&r.out).ok()?;
-        tehas_core::accounts::vouch(&mut v);
-        Some(v)
-    }
-
     /// The answers of several store reads, asked in one run of the store
-    /// (`store batch`, #941). Each element is the arguments of one call, given
+    /// (`store batch`, #941). Each element is one call of the store, given
     /// back in the same order as `store` would have answered it, so a caller
     /// reads an answer exactly as it reads the answer of the single call. The
     /// failure of the batch as a whole is the failure of any one of its calls:
@@ -780,7 +766,7 @@ impl Calls {
     /// its own bound, so the whole of a queue's briefs is a legal answer of one
     /// batch. Nothing past the bound of the store's own request is read, and an
     /// answer that goes past it is the garbled answer it is.
-    pub fn store_batch(&mut self, calls: &[Vec<String>]) -> Result<Vec<Value>, Value> {
+    pub fn store_batch(&mut self, calls: &[Verb]) -> Result<Vec<Value>, Value> {
         if calls.is_empty() {
             return Ok(Vec::new());
         }
@@ -797,7 +783,7 @@ impl Calls {
         let request = serde_json::Value::Array(
             calls
                 .iter()
-                .map(|c| serde_json::Value::Array(c.iter().map(|a| json!(a)).collect()))
+                .map(|c| serde_json::Value::Array(c.args().iter().map(|a| json!(a)).collect()))
                 .collect(),
         )
         .to_string();
@@ -869,16 +855,19 @@ impl Calls {
     /// a poll exports it to its whole environment, so a `Calls` that means a
     /// store of its own cannot leave the child to inherit whatever the process
     /// carries.
-    pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
-        let verb = args.first().copied().unwrap_or("");
-        self.store_answering(args, verb)
+    pub fn store(&mut self, call: &Verb) -> Result<Value, Value> {
+        let words = call.args();
+        let args: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.store_words(&args)
     }
 
-    /// [`Calls::store`] for a verb whose answer names another word.
-    pub fn store_answering(&mut self, args: &[&str], answer: &str) -> Result<Value, Value> {
+    /// [`Calls::store`] in the words a call becomes: the seam the closures of
+    /// `tehas_core::journal` call the store through (T5 types that seam there).
+    pub(crate) fn store_words(&mut self, args: &[&str]) -> Result<Value, Value> {
+        let verb = args.first().copied().unwrap_or("");
         let home = self.home.as_deref();
         let extra: Vec<(&str, &str)> = home.map(|h| ("TEHAS_HOME", h)).into_iter().collect();
-        call::store_answering(&self.store, args, answer, self.store_bound, GRACE, &extra)
+        call::store_answering(&self.store, args, verb, self.store_bound, GRACE, &extra)
     }
 }
 

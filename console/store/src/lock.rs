@@ -6,6 +6,7 @@ use crate::verbs::{j, obj};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::{Home, CYCLES};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -66,7 +67,7 @@ pub fn dir(home: &Path) -> PathBuf {
 }
 
 pub fn path(home: &Path, issue: i64) -> PathBuf {
-    Home::new(home).cycle_note(issue, "lock")
+    Home::new(home).cycle_note(issue, Note::Lock)
 }
 
 /// `open_row`: the issue has a cycle row with no `ended_at`. Without a lock

@@ -282,7 +282,7 @@ fn the_read_before_a_note_fails_with_nothing_posted_and_says_it_was_not_sent() {
     };
     let spent = Outcome::Spent {
         pool: Pool::Calls,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         (failed("not-found.stderr"), Outcome::NotFound),
@@ -322,7 +322,7 @@ fn every_failure_of_the_post_is_its_named_outcome_sent_once_and_echoes_no_input(
     };
     let spent = Outcome::Spent {
         pool: Pool::Writes,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let no_sent = |why| Outcome::Unavailable {
         why,
@@ -789,7 +789,7 @@ fn an_edit_reads_the_issue_then_sends_a_200_kib_text_and_its_title_on_standard_i
 fn the_revision_a_read_gives_is_the_one_an_edit_is_held_to() {
     let (mut gh, _) = adapter(vec![
         Ok(sample("issue-7.json")),
-        Ok(r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#.to_string()),
+        Ok(r#"{"data":{"repository":{"n7":{"number":7,"parent":null}}}}"#.to_string()),
         Ok(sample("issue-7.json")),
         Ok(issue_7("t", "New.", EDITED)),
     ]);
@@ -817,7 +817,7 @@ fn a_tickets_revision_is_the_blueprint_writes_revision_of_the_same_answer() {
         let answer = issue_7("A title", body, "2026-11-22T14:30:00Z");
         let (mut gh, _) = adapter(vec![
             Ok(answer.clone()),
-            Ok(r#"{"data":{"repository":{"issue":{"number":7,"parent":null}}}}"#.to_string()),
+            Ok(r#"{"data":{"repository":{"n7":{"number":7,"parent":null}}}}"#.to_string()),
         ]);
         let digest = gh.several(&[key(7)]).pop().unwrap().1.unwrap();
         assert_eq!(digest.revision, rev_of(&answer), "{body:?}");
@@ -1168,7 +1168,7 @@ fn every_failure_of_the_edit_is_its_named_outcome_sent_once_and_echoes_no_input(
     };
     let spent = Outcome::Spent {
         pool: Pool::Writes,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         (failed("not-found.stderr"), Outcome::NotFound),

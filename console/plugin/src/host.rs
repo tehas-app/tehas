@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tehas_core::plugin::out;
 use tehas_core::plugin::run::kill_by_cidfile;
+use tehas_core::verb::Verb;
 use tehas_ops::plugin::exec::{self, Exec};
 
 /// How a container's `docker run` ended.
@@ -29,7 +30,7 @@ pub enum Ended {
 pub trait Host {
     fn exec(&mut self) -> &mut dyn Exec;
     /// One call of the state store: its answer, or why not.
-    fn store(&mut self, args: &[&str]) -> Result<Value, String>;
+    fn store(&mut self, verb: &Verb) -> Result<Value, String>;
     /// `docker run` with these words, waited for at most `limit`; past it,
     /// `docker kill` of the id in `cidfile`.
     fn container(&mut self, argv: &[String], limit: Duration, cidfile: &Path) -> Ended;
@@ -93,8 +94,8 @@ impl Host for Real {
         &mut self.exec
     }
 
-    fn store(&mut self, args: &[&str]) -> Result<Value, String> {
-        tehas_ops::store::try_call(&self.home, 5, args).map_err(|r| r.line)
+    fn store(&mut self, verb: &Verb) -> Result<Value, String> {
+        tehas_ops::store::try_call(&self.home, 5, verb).map_err(|r| r.line)
     }
 
     fn container(&mut self, argv: &[String], limit: Duration, cidfile: &Path) -> Ended {

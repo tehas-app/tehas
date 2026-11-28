@@ -47,7 +47,6 @@ use crate::{
     host_message, labels, mcp, order, question, queue, start, state, status, stop, top, wake,
 };
 use std::env;
-use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -138,10 +137,7 @@ fn analytics(given: &[String]) -> u8 {
         );
         exit::FAILED
     };
-    if !bin
-        .metadata()
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-    {
+    if !tehas_core::file::runnable(&bin) {
         return not_installed();
     }
     let ran = Command::new(&bin)
@@ -220,7 +216,7 @@ const GITHUB: &str = include_str!("usage/github.txt");
 /// `tehasbot github-token --check` (src/front.rs), so it is not met here.
 fn github_verb(given: &[String]) -> u8 {
     match given {
-        [verb] if verb == "writes" => crate::gh_writes::main(&[]),
+        [verb] if verb == "writes" => crate::wiring::github_writes(&[]),
         _ => {
             eprint!("{GITHUB}");
             64
@@ -234,7 +230,7 @@ pub fn tehasbot(given: &[String]) -> u8 {
         Some("status") => queue::main(),
         Some("mcp") => mcp::main(&given[1..]),
         Some("github-token") => github::main(&given[1..]),
-        Some("github-writes") => crate::gh_writes::main(&given[1..]),
+        Some("github-writes") => crate::wiring::github_writes(&given[1..]),
         _ => {
             eprintln!(
                 "console tehasbot: usage: health | status | mcp | github-token [--cycle | --session] [--check] | github-writes"

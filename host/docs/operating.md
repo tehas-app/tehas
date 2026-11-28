@@ -1195,7 +1195,11 @@ not installed, so an empty one is not a poll that exits 0, and either way
 `tehasbot dispatch` stops with exit 78. The poll checks the model keys before it
 acts. `tehas help dispatch` is the whole of the rules. A poll
 is, in order: the lock, the
-snapshot of the queue (one GraphQL query in pages of 25;
+snapshot of the queue (the open issues read on the board in pages of 25,
+beside the closed issues that still carry the running mark, the repository's
+marks and, when asked, the issue types on the tickets, and the open pull
+requests on the code host, and the repository's own name with one call of
+`gh` so a rename is noticed;
 GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
 disagree (one it carries whose newest event in the timeline is not an
@@ -1621,8 +1625,11 @@ exits 78.
 
 - No new cycle while the branch is red, when the instance sets
   `TEHAS_BRANCH_CHECK`: each poll asks GitHub for that check on the head
-  commit of the branch work lands on, in four reads: the branch's head, its
-  check runs, the workflow runs they belong to and the commit's statuses
+  commit of the branch work lands on, in one GraphQL question: the branch's
+  head, its check runs, the workflow runs they belong to and the commit's
+  statuses. Where GitHub cannot answer it whole, or refuses part of it, the
+  poll reads them one by one, in up to four reads more: up to five calls.
+  An App without `actions: read` pays the five on every poll
   ([the permission to read the checks](/github-app#the-permission-to-read-the-checks)).
   When it failed, timed out or could not start, the poll starts no cycle, no
   retry and no refresh, and says `holding: main is red at <sha>`, with the

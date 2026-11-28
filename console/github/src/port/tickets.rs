@@ -2,7 +2,9 @@
 //! (`ticket`), the tickets a filter takes (`list`), a ticket's digest
 //! (`several`), with its closer (`several_with_closers`), the tickets
 //! closed since a time (`closed_since`), its history of every kind
-//! (`history`), its parts (`parts`), what it waits on (`blockers`), what
+//! (`history`), its notes (`notes`, the issue's comments: an issue and its
+//! blueprint are the one item here) with the edits of a note
+//! (`note_edits`), its parts (`parts`), what it waits on (`blockers`), what
 //! a number names (`what_is`, `what_are`), the site's marks with their
 //! ids (`marks`) and its types of ticket (`kinds`).
 
@@ -56,9 +58,10 @@ impl Tickets for GitHub {
         unsupported()
     }
 
-    /// One REST read of each issue, in the order asked.
+    /// One REST read of each issue, in the order asked, and one GraphQL
+    /// question of their parents for up to a hundred issues.
     fn several(&mut self, keys: &[TicketKey]) -> Vec<(TicketKey, Got<TicketDigest>)> {
-        keys.iter().map(|k| (k.clone(), self.digest(k))).collect()
+        GitHub::several(self, keys)
     }
 
     /// One GraphQL question for up to a hundred issues, an alias each.
@@ -75,12 +78,19 @@ impl Tickets for GitHub {
         GitHub::history(self, key, window, only)
     }
 
-    fn notes(&mut self, _: &TicketKey, _: Window) -> Got<Took<Comment>> {
-        unsupported()
+    /// The issue's comments, oldest first: an issue and its blueprint are
+    /// the one item here, so the ticket's notes are the issue's comments
+    /// and the same pages `Blueprints::comments` reads.
+    fn notes(&mut self, key: &TicketKey, window: Window) -> Got<Took<Comment>> {
+        let Some(no) = key.same_item() else {
+            return unsupported();
+        };
+        self.ticket_notes(no, window)
     }
 
-    fn note_edits(&mut self, _: &CommentId, _: Bound) -> Got<Whole<Edit>> {
-        unsupported()
+    /// The same answer as `Blueprints::comment_edits` for the comment.
+    fn note_edits(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
+        self.note_edits_one(id, bound)
     }
 
     /// The issue's blocked-by links, one question.

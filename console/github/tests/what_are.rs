@@ -2,8 +2,8 @@
 //! replayed from its recordings under `tests/recorded/what/<state>/`: what
 //! each number names, a ticket or a change, asked in one question an alias
 //! a number. `live/` is a live read-only answer of a public repository; the
-//! rest are made by hand. `tests/synthetic/what/` holds the answers that
-//! are not JSON.
+//! rest are made by hand. Answers GitHub cannot be made to give on demand
+//! are under `tests/synthetic/what/` (`tests/synthetic/README.md`).
 
 mod answers;
 
@@ -32,10 +32,48 @@ fn field<'a>(args: &'a [&str], name: &str) -> Option<&'a str> {
         .find_map(|w| w[1].strip_prefix(&format!("{name}=")))
 }
 
-/// A runner that answers each question from the recordings of one state:
-/// `from-<n>` for the question whose first alias is number n. `.json` is
-/// gh's answer, `.fail` the reason it failed, and `.answer.json` beside a
-/// `.fail` what gh printed as it failed.
+/// The question `live/from-1` answers, whole: GitHub's `locations` in it
+/// put `n999999999` at column 289, where this text has it.
+const LIVE_QUERY: &str = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { n1: issueOrPullRequest(number: 1) { __typename ... on Issue { number } ... on PullRequest { number } } n2: issueOrPullRequest(number: 2) { __typename ... on Issue { number } ... on PullRequest { number } } n999999999: issueOrPullRequest(number: 999999999) { __typename ... on Issue { number } ... on PullRequest { number } } } }";
+
+/// The question of `numbers` a hand-made recording answers, whole.
+fn question_of(numbers: &[u64]) -> String {
+    let mut q = String::from(
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {",
+    );
+    for n in numbers {
+        q.push_str(&format!(" n{n}: issueOrPullRequest(number: {n}) {{ __typename ... on Issue {{ number }} ... on PullRequest {{ number }} }}"));
+    }
+    q + " } }"
+}
+
+/// Each recording of `state` and the whole question it answers.
+fn recorded(state: &str) -> Vec<(&'static str, String)> {
+    let made = |file, numbers: &[u64]| (file, question_of(numbers));
+    match state {
+        "live" => vec![("from-1", LIVE_QUERY.to_string())],
+        "one" => vec![
+            made("from-1", &[1]),
+            made("from-2", &[2]),
+            made("from-999999999", &[999_999_999]),
+        ],
+        "many" => vec![
+            made("from-1", &(1..=100).collect::<Vec<_>>()),
+            made("from-101", &(101..=150).collect::<Vec<_>>()),
+        ],
+        "null-no-error" | "missing-alias" => vec![made("from-3", &[3, 5])],
+        "other-error" | "two-errors" | "inner-not-found" | "error-elsewhere"
+        | "found-and-error" | "question-error" => vec![made("from-3", &[3, 6])],
+        // A failure with no answer is the call's, of any question.
+        "not-found" => vec![made("from-3", &[3, 4]), made("from-3", &[3])],
+        _ => vec![made("from-3", &[3, 4])],
+    }
+}
+
+/// A runner that answers a question only from the recording of one state
+/// that answers that whole question (`recorded`), and panics on any other.
+/// `.json` is gh's answer, `.fail` the reason it failed, and `.answer.json`
+/// beside a `.fail` what gh printed as it failed.
 struct Replay {
     state: String,
     asked: Asked,
@@ -55,22 +93,20 @@ impl GhRunner for Replay {
         assert_eq!(field(args, "owner"), Some("acme"));
         assert_eq!(field(args, "name"), Some("widget"));
         let query = field(args, "query").expect("a query");
-        let first = query
-            .split(": issueOrPullRequest(number: ")
-            .nth(1)
-            .and_then(|r| r.split(')').next())
-            .expect("an alias");
+        let Some((file, _)) = recorded(&self.state).into_iter().find(|(_, q)| q == query) else {
+            panic!("no recording in {} of the question {query}", self.state)
+        };
         let read =
             |name: String| std::fs::read_to_string(answers::at("what", &self.state, &name)).ok();
-        if let Some(out) = read(format!("from-{first}.json")) {
+        if let Some(out) = read(format!("{file}.json")) {
             return Ok(out);
         }
-        match read(format!("from-{first}.fail")) {
+        match read(format!("{file}.fail")) {
             Some(why) => Err(Failed {
                 why: why.trim_end().to_string(),
-                answer: read(format!("from-{first}.answer.json")),
+                answer: read(format!("{file}.answer.json")),
             }),
-            None => panic!("no recording of from-{first} in {}", self.state),
+            None => panic!("no {file} in {}", self.state),
         }
     }
 }
@@ -165,8 +201,8 @@ fn what_is_is_what_are_of_one_number() {
 
 #[test]
 fn a_repeated_number_is_asked_once_and_answered_each_time() {
-    let (got, calls) = what("live", &[2, 1, 2]);
-    assert_eq!(got, [(2, ticket(2)), (1, change(1)), (2, ticket(2))]);
+    let (got, calls) = what("one", &[1, 1]);
+    assert_eq!(got, [(1, change(1)), (1, change(1))]);
     assert_eq!(calls, 1);
 }
 
@@ -196,8 +232,6 @@ fn a_node_that_does_not_add_up_is_unread_and_spoils_only_itself() {
         // Not found said twice, or of a field inside the node.
         ("two-errors", 6, INCONSISTENT),
         ("inner-not-found", 6, INCONSISTENT),
-        // Not found at another alias than the null node's.
-        ("error-elsewhere", 6, INCONSISTENT),
         // A node and an error both.
         ("found-and-error", 6, INCONSISTENT),
     ] {
@@ -206,10 +240,34 @@ fn a_node_that_does_not_add_up_is_unread_and_spoils_only_itself() {
     }
 }
 
+/// An error at an alias not asked is the question's.
+#[test]
+fn an_error_at_an_alias_not_asked_leaves_no_number_sure() {
+    let (got, _) = what("error-elsewhere", &[3, 6]);
+    assert_eq!(got, [(3, Err(INCONSISTENT)), (6, Err(INCONSISTENT))]);
+}
+
 #[test]
 fn an_error_of_the_question_leaves_no_number_sure() {
     let (got, _) = what("question-error", &[3, 6]);
     assert_eq!(got, [(3, Err(INCONSISTENT)), (6, Err(INCONSISTENT))]);
+}
+
+/// An error that names no alias is the question's: a limited rate spends
+/// the priced budget for every number, any other leaves none sure, the
+/// repository's own not found among them.
+#[test]
+fn an_error_that_names_no_alias_is_every_numbers() {
+    // Held a minute out: GitHub's reset is not read.
+    let limited = Outcome::Spent {
+        pool: Pool::Priced,
+        until: At::new(1_767_225_600 + 60),
+    };
+    for (state, want) in [("limited", limited), ("no-repository", INCONSISTENT)] {
+        let (got, calls) = what(state, &[3, 4]);
+        assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
+        assert_eq!(calls, 1, "{state}");
+    }
 }
 
 #[test]
@@ -219,7 +277,6 @@ fn an_answer_that_is_no_answer_fails_every_number() {
         // gh failed: its answer is read only by its errors.
         ("failed-no-errors", SERVER),
         ("failed-garbled", SERVER),
-        ("no-repository", SERVER),
     ] {
         let (got, _) = what(state, &[3, 4]);
         assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
@@ -230,11 +287,13 @@ fn an_answer_that_is_no_answer_fails_every_number() {
 fn a_failed_question_is_its_outcome_for_every_number() {
     for (state, want) in [
         ("server-error", SERVER),
+        // A GraphQL question draws on the priced pool: the recording
+        // gives no reset, so the budget is held at rate.rs's 60 s floor.
         (
             "rate-limited",
             Outcome::Spent {
-                pool: Pool::Calls,
-                until: At::new(1_767_225_600),
+                pool: Pool::Priced,
+                until: At::new(1_767_225_660),
             },
         ),
         (
@@ -253,9 +312,9 @@ fn a_failed_question_is_its_outcome_for_every_number() {
         assert_eq!(got, [(3, Err(want.clone())), (4, Err(want))], "{state}");
         assert_eq!(calls, 1, "{state}");
     }
-    // Of one number, it is that number's.
+    // Of one number too: with no answer, GitHub named no number.
     let (got, _) = what("not-found", &[3]);
-    assert_eq!(got, [(3, Err(Outcome::NotFound))]);
+    assert_eq!(got, [(3, Err(INCONSISTENT))]);
 }
 
 #[test]

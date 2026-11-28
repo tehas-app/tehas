@@ -154,7 +154,7 @@
 //!   console gh <real gh> <log> [words]
 //!
 //! What host/shim/gh execs: a read execs gh, a write runs it and leaves a line
-//! in the write log, see src/gh_shim.rs.
+//! in the write log, see github/src/gh_shim.rs.
 //!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
@@ -182,8 +182,6 @@ mod epics;
 mod export;
 mod frame;
 mod front;
-mod gh_shim;
-mod gh_writes;
 mod history;
 mod label;
 mod labels;
@@ -413,6 +411,15 @@ mod wiring {
         Box::new(tehas_github::GitHub::new(repo, runner))
     }
 
+    /// A tickets handle on `repo`, asking the site through `runner`: the
+    /// tidy's, whose runner holds its bound and its retry.
+    pub(crate) fn tickets_over(
+        repo: &str,
+        runner: Box<dyn tehas_core::forge::GhRunner>,
+    ) -> Box<dyn tehas_ports::Tickets> {
+        Box::new(tehas_github::GitHub::new(repo, runner))
+    }
+
     /// The board handle of `tehas plugin hook`, from the adapter's site
     /// acting as the factory's account, which the adapter answers `Ours` by
     /// the bot's recorded id. The gh it runs is the one the command names.
@@ -466,10 +473,36 @@ mod wiring {
         Ok((site.blueprints(&by, c)?, site.blueprint_writes(&by, c)?))
     }
 
+    /// The runner maker of one bound's calls on `gh`: the one place of this
+    /// wiring the program's own reads name that program, so a caller asks
+    /// for a bound and never names it.
+    fn gh_make(bound: Duration) -> tehas_github::MakeRunner {
+        std::sync::Arc::new(move |_| {
+            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
+        })
+    }
+
+    /// The preview's one reader of changes, asked on the code-host port:
+    /// the site of `repo` acting as the factory, whose bot `home` records.
+    /// None when it cannot even be wired, which the sweep reads as no
+    /// answer and keeps every preview.
+    pub(crate) fn preview_host(
+        home: &std::path::Path,
+        repo: &str,
+    ) -> Option<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Scope, Site};
+        let (login, id) = tehas_core::accounts::bot(home);
+        let site =
+            tehas_github::GitHubSite::new(repo, &login, id, gh_make(tehas_core::call::GH_BOUND));
+        site.code_host(&Actor::Ours(Scope::Full), Caller::new("preview"))
+            .ok()
+    }
+
     /// The code host handle of `tehas update` on tehas's own release
     /// project `repo`, a site of its own (Decided 23), acting as `by`:
-    /// `Actor::Operator` asks through gh as the operator's gh is signed in,
-    /// each call in `bound`; `Actor::Anonymous` through curl with no
+    /// `Actor::Ours(Scope::Read)` asks through the gh the host finds, which
+    /// acts as the factory's App where host/env.sh is loaded, each call in
+    /// `bound`; `Actor::Anonymous` through curl with no
     /// credential, its budget kept in the home's ledger. No account of that
     /// project is the factory's.
     pub(crate) fn releases(
@@ -477,21 +510,131 @@ mod wiring {
         repo: &str,
         bound: Duration,
     ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
-        use tehas_ports::{Actor, Caller, Outcome, Refusal, Site};
-        let make: tehas_github::MakeRunner = std::sync::Arc::new(move |_| {
-            Ok(Box::new(Bounded::new("gh", bound)) as Box<dyn tehas_core::forge::GhRunner>)
-        });
+        releases_as(by, repo, bound, "update")
+    }
+
+    /// The code host handle of the status platform read on tehas's own
+    /// release project: the same site as `releases`, its own caller.
+    pub(crate) fn platform_releases(
+        by: &tehas_ports::Actor,
+        repo: &str,
+        bound: Duration,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        releases_as(by, repo, bound, "platform")
+    }
+
+    fn releases_as(
+        by: &tehas_ports::Actor,
+        repo: &str,
+        bound: Duration,
+        caller: &'static str,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Caller, Site};
+        let make = gh_make(bound);
         let site = tehas_github::GitHubSite::new(repo, "", None, make);
-        let caller = Caller::new("update");
+        let caller = Caller::new(caller);
         if *by != Actor::Anonymous {
             return site.code_host(by, caller);
         }
+        anonymous(site, caller)
+    }
+
+    /// The code host handle of `console pins` for the public project `repo`
+    /// (`owner/name`), for its releases and tags: no credential and no gh
+    /// to run, its budget kept in the home's ledger as the anonymous
+    /// holder's. The runner source refuses, since an anonymous handle runs
+    /// no gh.
+    pub(crate) fn anon_code_host(
+        repo: &str,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Caller, Outcome, Refusal};
+        let make: tehas_github::MakeRunner =
+            std::sync::Arc::new(|_| Err(Outcome::Refused(Refusal::Unsupported)));
+        let site = tehas_github::GitHubSite::new(repo, "", None, make);
+        anonymous(site, Caller::new("pins"))
+    }
+
+    /// The anonymous code host handle of a site's project: curl, the home's
+    /// ledger and a notice sink. No home, no handle.
+    fn anonymous(
+        site: tehas_github::GitHubSite,
+        caller: tehas_ports::Caller,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        use tehas_ports::{Actor, Outcome, Refusal, Site};
         let Some(home) = tehas_core::home::Home::from_env() else {
             return Err(Outcome::Refused(Refusal::Unsupported));
         };
         let ledger = std::sync::Arc::new(tehas_core::ledger::FileLedger::new(&home));
-        site.with_anonymous_curl(curl(), ledger)
-            .code_host(by, caller)
+        site.with_anonymous_curl(curl(), ledger, std::sync::Arc::new(JournalNotices))
+            .code_host(&Actor::Anonymous, caller)
+    }
+
+    /// The `Notices` of the anonymous reads: each is written to stderr in
+    /// plain words, where the unit's journal keeps it. The anonymous
+    /// reader's health notices have no other home on a host yet.
+    struct JournalNotices;
+
+    impl tehas_ports::Notices for JournalNotices {
+        fn notice(&self, n: tehas_ports::Notice) {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr(), "tehas: {}", notice_words(&n));
+        }
+    }
+
+    /// One notice as one plain line, in the order its fields read: the
+    /// host, the realm that saw it, who it is about, what changed, and
+    /// when it was seen. No debug shapes: a person reads this line in the
+    /// unit's journal.
+    fn notice_words(n: &tehas_ports::Notice) -> String {
+        use tehas_ports::{Health, Passing, Pool, Realm, Whose};
+        let realm = match n.realm {
+            Realm::CodeHost => "code host",
+            Realm::Tickets => "tickets",
+        };
+        let whose = match &n.whose {
+            Whose::Host => "the host".to_string(),
+            Whose::Holder(_) => "a holder".to_string(),
+            Whose::Pool(_, pool) => format!(
+                "the {} pool",
+                match pool {
+                    Pool::Calls => "calls",
+                    Pool::Priced => "priced",
+                    Pool::Search => "search",
+                    Pool::Writes => "writes",
+                    _ => "unknown",
+                }
+            ),
+        };
+        let state = match &n.what {
+            Health::Unavailable(why) => format!(
+                "is out ({})",
+                match why {
+                    Passing::Timeout => "it took too long",
+                    Passing::Unreachable => "it could not be reached",
+                    Passing::Server => "the site failed",
+                    Passing::Broken => "a check run failed",
+                }
+            ),
+            Health::Spent { until, .. } => {
+                format!("is spent until {}", until.secs())
+            }
+            Health::SignedOut => "is signed out".to_string(),
+            Health::Recovered => "is healthy again".to_string(),
+            Health::LedgerDown => {
+                "cannot be checked: the ledger is down, so a change may be told twice".to_string()
+            }
+            Health::TokenNotDropped => {
+                "keeps a refused token: it could not be dropped, so it may be read until it expires"
+                    .to_string()
+            }
+            _ => "reports a state this copy does not know".to_string(),
+        };
+        format!(
+            "{} ({}): {whose} {state}, seen at {}",
+            n.host.as_str(),
+            realm,
+            n.at.secs()
+        )
     }
 
     /// curl as the operator's PATH finds it, as gh is found, else as the
@@ -501,11 +644,7 @@ mod wiring {
         let path = std::env::var_os("PATH").unwrap_or_default();
         std::env::split_paths(&path)
             .map(|d| d.join("curl"))
-            .find(|p| {
-                use std::os::unix::fs::PermissionsExt;
-                p.metadata()
-                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-            })
+            .find(|p| tehas_core::file::runnable(p))
             .map_or_else(tehas_github::Curl::new, tehas_github::Curl::at)
     }
 
@@ -513,6 +652,107 @@ mod wiring {
     /// words, or a project's own mark. None for a name no mark can have.
     pub(crate) fn mark_of(label: &str) -> Option<Mark> {
         tehas_github::table::word(label).or_else(|| MarkName::new(label).ok().map(Mark::Project))
+    }
+
+    /// `tehas github writes` and `tehasbot github-writes`: the day's writes
+    /// as the gh shim's log tells them.
+    pub(crate) fn github_writes(given: &[String]) -> u8 {
+        tehas_github::gh_writes::main(given)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::notice_words;
+        use tehas_ports::{
+            At, Health, Holder, HolderId, HostId, Notice, Passing, Pool, Realm, Whose,
+        };
+
+        fn notice(whose: Whose, what: Health) -> Notice {
+            Notice::new(
+                HostId::new("github.com"),
+                whose,
+                Realm::CodeHost,
+                what,
+                At::new(1795530000),
+            )
+        }
+
+        fn caller() -> Holder {
+            Holder::Anonymous(HolderId::new("caller"))
+        }
+
+        /// One line per state, in plain words: the journal is read by a
+        /// person, not a debugger.
+        #[test]
+        fn notices_are_written_in_plain_words() {
+            let host = Whose::Host;
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::Unavailable(Passing::Server))),
+                "github.com (code host): the host is out (the site failed), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::Unavailable(Passing::Timeout))),
+                "github.com (code host): the host is out (it took too long), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Pool(caller(), Pool::Calls),
+                    Health::Spent {
+                        pool: Pool::Calls,
+                        until: At::new(1795531000),
+                    },
+                )),
+                "github.com (code host): the calls pool is spent until 1795531000, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::Recovered)),
+                "github.com (code host): the host is healthy again, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::LedgerDown)),
+                "github.com (code host): the host cannot be checked: the ledger is down, so a change may be told twice, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(Holder::Ours(HolderId::new("ours"))),
+                    Health::SignedOut
+                )),
+                "github.com (code host): a holder is signed out, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::Unavailable(Passing::Unreachable)
+                )),
+                "github.com (code host): a holder is out (it could not be reached), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::Unavailable(Passing::Broken)
+                )),
+                "github.com (code host): a holder is out (a check run failed), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::TokenNotDropped
+                )),
+                "github.com (code host): a holder keeps a refused token: it could not be dropped, so it may be read until it expires, seen at 1795530000"
+            );
+            for state in [
+                Health::Unavailable(Passing::Timeout),
+                Health::Unavailable(Passing::Server),
+                Health::SignedOut,
+                Health::Recovered,
+                Health::LedgerDown,
+                Health::TokenNotDropped,
+                Health::Unknown(tehas_ports::Word::Health),
+            ] {
+                let line = notice_words(&notice(Whose::Holder(caller()), state));
+                assert!(!line.contains('{') && !line.contains('"'), "{line}");
+            }
+        }
     }
 }
 
@@ -534,7 +774,7 @@ fn main() -> ExitCode {
     }
     if words.first().is_some_and(|w| w == "gh") {
         let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
-        return ExitCode::from(gh_shim::main(&given));
+        return ExitCode::from(tehas_github::gh_shim::main(&given));
     }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
@@ -557,7 +797,9 @@ fn main() -> ExitCode {
             Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("rukas") => return ExitCode::from(rukas::main(&given[1..])),
             Some("sandbox") => return ExitCode::from(sandbox::main(&given[1..])),
-            Some("preview") => return ExitCode::from(preview::main(&given[1..])),
+            Some("preview") => {
+                return ExitCode::from(preview::main(&given[1..], crate::wiring::preview_host))
+            }
             Some("settings") => return ExitCode::from(settings::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
@@ -567,8 +809,10 @@ fn main() -> ExitCode {
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
-            Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
-            Some("pins") => return ExitCode::from(pins::main(&given[1..])),
+            Some("tidy") => return ExitCode::from(tidy::main(&given[1..], &wiring::tickets_over)),
+            Some("pins") => {
+                return ExitCode::from(pins::main(&given[1..], &wiring::anon_code_host))
+            }
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),

@@ -16,21 +16,34 @@
 use crate::jq::{obj, J};
 use crate::update::release::{older, prerelease, stale, tag_ok};
 use std::fs;
+use std::num::NonZeroU32;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
-use tehas_core::call;
 use tehas_core::file::{write_atomic, Temp};
 use tehas_core::home::{Home, State};
 use tehas_core::time;
+use tehas_ports::{Actor, CodeHost, Got, Outcome, Passing, Release, Scope, Sent};
 
 const FETCH_EVERY: i64 = 3600;
 const FETCH_LIMIT: u64 = 60;
+/// How many of the newest releases the read asks for, as its old
+/// `per_page=100` did. The adapter reads every page of the list up to its
+/// own bound of a thousand before it takes these: a project with more
+/// releases than that answers the read `Unread(Cut)` instead, where the
+/// old one-page call kept answering from the first hundred.
+const RECENT: u32 = 100;
+
+/// The handle maker of the release reads: the console's wiring makes the
+/// same site it hands `tehas update`'s reads, with a caller of its own.
+type Releases<'a> = &'a dyn Fn(&Actor, &str, Duration) -> Got<Box<dyn CodeHost + Send>>;
 
 /// Write live/platform.json, or take it away on a host with no platform.
 pub fn write(home: &Path, live: &Path) {
     match installed(home) {
-        Some(version) if !version.is_empty() => release(home, live, &version),
+        Some(version) if !version.is_empty() => {
+            release(home, live, &version, &crate::wiring::platform_releases)
+        }
         Some(_) => checkout(home, live),
         None => {}
     }
@@ -50,28 +63,16 @@ fn installed(home: &Path) -> Option<String> {
     Some(text.lines().next().unwrap_or_default().to_string())
 }
 
-/// The release list as GitHub answers it, published `vX.Y.Z` tags only, no
-/// prerelease: the newest by version, not by date. None when the answer is not such a list,
-/// which ends the read as a list that failed.
-fn newest_of(answer: &str) -> Option<String> {
-    if answer.trim().is_empty() {
-        return None;
-    }
-    let list = J::parse(answer)?;
-    let items: Vec<&J> = match &list {
-        J::Arr(a) => a.iter().collect(),
-        J::Obj(o) => o.iter().map(|(_, v)| v).collect(),
-        _ => return None,
-    };
+/// The newest of these releases by version, not by date: published
+/// `vX.Y.Z` tags only, no draft and no prerelease. None when the list holds
+/// none, which ends the read as a list that failed.
+fn newest_of(list: &[Release]) -> Option<String> {
     let mut newest: Option<&str> = None;
-    for item in items {
-        if !matches!(item, J::Obj(_) | J::Null) {
-            return None;
-        }
-        if item.get("draft").truthy() || item.get("prerelease").truthy() {
+    for release in list {
+        if release.draft || release.prerelease {
             continue;
         }
-        let tag = item.get("tag_name").as_str()?;
+        let tag = release.tag.as_str();
         if !tag_ok(tag) || prerelease(tag) {
             continue;
         }
@@ -82,25 +83,41 @@ fn newest_of(answer: &str) -> Option<String> {
     newest.map(str::to_string)
 }
 
-fn run(program: &str, args: &[&str]) -> call::Ran {
-    let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
-    call::run(program, &args, Duration::from_secs(FETCH_LIMIT))
+/// Whether the factory's answer, to the handle's making or to its call,
+/// sends the read to the anonymous handle: a gh with no credential or one
+/// no longer good, one that may not read the project, or no gh to run,
+/// nothing sent. The rule `tehas update`'s release reads use
+/// (console/ops/src/update/release.rs), here for the host's own read.
+fn anonymous_instead(o: &Outcome) -> bool {
+    matches!(
+        o,
+        Outcome::SignedOut
+            | Outcome::Forbidden
+            | Outcome::Unavailable {
+                why: Passing::Unreachable,
+                sent: Sent::No,
+            }
+    )
 }
 
 /// The newest published release, or nothing when GitHub does not answer or
-/// names none. gh when it is signed in, which reaches a private repository
-/// with the bot's token; the public address otherwise.
-fn newest_read() -> Option<String> {
+/// names none. The factory's handle at read scope asks first, which reaches
+/// a private repository with the bot's token; the anonymous one answers
+/// when that says so, through curl with no credential.
+fn newest_read(site: Releases<'_>) -> Option<String> {
     let repo = tehas_core::release::repo()?;
-    let path = format!("repos/{repo}/releases?per_page=100");
-    let ran = if run("gh", &["auth", "status"]).ok() {
-        run("gh", &["api", &path])
-    } else {
-        let url = format!("https://api.github.com/{path}");
-        let accept = "Accept: application/vnd.github+json";
-        run("curl", &["-fsSL", "-H", accept, &url])
+    let first = NonZeroU32::new(RECENT)?;
+    let ask = |by: Actor| -> Got<Vec<Release>> {
+        let mut host = site(&by, &repo, Duration::from_secs(FETCH_LIMIT))?;
+        host.recent_releases(first).map(|t| t.items)
     };
-    ran.ok().then(|| newest_of(&ran.out)).flatten()
+    match ask(Actor::Ours(Scope::Read)) {
+        Ok(list) => newest_of(&list),
+        Err(o) if anonymous_instead(&o) => {
+            ask(Actor::Anonymous).ok().and_then(|list| newest_of(&list))
+        }
+        Err(_) => None,
+    }
 }
 
 /// state/platform-fetch: when a read was last tried and when one last
@@ -150,7 +167,7 @@ fn put(live: &Path, file: &J) {
 /// ahead of the newest release, so an older newest stays beside one. The
 /// commit is the one the release was built from, from its COMMIT file, and is
 /// left out when the release has none.
-fn release(home: &Path, live: &Path, installed: &str) {
+fn release(home: &Path, live: &Path, installed: &str, site: Releases<'_>) {
     let at = Home::new(home);
     let stamp = at.state(State::PlatformFetch);
     let cache = at.state(State::PlatformNewest);
@@ -169,7 +186,7 @@ fn release(home: &Path, live: &Path, installed: &str) {
         // The attempt is remembered first, so a read that hangs or fails is
         // not tried at every poll.
         stamp_write(&stamp, now, &fetched);
-        if let Some(got) = newest_read() {
+        if let Some(got) = newest_read(site) {
             newest = got;
             fetched = now.to_string();
             let _ = fs::write(&cache, format!("{newest}\n"));
@@ -292,37 +309,42 @@ fn checkout(home: &Path, live: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_ports::fake::{FakeSite, World};
+    use tehas_ports::{Caller, ReleaseId, Site, TagName, WebLink};
+
+    fn release_of(tag: &str, draft: bool, prerelease: bool) -> Release {
+        let mut r = Release::new(
+            ReleaseId::new(tag),
+            TagName::new(tag).unwrap(),
+            WebLink::new("https://example.test/r").unwrap(),
+        );
+        r.draft = draft;
+        r.prerelease = prerelease;
+        r
+    }
 
     #[test]
     fn the_newest_is_by_version_and_leaves_out_what_is_not_published() {
-        let rel = |tag: &str, more: &str| format!(r#"{{"tag_name":"{tag}"{more}}}"#);
-        let list = format!(
-            "[{},{},{},{},{},{},{}]",
-            rel("v0.9.0", ""),
-            rel("v0.10.0", ""),
-            rel("v0.11.0", r#","draft":true"#),
-            rel("v0.12.0", r#","prerelease":true"#),
-            rel("nightly", ""),
-            rel("v0.11.0-rc.1", r#","prerelease":true"#),
+        let list = vec![
+            release_of("v0.9.0", false, false),
+            release_of("v0.10.0", false, false),
+            release_of("v0.11.0", true, false),
+            release_of("v0.12.0", false, true),
+            release_of("nightly", false, false),
+            release_of("v0.11.0-rc.1", false, true),
             // A prerelease is never the newest, flagged or not.
-            rel("v0.11.0-rc.2", ""),
-        );
-        let pre = format!(
-            "[{},{},{}]",
-            rel("v0.10.0", ""),
-            rel("v0.11.0-alpha.1", ""),
-            rel("v0.11.0-beta.1", r#","prerelease":true"#),
-        );
+            release_of("v0.11.0-rc.2", false, false),
+        ];
+        let pre = vec![
+            release_of("v0.10.0", false, false),
+            release_of("v0.11.0-alpha.1", false, false),
+            release_of("v0.11.0-beta.1", false, true),
+        ];
         assert_eq!(newest_of(&pre).as_deref(), Some("v0.10.0"));
         assert_eq!(newest_of(&list).as_deref(), Some("v0.10.0"));
-        assert_eq!(newest_of("[]"), None);
-        assert_eq!(newest_of(""), None);
-        assert_eq!(newest_of("not json"), None);
-        assert_eq!(newest_of("7"), None);
-        assert_eq!(newest_of("[7]"), None);
-        // A draft is passed over before its tag is read.
-        assert_eq!(newest_of(r#"[{"draft":true,"tag_name":7}]"#), None);
-        assert_eq!(newest_of(r#"[{"tag_name":7}]"#), None);
+        assert_eq!(newest_of(&[]), None);
+        // A draft is passed over before its tag is weighed.
+        assert_eq!(newest_of(&[release_of("v9.9.9", true, false)]), None);
     }
 
     #[test]
@@ -353,10 +375,10 @@ mod tests {
         let now = time::now();
         fs::write(at.state(State::PlatformFetch), format!("{now} {now}\n")).unwrap();
         fs::write(at.state(State::PlatformNewest), "v0.22.1\n").unwrap();
-        release(&home, &live, "v0.23.0-rc.2");
+        release(&home, &live, "v0.23.0-rc.2", &no_site);
         let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
         assert_eq!(file.get("newest").as_str(), Some("v0.22.1"));
-        release(&home, &live, "v0.23.0");
+        release(&home, &live, "v0.23.0", &no_site);
         let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
         assert!(file.get("newest").is_null());
     }
@@ -374,7 +396,7 @@ mod tests {
         fs::write(at.state(State::PlatformFetch), format!("{now} {now}\n")).unwrap();
         let commit = |text: &str| {
             fs::write(home.join("current/COMMIT"), text).unwrap();
-            release(&home, &live, "v1.0.0-alpha.1");
+            release(&home, &live, "v1.0.0-alpha.1", &no_site);
             let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
             assert_eq!(file.get("release").as_str(), Some("v1.0.0-alpha.1"));
             file.get("commit").as_str().map(str::to_string)
@@ -384,7 +406,7 @@ mod tests {
         assert_eq!(commit("not a commit\n"), None);
         assert_eq!(commit(&sha[..39]), None);
         fs::remove_file(home.join("current/COMMIT")).unwrap();
-        release(&home, &live, "v1.0.0-alpha.1");
+        release(&home, &live, "v1.0.0-alpha.1", &no_site);
         let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
         assert!(matches!(file.get("commit"), J::Null));
     }
@@ -393,5 +415,90 @@ mod tests {
     fn the_time_of_a_stamp() {
         assert_eq!(time_of("1"), J::str("1970-01-01T00:00:01Z"));
         assert_eq!(time_of(""), J::Null);
+    }
+
+    /// A handle maker no read may answer with: the tests that use it keep
+    /// the fetch inside the hour, so the release is never asked for.
+    fn no_site(_: &Actor, _: &str, _: Duration) -> Got<Box<dyn CodeHost + Send>> {
+        Err(Outcome::Refused(tehas_ports::Refusal::Unsupported))
+    }
+
+    /// The newest published release the fake answers with, the drafts and
+    /// prereleases of the list passed over. The read is signed in, its
+    /// answer cached, and the stamp says when it worked.
+    #[test]
+    fn the_read_asks_the_factory_handle_and_keeps_the_newest_published() {
+        let world = World::new()
+            .release("v0.9.0", &[])
+            .release("v0.11.0-rc.2", &[])
+            .release("nightly", &[])
+            .release("v0.10.0", &[]);
+        let site = |by: &Actor, _: &str, _: Duration| {
+            assert_eq!(*by, Actor::Ours(Scope::Read));
+            FakeSite::new(&world)
+                .code_host(by, Caller::new("platform"))
+                .map_err(|_| Outcome::Unread(tehas_ports::Unread::Malformed))
+        };
+        assert_eq!(newest_read(&site).as_deref(), Some("v0.10.0"));
+    }
+
+    /// A gh with no credential sends the read to the anonymous handle; a
+    /// failure of the site itself does not. The fake answers every method,
+    /// so it cannot show that the real anonymous handle implements this
+    /// read: the shell test
+    /// `platform_a_signed_out_host_reads_the_newest_over_anonymous_curl`
+    /// runs the same fallback against the real adapter, with curl
+    /// answering the list.
+    #[test]
+    fn a_signed_out_gh_sends_the_read_to_the_anonymous_handle() {
+        let world = World::new().release("v0.10.0", &[]);
+        let site = |by: &Actor, _: &str, _: Duration| {
+            if *by == Actor::Anonymous {
+                FakeSite::new(&world)
+                    .code_host(by, Caller::new("platform"))
+                    .map_err(|_| Outcome::Unread(tehas_ports::Unread::Malformed))
+            } else {
+                Err(Outcome::SignedOut)
+            }
+        };
+        assert_eq!(newest_read(&site).as_deref(), Some("v0.10.0"));
+        let site = |by: &Actor, _: &str, _: Duration| {
+            if *by == Actor::Anonymous {
+                panic!("a failure of the site does not send the read to the anonymous handle")
+            }
+            Err(Outcome::Unavailable {
+                why: Passing::Server,
+                sent: tehas_ports::Sent::Maybe,
+            })
+        };
+        assert_eq!(newest_read(&site), None);
+    }
+
+    /// A fresh read writes the newest into live/platform.json, caches it in
+    /// state/platform-newest, and says when it worked.
+    #[test]
+    fn a_fresh_read_fills_the_file_the_cache_and_the_stamp() {
+        let home = tehas_core::testdir::TestDir::new("read");
+        let at = Home::new(home.to_path_buf());
+        let live = at.live_dir();
+        fs::create_dir_all(at.state_dir()).unwrap();
+        fs::create_dir_all(&live).unwrap();
+        let world = World::new().release("v0.10.0", &[]).release("v0.9.0", &[]);
+        let site = |by: &Actor, _: &str, _: Duration| {
+            FakeSite::new(&world)
+                .code_host(by, Caller::new("platform"))
+                .map_err(|_| Outcome::Unread(tehas_ports::Unread::Malformed))
+        };
+        release(&home, &live, "v0.9.0", &site);
+        let file = J::parse(&fs::read_to_string(live.join("platform.json")).unwrap()).unwrap();
+        assert_eq!(file.get("newest").as_str(), Some("v0.10.0"));
+        assert!(!file.get("fetchedAt").is_null());
+        assert_eq!(
+            fs::read_to_string(at.state(State::PlatformNewest)).unwrap(),
+            "v0.10.0\n"
+        );
+        let (last, fetched) = stamp_read(&at.state(State::PlatformFetch));
+        assert!(last > 0);
+        assert_eq!(fetched, last.to_string());
     }
 }

@@ -19,10 +19,12 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 use tehas_core::call::{run_full, store_try, GH_BOUND, GRACE};
+use tehas_core::cycle_notes::Note;
 use tehas_core::end_fault;
 use tehas_core::home::Home;
 use tehas_core::journal::{settle as rules, Found, Journal, Journaled, RowId};
 use tehas_core::question::is_handoff_marker;
+use tehas_core::verb::Verb;
 use tehas_ports::{
     At, Bound, ChangeNo, Depth, Mark, NoBlobs, Outcome, Receipt, Refusal, Sent as Passed, State,
     TicketKey, Window, Write,
@@ -78,10 +80,6 @@ fn stop_wait() -> u64 {
     } else {
         20
     }
-}
-
-fn strs(v: &[String]) -> Vec<&str> {
-    v.iter().map(String::as_str).collect()
 }
 
 /// GitHub asked with gh, with the report's tries.
@@ -467,14 +465,22 @@ impl Writer<'_> {
         }
         // On record before the issue is told: a question whose park is not on
         // record would offer boxes that start nothing.
-        let mut park = vec!["park"];
-        park.extend(strs(&p.args));
-        let on_record = match host::store_try(self.home, 3, &park) {
-            Ok(_) => true,
-            Err(e) => {
+        let on_record = match p.call.as_ref() {
+            Some(call) => match host::store_try(self.home, 3, call) {
+                Ok(_) => true,
+                Err(e) => {
+                    log(&format!(
+                        "WARN: could not record the park of #{n} ({}: {}), so it asks no question",
+                        e.word, e.line
+                    ));
+                    false
+                }
+            },
+            // A park built with no record at all: nothing to put on record,
+            // and it asks no question. The report's parks all carry one.
+            None => {
                 log(&format!(
-                    "WARN: could not record the park of #{n} ({}: {}), so it asks no question",
-                    e.word, e.line
+                    "WARN: could not record the park of #{n} (usage: the park names no record), so it asks no question"
                 ));
                 false
             }
@@ -680,18 +686,13 @@ impl Writer<'_> {
     fn asked(&mut self, id: &str, text: &str, offers: &str) {
         let (home, n) = (self.home, self.issue.to_string());
         let sum = tehas_core::question::question_sum(text);
-        let asked = [
-            "question-asked",
-            &n,
-            "--id",
-            id,
-            "--kind",
-            "park",
-            "--body-sha",
-            &sum,
-            "--offers",
-            offers,
-        ];
+        let asked = Verb::QuestionAsked {
+            issue: self.issue,
+            id: id.to_string(),
+            kind: "park".to_string(),
+            body_sha: sum,
+            offers: offers.to_string(),
+        };
         if let Err(e) = host::store_try(home, 3, &asked) {
             log(&format!(
                 "WARN: could not record the park question of #{n}, a reply to it will not count ({})",
@@ -699,7 +700,10 @@ impl Writer<'_> {
             ));
         }
         if !self.relabel(&[], &[Mark::State(State::Question)]) {
-            let withdraw = ["question-answered", &n, "--id", id, "--withdraw"];
+            let withdraw = Verb::QuestionWithdrawn {
+                issue: self.issue,
+                id: id.to_string(),
+            };
             if let Err(e) = host::store_try(home, 3, &withdraw) {
                 if e.word != "unknown" {
                     log(&format!(
@@ -788,12 +792,6 @@ fn approved_lean(facts: &Value) -> bool {
     .any(|a| driver_of(a) == Some("lean"))
 }
 
-/// The driver's own record of a lean run, kept with the cycle's other notes:
-/// the copy of `.pi/lean-state/<issue>.json` of the workspace, taken before the
-/// workspace is cleaned and read by `analytics run` for the steps the classic
-/// history holds no account of. The name of the note, said once.
-pub const LEAN_STATE: &str = "lean-state.json";
-
 /// The driver's record of a lean run, copied out of its workspace beside the
 /// cycle's other notes, before anything of the workspace is removed. The copy is
 /// made by the one rule the protocol's files have: the file is a plain file of
@@ -807,7 +805,7 @@ fn keep_lean_state(home: &Path, workdir: &str, issue: u64, lean: bool) {
     if !lean || !crate::after::analytics_on(home) {
         return;
     }
-    let to = Home::new(home).cycle_note(issue, LEAN_STATE);
+    let to = Home::new(home).cycle_note(issue, Note::LeanState);
     let _ = fs::remove_file(&to);
     // The read of the workspace's own file, which refuses a link anywhere on the
     // way and a file of no sane size; the copy is of what that read answered.
@@ -881,18 +879,16 @@ fn clear_notes(home: &Path, issue: u64) {
 /// Why tehas work refused the start, as the cycle's last notice: `cycle-end`
 /// keeps it, and the factory's line says it.
 fn refused_notice(home: &Path, f: &Facts, why: &str) {
-    let (issue, attempt) = (f.issue.to_string(), f.attempt.to_string());
-    let args = [
-        "cycle-heartbeat",
-        &issue,
-        "--attempt",
-        &attempt,
-        "--ended",
-        "--status",
-        "refused",
-        "--text",
-        why,
-    ];
+    let issue = f.issue.to_string();
+    let args = Verb::CycleHeartbeat {
+        issue: f.issue,
+        attempt: Some(f.attempt.to_string()),
+        running: false,
+        status: "refused".to_string(),
+        step: None,
+        text: why.to_string(),
+        progress: Vec::new(),
+    };
     if let Err(e) = host::store_try(home, 3, &args) {
         log(&format!(
             "WARN: why #{issue} was refused is not on record ({}: {})",
@@ -906,19 +902,22 @@ fn refused_notice(home: &Path, f: &Facts, why: &str) {
 fn end(home: &Path, r: &Report, f: &Facts) -> bool {
     let issue = f.issue;
     let cycles = Home::new(home).cycles_dir();
-    let mut args: Vec<String> = r.end[..r.files_at].to_vec();
-    for k in &r.files {
-        args.push(format!("--{k}"));
-        args.push(
-            cycles
+    let Some(mut call) = r.end.clone() else {
+        return false;
+    };
+    if let Verb::CycleEndByReport(e) = &mut call {
+        for k in &r.files {
+            let path = cycles
                 .join(format!("{issue}.{k}.json"))
                 .to_string_lossy()
-                .into_owned(),
-        );
+                .into_owned();
+            match k.as_str() {
+                "result" => e.result = Some(path),
+                "progress" => e.progress = Some(path),
+                _ => {}
+            }
+        }
     }
-    args.extend_from_slice(&r.end[r.files_at..]);
-    let mut call = vec!["cycle-end"];
-    call.extend(strs(&args));
     match host::store_try(home, 5, &call) {
         Ok(v) => {
             for k in ["result", "progress"] {
@@ -933,10 +932,10 @@ fn end(home: &Path, r: &Report, f: &Facts) -> bool {
         }
         Err(e) => {
             log(&format!(
-                "ERROR: the end of #{issue} is not on record ({}: {}): cycle-end {}",
+                "ERROR: the end of #{issue} is not on record ({}: {}): {}",
                 e.word,
                 e.line,
-                args.join(" ")
+                call.args().join(" ")
             ));
             false
         }
@@ -1472,6 +1471,7 @@ esac
                 tickets: site.tickets(&by, c).unwrap(),
                 blueprints: site.blueprints(&by, c).unwrap(),
                 code_host: site.code_host(&by, c).unwrap(),
+                board: site.board(&by, c).unwrap(),
             }
         }
 

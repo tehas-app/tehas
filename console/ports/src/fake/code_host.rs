@@ -49,6 +49,7 @@ pub(crate) fn change_digest(s: &State, c: &ChangeRec, bodies: bool) -> ChangeDig
     d.author_relation = s.relation_of(c.author.as_ref());
     d.draft = c.draft;
     d.merge_state = c.merge_state;
+    d.from_fork = c.fork;
     d.marks = c.marks.clone();
     if bodies {
         d.says_closes = closes.clone();
@@ -521,6 +522,7 @@ fn open_change(s: &mut State, ctx: &Ctx, new: &NewChange) -> Got<Posted<ChangeNo
         edited: None,
         editor: None,
         seq,
+        fork: false,
     });
     for b in &new.closes {
         if let Some(at) = s.blueprint_at(*b) {
@@ -742,7 +744,9 @@ impl CodeHostWrites for Handle {
             writable(markers)?;
             let at = at_change(s, no)?;
             let author = Some(ctx.me(s));
-            let id = s.new_comment(author, body, markers.to_vec(), ctx.now);
+            let held = markers.to_vec();
+            let raw = held.is_empty().then(|| body.to_string());
+            let id = s.new_comment(author, body, held, raw, ctx.now);
             s.changes[at].comments.push(id.clone());
             change_event(s, ctx, at, ChangeHappened::Commented);
             ctx.wrote(

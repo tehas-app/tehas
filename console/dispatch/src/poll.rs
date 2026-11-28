@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use tehas_core::home::{Home, Live, State};
+use tehas_core::verb::Verb;
 
 /// How long a held dispatcher lock may last before it is said to hang.
 const HANG: u64 = 1800;
@@ -216,9 +217,7 @@ fn old_record(home: &Path) -> Option<String> {
 
 /// tehas_store_ready: the store installed and its file a plain one.
 fn store_ready(home: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    let bin = std::fs::metadata(home.join("libexec/store"))
-        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0);
+    let bin = tehas_core::file::runnable(&home.join("libexec/store"));
     let db = std::fs::symlink_metadata(Home::new(home).state(State::StoreDb))
         .is_ok_and(|m| m.file_type().is_file());
     bin && db
@@ -534,20 +533,13 @@ impl End<'_> {
             .state(State::GithubWrites)
             .to_string_lossy()
             .into_owned();
-        let n = self.starts.to_string();
-        if let Err(f) = w.calls.store(&[
-            "poll-record",
-            "--started",
-            &started,
-            "--cpu-ms",
-            &cpu,
-            "--gh",
-            &gh,
-            "--writes-log",
-            &writes,
-            "--starts",
-            &n,
-        ]) {
+        if let Err(f) = w.calls.store(&Verb::PollRecord {
+            started,
+            cpu_ms: cpu,
+            gh,
+            writes_log: writes,
+            starts: self.starts.to_string(),
+        }) {
             say(&format!(
                 "WARN: the cost of the poll was not recorded ({})",
                 f.get("word").and_then(Value::as_str).unwrap_or("")
@@ -782,6 +774,9 @@ pub fn run_poll(
         &mut end,
         &retry,
         wiring.handles,
+        wiring.board,
+        wiring.mark_name,
+        wiring.marker_text,
     );
     // The lines the poll's reads left, of both its `Calls`, said once here and
     // nowhere else: `taken` empties the shared queue, so the drain of `body` and
@@ -797,6 +792,23 @@ pub fn run_poll(
     rc
 }
 
+/// The board the poll reads its blockers through. One the wiring could not
+/// make leaves every blocker unreadable, so its issue stays held, and the
+/// poll says why.
+fn board_or_said(
+    made: tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>,
+    said: &mut Vec<String>,
+) -> Option<Box<dyn tehas_ports::Board>> {
+    made.map(|b| b as Box<dyn tehas_ports::Board>)
+        .map_err(|o| {
+        said.push(format!(
+            "the board could not be made ({}), so no blocker's state is read and every blocked issue stays held",
+            o.line()
+        ))
+    })
+    .ok()
+}
+
 // The poll's own parts, each made once by `run_poll`.
 #[allow(clippy::too_many_arguments)]
 fn body(
@@ -808,6 +820,9 @@ fn body(
     end: &mut End,
     retry: &RetryPolicy,
     handles: crate::apply::HandlesOf,
+    board: crate::apply::BoardOf,
+    mark_name: crate::apply::MarkName,
+    marker_text: crate::apply::MarkerText,
 ) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
@@ -846,26 +861,45 @@ fn body(
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         code_host: None,
+        blueprints: None,
+        board: None,
+        tickets: None,
+        mark_name,
+        marker_text,
         said: Vec::new(),
+        faults: Vec::new(),
     };
     // The same token for the poll's reads as for its writes: what the shim of
     // every gh call would ask for anyway, asked once by the poll.
     src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
-    // The code host's reads go through the port, its handle from the same
-    // wiring as the writes', with the same token, its calls counted with
-    // theirs in the poll's cost. Only the branch's check
-    // reads through it yet, so none is made for an instance that names none.
-    if !settings.branch_check.is_empty() {
+    // The queue read goes through the ports: the board's open work, the
+    // tickets' marks, types and closed running issues, and the code host's
+    // open pull requests, which the branch's check also reads. The bodies'
+    // edit histories read through the blueprints port. The handles come from
+    // the same wiring as the writes', with the same token, and their calls
+    // are counted with theirs in the poll's cost. Wiring that cannot make
+    // them leaves the board unread, and the poll fails closed on the queue
+    // read rather than decide from an empty one.
+    {
         let gh_token = src.calls.gh_token.as_deref();
         let calls = w.port_calls.clone();
-        src.code_host = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls)
-            .ok()
-            .map(|h| h.code_host);
+        if let Ok(h) = handles(home, &w.repo, &w.gh, gh_token, w.bound, calls) {
+            src.code_host = Some(h.code_host);
+            src.board = Some(h.board);
+            src.tickets = Some(h.tickets);
+            src.blueprints = Some(h.blueprints);
+        }
     }
+    // The blockers' states are read through the board, made by the same
+    // wiring, with the same token and counted with the writes' calls.
+    let gh_token = src.calls.gh_token.as_deref();
+    let calls = w.port_calls.clone();
+    let made = board(home, &w.repo, &w.gh, gh_token, w.bound, calls);
+    src.board = board_or_said(made, &mut src.said);
     let snap = snapshot(&mut src, settings);
     // What the reads met that their outcome alone does not say, once each:
-    // a code host that refused the branch's checks, and where the setup page
-    // says what its account needs.
+    // a board that could not be made, a code host that refused the branch's
+    // checks, and where the setup page says what its account needs.
     for line in std::mem::take(&mut src.said) {
         say(&format!("WARN: {line}"));
     }
@@ -886,6 +920,14 @@ fn body(
         Err(f) => {
             if taken.contains(&f.line) {
                 say(&f.line);
+            } else if let Some(kind) = src.faults.last() {
+                // The queue's own read failed: the ports know the kind of
+                // the failure, so the record holds it rather than a class
+                // read out of the line's words.
+                say(&f.line);
+                if !dry {
+                    tehas_core::github_fails::note_label(home, tehas_core::time::now(), kind);
+                }
             } else {
                 failed_read(home, dry, &f.line);
             }
@@ -1032,7 +1074,7 @@ impl crate::finish::Hands for FinishHands<'_> {
         // `ticket.acted` of the ask the step took, keyed on the moment the
         // asker's label event says (T11.9).
         let mut log = Vec::new();
-        if let Some(t) = tehas_core::limit::epoch(at) {
+        if let Some(t) = tehas_core::time::from_iso_jq(at) {
             self.w.raise_finish(n, by, t, &mut log);
         }
         for l in log {
@@ -1172,9 +1214,16 @@ fn finish_step(
             .iter()
             .any(|l| l["name"] == crate::read::github::RUNNING);
         // The finish asks judge no comment's edits, so no history is read.
-        let comments = crate::read::github::comments_unjudged(&mut src.calls, &settings.repo, n);
-        let nn = n.to_string();
-        let approval = match src.calls.store(&["approval-current", &nn]) {
+        let words = crate::read::comments::Words {
+            marker: &src.marker_text,
+        };
+        let comments = crate::read::comments::unjudged(
+            src.tickets.as_deref_mut(),
+            src.blueprints.as_deref_mut(),
+            &words,
+            n,
+        );
+        let approval = match src.calls.store(&Verb::ApprovalCurrent { issue: n }) {
             Ok(v) => match crate::read::store::approval_shape(&v) {
                 Some(Value::Null) => Ok(None),
                 Some(a) => Ok(Some(a)),
@@ -1185,7 +1234,7 @@ fn finish_step(
         asks.push(Ask {
             n,
             events: Events::parse(&issue["events"]),
-            comments,
+            comments: (*comments).clone(),
             edit: issue["edit"].clone(),
             approval,
             running: marked || running.contains(&n) || d.picked.contains(&n),
@@ -1362,7 +1411,7 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
         None => say(&format!("WARN: could not write {}", file.display())),
         Some(tmp) => {
             let t = tmp.to_string_lossy().into_owned();
-            if let Err(f) = w.store_try(3, &["publish", "--dispatch", &t]) {
+            if let Err(f) = w.store_try(3, &Verb::PublishDispatch { dispatch: t }) {
                 say(&format!(
                     "WARN: could not write {} ({}: {})",
                     file.display(),
@@ -1381,13 +1430,8 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
 
 /// The lock files of issues nothing has used for 30 days go, three a poll.
 fn sweep_locks(w: &mut Writer, dry: bool) {
-    let args: &[&str] = if dry {
-        &["sweep-locks", "--dry-run"]
-    } else {
-        &["sweep-locks"]
-    };
     let did = if dry { "would remove" } else { "removed" };
-    match w.calls.store(args) {
+    match w.calls.store(&Verb::SweepLocks { dry_run: dry }) {
         Ok(v) => {
             for n in v
                 .get("removed")
@@ -1652,7 +1696,10 @@ mod tests {
     fn no_wiring() -> crate::apply::Wiring {
         crate::apply::Wiring {
             handles: no_handles,
+            board: no_board,
             mark_of: |_| None,
+            mark_name: |_| String::new(),
+            marker_text: |_| String::new(),
             assignee: None,
         }
     }
@@ -1669,6 +1716,38 @@ mod tests {
         Err(tehas_ports::Outcome::Refused(
             tehas_ports::Refusal::Unsupported,
         ))
+    }
+
+    /// A wiring with no board: these polls read no blocker's state.
+    fn no_board(
+        _: &Path,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Duration,
+        _: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
+        Err(tehas_ports::Outcome::Refused(
+            tehas_ports::Refusal::Unsupported,
+        ))
+    }
+
+    #[test]
+    fn a_board_not_made_is_said_and_reads_nothing() {
+        let mut said = Vec::new();
+        let made = no_board(
+            Path::new("/"),
+            "",
+            "",
+            None,
+            Duration::ZERO,
+            Default::default(),
+        );
+        assert!(super::board_or_said(made, &mut said).is_none());
+        assert_eq!(
+            said,
+            ["the board could not be made (refused: not supported here), so no blocker's state is read and every blocked issue stays held"]
+        );
     }
 
     #[test]

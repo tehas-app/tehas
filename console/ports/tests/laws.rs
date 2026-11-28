@@ -313,6 +313,33 @@ fn tickets_a_parent_holds_its_parts() {
 }
 
 #[test]
+fn tickets_every_digest_answers_parent_or_refuses() {
+    for w in both() {
+        let w = w
+            .target("t1", "the target", None)
+            .ticket(2, |t| t.title("a part").target("t1"))
+            .ticket(3, |t| t.title("another part").closed(CloseReason::Done))
+            .ticket(4, |t| t.title("alone").closed(CloseReason::Done));
+        let (k2, k3) = (w.key(2), w.key(3));
+        let w = w.ticket(1, |t| {
+            t.title("the whole").part(k2.clone()).part(k3.clone())
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), k2, k3, w.key(4)];
+        ok(laws::tickets::every_digest_answers_parent_or_refuses(
+            h.as_mut(),
+            &keys,
+            At::new(0),
+            b(100),
+        ));
+        let d = h.delta(None, b(100)).unwrap();
+        let part = d.tickets.iter().find(|c| c.digest.key == w.key(2)).unwrap();
+        assert_eq!(part.digest.parent, Some(Ref::Here(w.key(1))));
+    }
+}
+
+#[test]
 fn tickets_every_label_is_in_labels_in_order() {
     for w in both() {
         let bug = Mark::Project(MarkName::new("bug").unwrap());
@@ -648,6 +675,85 @@ fn board_as_blockers_faults_each_number() {
 }
 
 #[test]
+fn board_the_marks_an_ask_reads_no_events_of_stand_where_the_adapter_leaves_them() {
+    // Mirrors the adapter's end-to-end pin in
+    // console/dispatch/tests/dispatch_poll.rs,
+    // `the_page_gave_no_timelines_and_the_issue_a_cycle_holds_is_not_re_read`:
+    // the queue names the running mark in `marks_not_read` and pays no
+    // apart read for its events. On the adapter that exemption moves no
+    // field of the answer: it drops the mark from the labels the page
+    // must vouch for (`carried`) and from the marks the apart read must
+    // vouch for, but the digest is read unfiltered, so the mark stands
+    // for presence and its events keep their actors. The fake must
+    // answer the same ask with the same data, field for field.
+    for w in both() {
+        let running = Mark::State(State::Running);
+        let approve = Mark::Act(Act::Approve);
+        let w = w
+            .ticket(1, |t| {
+                t.title("held by a cycle")
+                    .marked(approve.clone(), OPERATOR)
+                    .marked(running.clone(), FACTORY)
+            })
+            .ticket(2, |t| t.title("control").marked(running.clone(), FACTORY));
+        let control = w.key(2);
+        let site = FakeSite::new(&w);
+        let mut board = site.board(&full(), C).unwrap();
+        let ask = |not_read: Vec<Mark>| {
+            let mut ask = BoardAsk::new(Depth::Cut { notes: 0 });
+            ask.history_by_kind = vec![
+                (HappenedKind::Marked, Window::Whole(ALL_MAX)),
+                (HappenedKind::Unmarked, Window::Whole(ALL_MAX)),
+                (HappenedKind::Retitled, Window::Last(n32(1))),
+            ];
+            ask.control = Some(control.clone());
+            ask.marks_not_read = not_read;
+            ask
+        };
+        let plain = board.open_work(&ask(vec![]), b(5)).unwrap();
+        let exempt = board.open_work(&ask(vec![running.clone()]), b(5)).unwrap();
+        assert_eq!(
+            plain, exempt,
+            "the exemption moves no data, only the adapter's reads"
+        );
+        let item = plain
+            .items
+            .items()
+            .iter()
+            .find(|(k, _)| *k == w.key(1))
+            .unwrap()
+            .1
+            .as_ref()
+            .unwrap();
+        assert!(
+            item.ticket.digest.marks.contains(&running),
+            "the exempt mark stands where presence is read, as the adapter's unfiltered digest leaves it"
+        );
+        assert!(
+            item.ticket.digest.marks.contains(&approve),
+            "a mark the ask does read stands too"
+        );
+        let marked = item
+            .ticket
+            .history
+            .items
+            .iter()
+            .find(|e| e.what == Happened::Marked(running.clone()))
+            .expect("the exempt mark's event survives");
+        assert_eq!(
+            marked.by.as_ref().map(|a| a.login.as_str()),
+            Some(FACTORY),
+            "events of an exempt mark keep their actors"
+        );
+        let control = plain.control.as_ref().unwrap().as_ref().unwrap();
+        assert!(
+            control.digest.marks.contains(&running),
+            "the control ticket is not held to the list, whatever it says"
+        );
+    }
+}
+
+#[test]
 fn board_a_window_per_kind_cuts_no_other() {
     for w in both() {
         let at = w.now();
@@ -757,6 +863,45 @@ fn tickets_several_carries_each_closer() {
             answers[1].1.as_ref().unwrap().closer,
             Some(Closer::Account(_))
         ));
+    }
+}
+
+#[test]
+fn tickets_several_lists_merged_as_closed_since() {
+    for w in both() {
+        let b = first_blueprint(&w) + 1;
+        let n = first_change(&w);
+        let commit = Closer::Commit(CommitId::new("abc1234").unwrap());
+        let w = w
+            .ticket(1, |t| t.title("open"))
+            .ticket(2, |t| {
+                t.title("closed").closed_by(CloseReason::Done, commit)
+            })
+            .change(n, "work", |c| {
+                c.title("merged").closes(b).state(ChangeState::Merged {
+                    at: At::new(5),
+                    by: None,
+                    commit: None,
+                })
+            });
+        let site = FakeSite::new(&w);
+        let mut h = site.tickets(&full(), C).unwrap();
+        let keys = [w.key(1), w.key(2)];
+        ok(laws::tickets::several_lists_merged_as_closed_since(
+            h.as_mut(),
+            &keys,
+            Bound::new(10).unwrap(),
+        ));
+        let answers = h.several_with_closers(&keys);
+        assert!(answers[0].1.as_ref().unwrap().merged.is_empty());
+        let two = answers[1].1.as_ref().unwrap();
+        assert!(matches!(two.closer, Some(Closer::Commit(_))));
+        let merged: Vec<u64> = two.merged.iter().map(|c| c.no.get()).collect();
+        let want: Vec<u64> = match w.key(1) {
+            TicketKey::Number(_) => vec![n],
+            TicketKey::Key(_) => Vec::new(),
+        };
+        assert_eq!(merged, want);
     }
 }
 
@@ -885,6 +1030,39 @@ fn code_host_two_suites_runs_of_one_name_are_both_held() {
             } else {
                 ok(law);
             }
+        }
+    }
+}
+
+#[test]
+fn code_host_branch_checks_are_the_branch_then_its_checks() {
+    let run = |status: CheckStatus| Check::new("gate".into(), status);
+    let main = Branch::new("main").unwrap();
+    let gone = Branch::new("gone").unwrap();
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w
+            .check(&at, run(CheckStatus::Done(Conclusion::Failed)))
+            .check_by("other", &at, run(CheckStatus::Done(Conclusion::Passed)));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(
+            laws::code_host::branch_checks_are_the_branch_then_its_checks(
+                h.as_mut(),
+                &main,
+                &gone,
+                "gate",
+            ),
+        );
+        let (head, checks) = h.branch_checks(&main, Some("gate")).unwrap().unwrap();
+        assert_eq!(head, at);
+        assert_eq!(checks.overall, Overall::Fail);
+        // A failure of either read fails the whole: never a head without
+        // its checks.
+        for op in [CodeHostOp::Branch, CodeHostOp::Checks] {
+            let faulty = Faulty::new(FakeSite::new(&w)).on(Op::CodeHost(op), Fault::Timeout);
+            let mut h = faulty.code_host(&full(), C).unwrap();
+            assert!(h.branch_checks(&main, Some("gate")).is_err(), "{op:?}");
         }
     }
 }
@@ -1156,6 +1334,20 @@ fn anonymous_reads_public_releases_and_writes_nothing() {
             &at,
             1 << 20,
         ));
+    }
+}
+
+#[test]
+fn scopes_read_scope_fetches_and_writes_nothing() {
+    for w in both() {
+        let at = w.head("main").unwrap();
+        let w = w.tag("v2.0.0", &at).release("v2.0.0", &[]);
+        let site = FakeSite::new(&w);
+        let wrote = w.wrote().len();
+        ok(laws::scopes::read_scope_fetches_and_writes_nothing(
+            &site, C,
+        ));
+        assert_eq!(w.wrote().len(), wrote);
     }
 }
 
@@ -1538,12 +1730,15 @@ fn faulty_passes_the_plural_edit_reads_whole_and_fails_each_item() {
     let site = Faulty::new(FakeSite::new(&w));
     let mut h = site.blueprints(&full(), C).unwrap();
     assert_eq!(h.body_edits_of(&nos, ALL_MAX), want);
+    assert_eq!(h.body_edits_together(&nos, ALL_MAX), Ok(want));
     let site = Faulty::new(FakeSite::new(&w))
         .on(Op::Blueprints(BlueprintsOp::BodyEditsOf), Fault::Timeout);
     let mut h = site.blueprints(&full(), C).unwrap();
     let got = h.body_edits_of(&nos, ALL_MAX);
     assert_eq!(got.len(), 2);
     assert!(got.iter().all(|(_, a)| a.is_err()), "{got:?}");
+    // The read together fails whole.
+    assert!(h.body_edits_together(&nos, ALL_MAX).is_err());
     let ids = [CommentId::new("c1"), CommentId::new("c2")];
     let site = Faulty::new(FakeSite::new(&w))
         .on(Op::Blueprints(BlueprintsOp::CommentEditsOf), Fault::Timeout);
@@ -2724,6 +2919,23 @@ fn health_held_calls_raise_no_recovered() {
         wired.world.now(),
     ));
     assert_eq!(faulty.requests(), 0, "a held call sends nothing");
+}
+
+#[test]
+fn health_a_held_read_raises_no_recovered() {
+    let wired = Wired::new(World::new());
+    let faulty = wired.faulty();
+    let actor = Actor::Ours(Scope::Read);
+    let mut h = faulty.code_host(&actor, C).unwrap();
+    let holder = wired.watch(None).holder(&actor);
+    ok(laws::health::a_held_read_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(&|| faulty.requests()),
+        &holder,
+        Op::CodeHost(CodeHostOp::Releases).pool(),
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "a held read sends nothing");
 }
 
 #[test]

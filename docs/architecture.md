@@ -20,7 +20,7 @@ so a test that moves does not lower a count it did not fix.
 | Running `gh` | `gh-argv` | the forge's `GhRunner` | 408: dispatch 207, cycle 67, the console 62, ops 34, core 13, store 11, mcp, xtask 4 each | the GitHub adapter; the security shims a written floor if they stay |
 | State labels and markers (`tehas:...`) | `label-words` | none; `host/labels.tsv` is the list | 1878, with `needs-human-attention` and `epic`: dispatch 1010, cycle 228, core 189, the console 184, ops 137, store 70, the front pages 34, mcp 21 | one module in core, checked against `host/labels.tsv` (T2) |
 | The `$TEHAS_HOME` layout: `state/`, `live/`, `run/` | `home-layout` | none | 1356: dispatch 341, cycle 278, ops 238, store 145, the console 124, analytics 98, proxy 31, contractor, core 25 each, `install.sh` 21, mcp 16, the units 5 | `Home` (T5); the bash and the units at a written floor (T8) |
-| The store's verbs and answers | review | the store (`console/store/src/verbs.rs`) | callers pass verb strings to `call` and read `Value` | a typed store client (T5) |
+| The store's verbs and answers | review | the store's grammar (`console/store/src/verbs.rs`); the calls made of it, `tehas_core::verb::Verb` (`console/core/src/verb.rs`), which the store's tests hold to that grammar (`console/store/src/verb_tests.rs`) | the closures of `tehas_core::journal` still call the store through its words, at `console/cycle/src/host.rs` `store_value()` and dispatch's `Calls::store_words()`; every caller reads `Value` | the journal's own seam typed (T5's last step); the answers typed in T7 |
 | `serde_json::Value` in signatures | `untyped-signatures` | none | 1421: dispatch 369, mcp 251, cycle 181, the console 162, core 128, ops 89, store 77, analytics 45, attach 42, plugin 33, proxy 28, contractor 16 | parsed at the edge (T3, T4, T5, T7) |
 | `Value` in public fields, enum variants, tuple fields | `untyped-fields` | none | 66: dispatch 38, cycle 7, ops 5, attach, contractor, core, the console 3 each | types of ours (T3, T7) |
 | Settings and their names | review | core's settings (`console/core/src/settings/`), `lib/config.sh` for bash | the contract's settings list | unchanged |
@@ -146,8 +146,9 @@ guards".
   `console/dispatch/src/read/run.rs`, inside the poll;
 - the read-only host, `TEHAS_READ_ONLY` (`console/core/src/read_only.rs`),
   asked by the console's shim and by git pushes;
-- the console's gh shim (`host/shim/gh`, with `console/src/gh_shim.rs` and
-  `gh_writes.rs`), under every host `gh` call;
+- the console's gh shim (`host/shim/gh`, with the adapter's
+  `console/github/src/gh_shim.rs` and `gh_writes.rs`), under every host
+  `gh` call;
 - the sandbox's gh shim (`host/sandbox/gh-shim`), in a cycle's container;
 - cycle's relay (`console/cycle/src/relay.rs`), between the container and
   the host.
@@ -217,6 +218,11 @@ leaves them alone.
 | `console/mesh-feed` | the host-made `feed:mesh` |
 | `console/host-feed` | the host-made `feed:host` |
 
+A kept read may also sit inside a live crate. `console/core/src/issue_feed.rs`
+holds `tickets`, `texts` and `WHO`: the reading of an issue the lab plugin's
+`issues:` grant needs (the plugin-lab spec, "Kept in T14"). Nothing in core
+calls them yet, and a dead-code pass of 2.0.x leaves them alone.
+
 `console/xtask/tests/kept_for_plugins.rs` fails when one of them leaves the
 workspace or loses its tests, and when this table does not name it. A crate
 leaves the list only with the plugin specification change that drops its
@@ -268,7 +274,6 @@ its reason, as a floor; a departure from a should rule (R5) likewise.
 | digest-labels | 2 | `console/dispatch/src/read/board.rs`, the test `the_label_names_of_a_digest_are_never_read` | the test writes label names into a digest and finds the page `decide` reads unchanged (ports spec, Decided 130). The names are display only, never a decision input |
 | adapter-link-rule | 1 | `console/github/Cargo.toml`, its `attach` line | the link rule of GitHub's store stays in `console/attach/src/link.rs`, written once, and the adapter takes it from there for `Blueprints::attachments` and `attachments_in` (the tehas lead's ruling for the alpha, 2026-11-24; ports spec, T4.8). dispatch (`text.rs`), items (`store.rs`), cycle (`gives.rs`) and the console (`src/attach.rs`) read the rule as well and may not name the adapter; core reads it only in its tests, since `issue_feed::refs` takes the links as a parameter. Stands for 2.0, the owner's A3 answer to OD 17 (2026-11-25): the one match is the adapter's `attach` line, its only way to the rule written once, and it stays while those four read the rule from `attach`. The way to 0 is #3335 (2.1): the readers move behind the ports, then the GitHub part of `link.rs` moves into the adapter and the row goes |
 | home-layout | 16, in the bash and the units | `install.sh` 12, `host/systemd/` 4 | T8's freeze, below |
-| T5's typed store client (no check counts it) | every caller of the store's verbs | the console and ops through `ops::store::call` and `line` (about 37 calls in 15 files), dispatch's `read/run.rs` `store()`, cycle's `host.rs` `store()` | a written floor for alpha.1 (tehas-84, 2026-11-24): the callers still pass a verb string and read `Value`. Many of them are in files other T4 lanes are changing, so typing them now would collide; the typed client is the series right after the alpha, and this row goes when it lands |
 | gh-argv | 3, in the bash | `lib/github-app.sh` 1, `host/sandbox/gh-shim` 1, `scripts/tag-release.sh` 1 | T8's freeze, below |
 | github-rest | 4, in the bash | `host/sandbox/gh-shim` 4 | T8's freeze, below |
 | tests-stub-gh | 83, in the shell tests that stay shell | 18 files of `test/` | T8's freeze, below |
@@ -497,9 +502,10 @@ The causes, per area:
   `epics.rs` 7), the label ids (`labels.rs` 6), the notice's pull
   request, the preview's pull requests and verdict, the platform's
   release list, `tehas attach` and `tehas start`'s issue read. The
-  console's own security shim, `gh_shim.rs` (18 and 7), which decides
-  whether a gh call writes: the plan keeps the shims where they are
-  unless the owner agrees to merge them (T4). tehas's own `--json` flag,
+  console's own security shim, `gh_shim.rs` (18 and 7), which decided
+  whether a gh call writes: the owner agreed to the merge (T4), and
+  TF-B52's plan PR 14 moved it and `gh_writes.rs` into the adapter, so
+  those counts are gone. tehas's own `--json` flag,
   kept until the end of T4 (Decided 72). And its tests that stub gh with
   GitHub's JSON, not yet on the ports' fakes (`status_summary.rs` 19,
   `status.rs` 12, `status_health.rs`, `status_analytics.rs`,
@@ -644,7 +650,8 @@ read outside the adapter to classify a failure, and most of the count is
 the tests of that reading: core's retry and fault classifiers
 (`retry.rs` 53, `end_fault.rs` 27), dispatch's auto finish and its tests
 (`auto_finish.rs` 14, `dispatch_auto_finish.rs` 11), the console's
-security shim (`gh_shim.rs` 15) and status (`status.rs` 8), cycle's
+security shim (`gh_shim.rs` 15, gone into the adapter with TF-B52's
+plan PR 14) and status (`status.rs` 8), cycle's
 failed end and supervise. The journal's 5 went in #3265. T4 turns them
 into the ports' named outcomes, read in the adapter. End: T4's
 remaining lane, before the beta.

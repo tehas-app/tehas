@@ -44,8 +44,7 @@ fn attach(home: &Path) -> Option<PathBuf> {
         return None;
     }
     let bin = home.join("libexec/attach");
-    let m = fs::metadata(&bin).ok()?;
-    (m.is_file() && m.permissions().mode() & 0o111 != 0).then_some(bin)
+    tehas_core::file::runnable(&bin).then_some(bin)
 }
 
 use attach::link::may_link;
@@ -372,8 +371,7 @@ fn plugin_files_of(
     if lines.is_empty() {
         return Ok(());
     }
-    let n = issue.to_string();
-    let records = crate::host::store(home, &["records", "--issue", &n])
+    let records = crate::host::store(home, &tehas_core::verb::Verb::Records { issue })
         .map_err(|_| "the plugin records of this issue could not be read".to_string())?;
     let rows = records
         .get("records")

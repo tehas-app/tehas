@@ -121,7 +121,10 @@ fn main() {
         tehas_dispatch::events::wiring(),
         tehas_dispatch::apply::Wiring {
             handles,
+            board,
             mark_of,
+            mark_name,
+            marker_text,
             assignee: assignee(&PathBuf::from(&home), &settings.repo),
         },
     ));
@@ -133,6 +136,18 @@ fn main() {
 /// removes it.
 fn mark_of(label: &str) -> Option<tehas_ports::Mark> {
     tehas_github::table::word(label)
+}
+
+/// A mark as the label word it is spelled by, for the queue's mapping of
+/// marks back to the words the snapshot names them by.
+fn mark_name(mark: &tehas_ports::Mark) -> String {
+    tehas_github::table::mark_name(mark)
+}
+
+/// A marker as the site writes it, for the comment mapping: no text for a
+/// marker the site does not write.
+fn marker_text(marker: &tehas_ports::Marker) -> String {
+    tehas_github::table::marker_text(marker).unwrap_or_default()
 }
 
 /// `TEHAS_ASSIGNEE`'s account through the site's identity, once a poll:
@@ -163,20 +178,19 @@ fn assignee(home: &Path, repo: &str) -> Option<Result<tehas_ports::AccountId, St
     })
 }
 
-/// The handles a poll writes and settles through, from the GitHub adapter's
-/// site acting as the factory's account. Its gh is the host's own, given the
-/// poll's token so the shim asks for none, under the poll's bound: the site
-/// is handed that runner and holds no token of its own.
-fn handles(
+/// The GitHub adapter's site acting as the factory's account. Its gh is the
+/// host's own, given the poll's token so the shim asks for none, under the
+/// poll's bound: the site is handed that runner and holds no token of its
+/// own. Each call is counted into `calls`.
+fn site(
     home: &Path,
     repo: &str,
     gh: &str,
     token: Option<&str>,
     bound: std::time::Duration,
     calls: std::sync::Arc<std::sync::atomic::AtomicU64>,
-) -> tehas_ports::Got<tehas_dispatch::apply::Handles> {
+) -> tehas_github::GitHubSite {
     use std::sync::Arc;
-    use tehas_ports::{Actor, Caller, Scope, Site};
     let (login, id) = tehas_core::accounts::bot(home);
     let (gh, token) = (gh.to_string(), token.map(str::to_string));
     let make: tehas_github::MakeRunner = Arc::new(move |_| {
@@ -188,7 +202,33 @@ fn handles(
         };
         Ok(Box::new(counted) as Box<dyn tehas_core::forge::GhRunner>)
     });
-    let site = tehas_github::GitHubSite::new(repo, &login, id, make);
+    tehas_github::GitHubSite::new(repo, &login, id, make)
+}
+
+/// The board the poll reads the blockers' states through, from the site.
+fn board(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: std::time::Duration,
+    calls: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    site(home, repo, gh, token, bound, calls).board(&Actor::Ours(Scope::Full), Caller::new("poll"))
+}
+
+/// The handles a poll writes and settles through, from the site.
+fn handles(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: std::time::Duration,
+    calls: std::sync::Arc<std::sync::atomic::AtomicU64>,
+) -> tehas_ports::Got<tehas_dispatch::apply::Handles> {
+    use tehas_ports::{Actor, Caller, Scope, Site};
+    let site = site(home, repo, gh, token, bound, calls);
     let (by, c) = (Actor::Ours(Scope::Full), Caller::new("poll"));
     let writes: Box<dyn tehas_ports::Writes> = if tehas_core::read_only::on() {
         Box::new(tehas_ports::ReadOnly)
@@ -204,5 +244,6 @@ fn handles(
         tickets: site.tickets(&by, c)?,
         blueprints: site.blueprints(&by, c)?,
         code_host: site.code_host(&by, c)?,
+        board: site.board(&by, c)?,
     })
 }

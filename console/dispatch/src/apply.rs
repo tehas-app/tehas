@@ -30,6 +30,7 @@ use std::time::Duration;
 use tehas_core::call;
 use tehas_core::home::{Home, State};
 use tehas_core::journal::{Journal, Journaled, Wrote};
+use tehas_core::verb::{End, Verb};
 use tehas_ports::{Body, ChangeNo, NoBlobs, Outcome, Receipt, Refusal, TicketKey, Write};
 
 /// The calls of one poll's writes.
@@ -111,7 +112,16 @@ pub struct Writer {
 #[derive(Clone)]
 pub struct Wiring {
     pub handles: HandlesOf,
+    /// The board the snapshot reads the blockers' states through, made as
+    /// the handles are.
+    pub board: BoardOf,
     pub mark_of: MarkOf,
+    /// A mark as the label word it is spelled by, from the program's wiring:
+    /// the queue's mapping names the marks of the open work with it.
+    pub mark_name: MarkName,
+    /// A marker as the site writes it, from the program's wiring: the
+    /// comment's mapping names its markers with it.
+    pub marker_text: MarkerText,
     /// `TEHAS_ASSIGNEE`'s account, resolved once by the program's wiring
     /// through the site's identity: None with no such setting, Err with
     /// why when it could not be resolved, and the claim then goes without
@@ -123,6 +133,14 @@ pub struct Wiring {
 /// other. A word it does not know is refused at the send, never sent as a
 /// raw label.
 pub type MarkOf = fn(&str) -> Option<tehas_ports::Mark>;
+
+/// The wiring's word for a mark as the site spells its label. The queue's
+/// mapping renders marks back to the words the snapshot names them by.
+pub type MarkName = fn(&tehas_ports::Mark) -> String;
+
+/// The wiring's word for a marker as the site writes it. The comment
+/// mapping renders our markers back onto a comment's body with it.
+pub type MarkerText = fn(&tehas_ports::Marker) -> String;
 
 pub use tehas_core::journal::Handles;
 
@@ -140,6 +158,17 @@ pub type HandlesOf = fn(
     bound: Duration,
     calls: Arc<AtomicU64>,
 ) -> tehas_ports::Got<Handles>;
+
+/// The wiring's board of repository `repo`, made and counted as
+/// [`HandlesOf`] makes the handles.
+pub type BoardOf = fn(
+    home: &Path,
+    repo: &str,
+    gh: &str,
+    token: Option<&str>,
+    bound: Duration,
+    calls: Arc<AtomicU64>,
+) -> tehas_ports::Got<Box<dyn tehas_ports::Board + Send>>;
 
 /// What the settle's read found of an open write that this poll may decide
 /// to make again.
@@ -472,7 +501,7 @@ impl Writer {
         };
         let calls = &mut self.calls;
         let sent = journal.send_on(
-            &mut |a: &[&str]| calls.store(a),
+            &mut |a: &[&str]| calls.store_words(a),
             Some(n),
             write,
             &mut *ports.writes,
@@ -534,9 +563,9 @@ impl Writer {
 
     /// tehas_store_try: asked again, a second apart, only when the store
     /// answered 1 busy or timeout.
-    pub fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
+    pub fn store_try(&mut self, tries: u32, call: &Verb) -> Result<Value, Value> {
         let wait = self.store_retry;
-        call::store_try(tries, wait, || self.calls.store(args))
+        call::store_try(tries, wait, || self.calls.store(call))
     }
 
     /// A write GitHub may have taken: it is read before it is sent again.
@@ -717,14 +746,11 @@ impl Writer {
             let by = text(q, "by").to_string();
             let last = self.store_try(
                 3,
-                &[
-                    "question-answered",
-                    &n.to_string(),
-                    "--id",
-                    id.as_deref().unwrap_or(""),
-                    "--by",
-                    &by,
-                ],
+                &Verb::QuestionAnswered {
+                    issue: n,
+                    id: id.unwrap_or_default(),
+                    by,
+                },
             );
             if let Err(f) = last {
                 log.push(format!(
@@ -786,13 +812,19 @@ impl Writer {
     /// running, and one heard from just now is not lost yet; nothing is said
     /// of either.
     fn lost(&mut self, n: u64, attempt: u64, log: &mut Vec<String>) {
-        let (issue, attempt) = (n.to_string(), attempt.to_string());
-        match self.store_try(3, &["cycle-end", &issue, "--attempt", &attempt, "--lost"]) {
+        match self.store_try(
+            3,
+            &Verb::CycleEnd {
+                issue: n,
+                attempt: attempt.to_string(),
+                end: End::Lost,
+            },
+        ) {
             Ok(v) => {
                 log.push(format!(
                     "lost #{n}: attempt {attempt} died without a word and no cycle holds its lock; ended as lost"
                 ));
-                self.raise_lost(n, attempt.parse().unwrap_or(0), &v.to_string(), log);
+                self.raise_lost(n, attempt, &v.to_string(), log);
             }
             Err(f) if matches!(word(&f).as_str(), "running" | "attempt" | "heard") => {}
             Err(f) => log.push(format!(
@@ -812,7 +844,13 @@ impl Writer {
         fail: &str,
         log: &mut Vec<String>,
     ) {
-        match self.store_try(3, &["answer-drop", &n.to_string(), "--id", id]) {
+        match self.store_try(
+            3,
+            &Verb::AnswerDrop {
+                issue: n,
+                id: id.to_string(),
+            },
+        ) {
             Ok(_) => {
                 if let Some(say) = say {
                     self.say(n, say, log);
@@ -884,12 +922,15 @@ impl Writer {
     /// nothing asked again. A store that cannot say leaves the row as it
     /// was, and the next poll tries again.
     fn adopt(&mut self, n: u64, id: &str, posted: &str, sum: Option<&str>, log: &mut Vec<String>) {
-        let issue = n.to_string();
-        let mut args = vec!["question-adopt", &issue, "--id", id, "--posted-sha", posted];
-        if let Some(sum) = sum {
-            args.extend(["--body-sha", sum]);
-        }
-        match self.store_try(3, &args) {
+        match self.store_try(
+            3,
+            &Verb::QuestionAdopt {
+                issue: n,
+                id: id.to_string(),
+                posted_sha: posted.to_string(),
+                body_sha: sum.map(str::to_string),
+            },
+        ) {
             Ok(v) if v.get("adopted") != Some(&Value::Bool(true)) => {}
             Ok(v) if v.get("summed") == Some(&Value::Bool(true)) => log.push(format!(
                 "INFO: the question of #{n} (comment {id}) had its sum of before 2.0, of the comment with its markers; it is kept, summed now by its visible text, and not asked again"
@@ -917,12 +958,16 @@ impl Writer {
                 log.push(format!("WARN: the question of #{n} could not be asked again; the next poll tries again"));
                 return;
             };
-            let (id, issue) = (id.to_string(), n.to_string());
-            let mut args = vec!["question-asked", &issue, "--id", &id, "--kind", r.kind];
-            if !r.offers.is_empty() {
-                args.extend(["--offers", r.offers]);
-            }
-            match self.store_try(3, &args) {
+            let id = id.to_string();
+            match self.store_try(
+                3,
+                &Verb::QuestionReasked {
+                    issue: n,
+                    id: id.clone(),
+                    kind: r.kind.to_string(),
+                    offers: (!r.offers.is_empty()).then(|| r.offers.to_string()),
+                },
+            ) {
                 Ok(v) => self.raise_asked(n, &v.to_string(), log),
                 Err(f) => {
                     log.push(format!(
@@ -936,10 +981,12 @@ impl Writer {
         }
         // Off the record first: a step after it that fails is not repeated
         // by the next poll, which no longer finds the old question marked.
-        let issue = n.to_string();
         if let Err(f) = self.store_try(
             3,
-            &["question-answered", &issue, "--id", r.old, "--withdraw"],
+            &Verb::QuestionWithdrawn {
+                issue: n,
+                id: r.old.to_string(),
+            },
         ) {
             log.push(format!(
                 "WARN: the old question of #{n} could not be taken off the record ({})",
@@ -1083,7 +1130,7 @@ impl Writer {
 
     /// The park's tell, made only after a comment that worked.
     fn record_told(&mut self, n: u64, log: &mut Vec<String>) {
-        if let Err(f) = self.calls.store(&["park-told", &n.to_string()]) {
+        if let Err(f) = self.calls.store(&Verb::ParkTold { issue: n }) {
             log.push(format!(
                 "WARN: could not record the hold on the park of #{n} ({})",
                 word(&f)
@@ -1099,14 +1146,11 @@ impl Writer {
             Some(v) => v.to_string(),
             None => String::new(),
         };
-        match self.calls.store(&[
-            "plan-note",
-            &n.to_string(),
-            "--kind",
-            text(a, "kind"),
-            "--id",
-            &id,
-        ]) {
+        match self.calls.store(&Verb::PlanNote {
+            issue: n,
+            kind: text(a, "kind").to_string(),
+            id,
+        }) {
             Ok(v) => {
                 if v.get("said") == Some(&json!(true)) {
                     // Deliberate: the store's record comes first here, so a
