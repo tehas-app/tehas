@@ -50,6 +50,15 @@ fn sid_ok(s: &str) -> bool {
     (1..=128).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
 }
 
+/// The depth of a read of an issue whose own text is what a decision reads:
+/// the text whole, as a cut one would give a write the wrong base (the
+/// cycle reads its park note the same way, `cycle/apply.rs`).
+fn whole_read() -> tehas_ports::Depth {
+    tehas_ports::Depth::Last {
+        notes: std::num::NonZeroU32::new(1).expect("1 is no zero"),
+    }
+}
+
 /// A text of the outcome, a string or nothing, as `.k // ""` reads it.
 fn s<'a>(v: &'a Value, path: &str) -> &'a str {
     v.pointer(path).and_then(Value::as_str).unwrap_or("")
@@ -803,7 +812,8 @@ impl Writer {
         // A read that answers nothing holds the post rather than closing a
         // session on an answer GitHub did not give.
         match self.issue_state(n) {
-            Some(state) if state != "OPEN" => {
+            Some(tehas_ports::TicketState::Open) => {}
+            Some(_) => {
                 if !self.plan_close(n, log) {
                     return false;
                 }
@@ -812,7 +822,6 @@ impl Writer {
                 ));
                 return true;
             }
-            Some(_) => {}
             None => {
                 log.push(format!(
                     "WARN: the state of #{n} could not be read before its planning turn was posted; the next poll tries again"
@@ -1077,25 +1086,26 @@ impl Writer {
             !mill.is_empty() && account(l) == mill
         })
         .ok_or_else(|| format!("no allowed person's `tehas:plan` names '{by}'"))?;
-        let was = self
-            .calls
-            .gh(&[
-                "issue",
-                "view",
-                &n.to_string(),
-                "--repo",
-                &repo,
-                "--json",
-                "title,body,state,labels",
-            ])
-            .map_err(|_| "the issue could not be read".to_string())?;
-        if s(&was, "/state") != "OPEN" {
+        // The issue on the tickets port, its whole text among them: a cut
+        // text would give `made` and the sum below the wrong base.
+        let t = match (super::ticket(n), self.ports.as_mut()) {
+            (Some(key), Some(h)) => h
+                .tickets
+                .ticket(&key, whole_read(), None)
+                .map_err(|_| "the issue could not be read".to_string()),
+            _ => Err("the issue could not be read".to_string()),
+        }?;
+        if t.digest.state != tehas_ports::TicketState::Open {
             return Err("the issue is not open".into());
         }
-        let on = was.get("labels").and_then(Value::as_array);
-        if on.is_none_or(|l| l.iter().any(|x| s(x, "/name") == "tehas:ready")) {
+        // The decision is on the marks, never the site's label names
+        // (Decided 130). A word the wiring does not know reads as the mark
+        // it stands for being on, as a read that answered no labels did.
+        let ready = (self.mark_of)("tehas:ready");
+        if ready.is_none_or(|m| t.digest.marks.contains(&m)) {
             return Err("it carries `tehas:ready`, which approves the text it replaces".into());
         }
+        let was = json!({"title": t.digest.title, "body": t.text});
         let draft = std::fs::read_to_string(self.keep(n).join("draft.json"))
             .ok()
             .and_then(|t| serde_json::from_str::<Value>(&t).ok())
@@ -1306,29 +1316,28 @@ impl Writer {
     /// original is the step a poll that failed halfway does not repeat.
     fn plan_replace(&mut self, n: u64, what: &str, out: &Value, log: &mut Vec<String>) -> bool {
         let repo = self.repo.clone();
-        let have: Vec<String> = match self.calls.gh(&[
-            "issue",
-            "view",
-            &n.to_string(),
-            "--repo",
-            &repo,
-            "--json",
-            "labels",
-        ]) {
-            Ok(v) => v
-                .get("labels")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect(),
-            Err(_) => {
+        // The marks the issue carries now, read on the tickets port: what
+        // stands as the mark of a refine decides the mark of the replace
+        // (Decided 130).
+        let have: Vec<tehas_ports::Mark> = match (super::ticket(n), self.ports.as_mut()) {
+            (Some(key), Some(h)) => match h.tickets.several(std::slice::from_ref(&key)).pop() {
+                Some((_, Ok(d))) => d.marks,
+                _ => {
+                    log.push(format!(
+                        "WARN: the labels of #{n} could not be read; the next poll replaces it"
+                    ));
+                    return false;
+                }
+            },
+            _ => {
                 log.push(format!(
                     "WARN: the labels of #{n} could not be read; the next poll replaces it"
                 ));
                 return false;
             }
         };
+        let mark_of = self.mark_of;
+        let has = |l: &str| mark_of(l).is_some_and(|m| have.contains(&m));
         let (mut later, mut new) = (false, false);
         let mut mine = Vec::new();
         let mut said = Vec::new();
@@ -1343,16 +1352,21 @@ impl Writer {
             }
             mine.push(m.clone());
             said.push(format!("#{m}"));
-            let body = match self
-                .calls
-                .gh(&["issue", "view", &m, "--repo", &repo, "--json", "body"])
-            {
-                Ok(v) if v.get("body").is_some_and(|b| b.is_string() || b.is_null()) => v
-                    .get("body")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim_end_matches('\n')
-                    .to_string(),
+            // The issue read on the tickets port, its text whole. The port
+            // answers no text as no body did: an unreadable issue is the
+            // same answer either way.
+            let mn: u64 = m.parse().unwrap_or(0);
+            let body = match (super::ticket(mn), self.ports.as_mut()) {
+                (Some(key), Some(h)) => match h.tickets.ticket(&key, whole_read(), None) {
+                    Ok(t) => t.text.trim_end_matches('\n').to_string(),
+                    Err(_) => {
+                        later = true;
+                        log.push(format!(
+                            "WARN: could not read #{m}, which refining #{n} filed"
+                        ));
+                        continue;
+                    }
+                },
                 _ => {
                     later = true;
                     log.push(format!(
@@ -1369,7 +1383,6 @@ impl Writer {
                 continue;
             }
             new = true;
-            let mn: u64 = m.parse().unwrap_or(0);
             let args = vec![
                 "issue".into(),
                 "edit".into(),
@@ -1403,7 +1416,6 @@ impl Writer {
         if mine.is_empty() {
             later = true;
         }
-        let has = |l: &str| have.iter().any(|x| x == l);
         let mut mark = "";
         if has("tehas:refined") {
             mark = "tehas:refined";
@@ -1560,22 +1572,17 @@ impl Writer {
         true
     }
 
-    /// The issue's state as `gh issue view` answers it, None when it did not
-    /// answer, or answered no state.
-    fn issue_state(&mut self, n: u64) -> Option<String> {
-        let repo = self.repo.clone();
-        self.calls
-            .gh(&[
-                "issue",
-                "view",
-                &n.to_string(),
-                "--repo",
-                &repo,
-                "--json",
-                "state",
-            ])
+    /// The issue's state as the tickets port answers it, None when it did
+    /// not answer.
+    fn issue_state(&mut self, n: u64) -> Option<tehas_ports::TicketState> {
+        let key = super::ticket(n)?;
+        let h = self.ports.as_mut()?;
+        h.tickets
+            .several(std::slice::from_ref(&key))
+            .pop()?
+            .1
             .ok()
-            .and_then(|v| v.get("state").and_then(Value::as_str).map(str::to_string))
+            .map(|d| d.state)
     }
 
     /// plan_close: the session ended on record, and its files gone.

@@ -371,8 +371,11 @@ fn an_original_that_carries_the_mark_already_is_only_closed_nothing_is_said_or_l
     filed_by_refine(&w, &format!("Replaces #7\n\n{ONE_PART}"), &[I12]);
     w.fx(
         "issue-7.json",
-        r#"{"title":"Faster search","body":"Make it fast.","labels":[{"name":"tehas:replaced"}]}"#,
+        r#"{"title":"Faster search","body":"Make it fast."}"#,
     );
+    // The marks the replace reads now stand in the ticket read, where
+    // the labels of the issue's view used to answer it.
+    w.fx_json("labels-7.json", &json!([{"name": "tehas:replaced"}]));
     w.poll();
     assert!(w.closed(7), "{:?}", w.writes_of(7));
     assert!(w.patched(12).is_empty());
