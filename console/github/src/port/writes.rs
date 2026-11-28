@@ -8,11 +8,12 @@
 //! the text goes as JSON on gh's standard input, never in an argument,
 //! which holds at most 128 KiB and is seen by every process on the host.
 //! It reads the issue first, so a pull request's number is `NotFound` with
-//! nothing sent.
+//! nothing sent. A mark, an unmark and a label made read nothing first.
+//! Every write confirms the repository first (`GitHub::confirm_here`).
 
-use super::blueprint_writes::{read_comment, revision, text_revision, unsent};
+use super::blueprint_writes::{read_comment, revision, text_revision};
 use super::named::Named;
-use super::{label_of, number, unsupported};
+use super::{label_of, number, unsent, unsupported};
 use crate::forge::uri;
 use crate::vocabulary::LabelHeld;
 use crate::{markers, table, GitHub};
@@ -109,6 +110,7 @@ impl TicketWrites for GitHub {
             args.extend(["--description", about]);
         }
         args.push("--force");
+        self.confirm_here()?;
         self.call("the label", &args)
             .map(|_| ())
             .map_err(|e| self.outcome(&e))
@@ -116,11 +118,13 @@ impl TicketWrites for GitHub {
 
     fn mark(&mut self, key: &TicketKey, mark: &Mark) -> Did {
         let (issue, label) = (number(key)?, label_of(mark)?);
+        self.confirm_here()?;
         self.add_label(issue, &label).map_err(|e| self.outcome(&e))
     }
 
     fn unmark(&mut self, key: &TicketKey, mark: &Mark) -> Did {
         let (issue, label) = (number(key)?, label_of(mark)?);
+        self.confirm_here()?;
         self.remove_label(issue, &label)
             .map_err(|e| self.outcome(&e))
     }

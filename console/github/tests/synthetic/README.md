@@ -140,6 +140,18 @@ does not parse. Source: none, each is made by hand.
 | `what/failed-garbled/from-3.answer.json` | An HTML page, `<html>bad gateway</html>`, printed beside the failure in `from-3.fail` |
 | `what/failed-garbled/from-3.fail` | The failure that HTML page came with, `: HTTP 502` |
 
+## The repository's name, before a write
+
+No recording asks this question: the fixture projects were recorded
+before the adapter asked it. Source: made by hand in the shape of
+GitHub's GraphQL answer to `repository(owner:, name:) { databaseId
+nameWithOwner }`, with the database id every recording of `acme/widget`
+gives.
+
+| File | What it is |
+| --- | --- |
+| `repository/here/name.json` | `acme/widget`, id 7001: the repository the configured name resolves to is the project's. The replays answer the question of the name with it |
+
 ## anonymous/
 
 Read by `tests/anonymous.rs` through `Stub::synthetic(<case>)`, before

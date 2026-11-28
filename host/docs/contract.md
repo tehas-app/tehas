@@ -1090,8 +1090,12 @@ the analytics copies, Obeya, MCP clients, the end-to-end suite, and plugins.
   repository's id, so on an instance whose `TEHAS_REPO` names the old name
   the adapter reads and writes its issues, comments and pull requests, and
   finds them in a search, as its own. It does so only for a name with the
-  configured owner. The dispatcher's poll, the plugin hooks, the preview
-  sweep and the cycle's issue relay still compare a pull
+  configured owner. A write confirms the repository it is about to
+  change: one that is not this project's, its name under another owner,
+  is refused as unread, with nothing sent. The remote the adapter gives
+  for a push is confirmed the same way: a repository whose name is under
+  another owner gets no push remote. The dispatcher's poll, the plugin
+  hooks, the preview sweep and the cycle's issue relay still compare a pull
   request's head repository, or a `--repo`, with `TEHAS_REPO` by name: on
   such an instance the factory's own pull request reads as another
   repository's there until `TEHAS_REPO` names the new name.

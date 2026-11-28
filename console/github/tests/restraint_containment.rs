@@ -44,8 +44,8 @@ fn sample(name: &str) -> String {
 /// The bodies each write posted, from the standard input of every call.
 type Sent = Arc<Mutex<Vec<String>>>;
 
-/// Answers the reads a write makes first: issue 7, pull request 8, and no
-/// open pull request of a head. A call with input is recorded and answered
+/// Answers the reads a write makes first: the repository's name, issue 7,
+/// pull request 8, and no open pull request of a head. A call with input is recorded and answered
 /// 422, so nothing is settled after it.
 struct Site {
     sent: Sent,
@@ -58,6 +58,17 @@ struct Site {
 impl GhRunner for Site {
     fn run(&mut self, args: &[&str]) -> Result<String, String> {
         let path = args.get(1).copied().unwrap_or_default();
+        // The question of the repository's name, before a write.
+        if path == "graphql"
+            && args
+                .last()
+                .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+        {
+            return Ok(
+                r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#
+                    .into(),
+            );
+        }
         if path == format!("repos/{PROJECT}/issues/7") {
             Ok(self.issue.clone())
         } else if path == format!("repos/{PROJECT}/pulls/8") {
