@@ -734,7 +734,7 @@ fn every_failure_of_the_read_is_its_named_outcome_never_an_empty_blueprint() {
     };
     let spent = Outcome::Spent {
         pool: Pool::Calls,
-        until: At::new(now()),
+        until: At::new(now() + 60),
     };
     let cases = [
         (Err(failed("read-not-found.stderr")), Outcome::NotFound),
@@ -1148,7 +1148,7 @@ fn a_failed_editor_read_fails_the_answer() {
             Err(failed("read-rate-limited.stderr")),
             Outcome::Spent {
                 pool: Pool::Priced,
-                until: At::new(now()),
+                until: At::new(now() + 60),
             },
         ),
         // A comment deleted since its page: GraphQL's NOT_FOUND.

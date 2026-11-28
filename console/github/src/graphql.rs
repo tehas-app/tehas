@@ -5,16 +5,14 @@
 //! budget when GitHub says the rate is limited, `Unread(Inconsistent)` for
 //! any other. `items.rs`, which reads aliased questions alias by alias,
 //! applies its own form of it, an error naming its alias.
+//!
+//! [`Error`] is the adapter's one reading of an error of GraphQL's.
 
+use crate::rate;
 use serde::de::{DeserializeOwned, IgnoredAny};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use tehas_ports::{At, Got, Outcome, Pool, Unread};
-
-/// How long a rate-limited answer holds the priced budget out, at the
-/// least: GitHub's reset is not read here, and "until now" would hold
-/// nothing, so a limited host would ask again at once.
-const LIMITED_FLOOR: i64 = 60;
+use tehas_ports::{Got, Outcome, Pool, Unread};
 
 /// The `errors` of an answer, and nothing else of it.
 #[derive(Deserialize)]
@@ -32,10 +30,71 @@ enum Errors {
     Other(IgnoredAny),
 }
 
+/// One of GraphQL's `errors`: its type, and where in the answer it lies.
 #[derive(Deserialize)]
-struct Error {
+pub(crate) struct Error {
     #[serde(rename = "type", default)]
     kind: Option<String>,
+    #[serde(default, deserialize_with = "steps")]
+    pub(crate) path: Vec<Step>,
+}
+
+/// A step of an error's path: a field or an alias, or a place in a list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Step {
+    At(u64),
+    Name(String),
+    Other(IgnoredAny),
+}
+
+impl Error {
+    /// Whether GitHub gave this error the type `kind`.
+    pub(crate) fn is(&self, kind: &str) -> bool {
+        self.kind.as_deref() == Some(kind)
+    }
+}
+
+/// A path that is no list, null among them, is none.
+fn steps<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Step>, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(d)?).unwrap_or_default())
+}
+
+/// The errors of the answer `out`, each that is an object: none for an
+/// answer that does not read or has none.
+pub(crate) fn errors(out: &str) -> Vec<Error> {
+    serde_json::from_str::<Value>(out.trim())
+        .ok()
+        .and_then(|v| v.get("errors").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|e| serde_json::from_value(e).ok())
+        .collect()
+}
+
+/// A spent budget of a GraphQL call is the priced pool's.
+pub(crate) fn priced(o: Outcome) -> Outcome {
+    match o {
+        Outcome::Spent { until, .. } => Outcome::Spent {
+            pool: Pool::Priced,
+            until,
+        },
+        o => o,
+    }
+}
+
+/// The outcome of an answer carrying `errors` at `now`: a spent priced
+/// budget held out by `rate` when GitHub says the rate is limited, else
+/// `Unread(Inconsistent)`.
+pub(crate) fn limited<'a>(errors: impl IntoIterator<Item = &'a Error>, now: i64) -> Outcome {
+    let limited = errors.into_iter().any(|e| e.is(rate::RATE_LIMITED));
+    rate::limited(
+        limited,
+        Pool::Priced,
+        now,
+        None,
+        Outcome::Unread(Unread::Inconsistent),
+    )
 }
 
 /// The outcome of the answer `out` when it carries errors, at `now`; None
@@ -54,19 +113,9 @@ pub(crate) fn refusal(out: &str, now: i64) -> Option<Outcome> {
     if head.errors.is_none() && v.get("errors").is_none_or(Value::is_null) {
         return None;
     }
-    let limited = match head.errors {
-        Some(Errors::List(all)) => all
-            .iter()
-            .any(|e| e.kind.as_deref() == Some("RATE_LIMITED")),
-        _ => false,
-    };
-    Some(if limited {
-        Outcome::Spent {
-            pool: Pool::Priced,
-            until: At::new(now + LIMITED_FLOOR),
-        }
-    } else {
-        Outcome::Unread(Unread::Inconsistent)
+    Some(match head.errors {
+        Some(Errors::List(all)) => limited(&all, now),
+        _ => Outcome::Unread(Unread::Inconsistent),
     })
 }
 
@@ -90,6 +139,7 @@ pub(crate) fn part<T: DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tehas_ports::At;
 
     const NOW: i64 = 1_800_000_000;
 

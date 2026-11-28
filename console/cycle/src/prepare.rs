@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use tehas_core::cycle_notes::Note;
 use tehas_core::driver::Driver;
 use tehas_core::exit::work::{NOT_STARTED, NO_PUSH};
 use tehas_core::home::{Home, State};
@@ -39,6 +40,7 @@ use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
+use tehas_core::verb::{End, Verb};
 use tehas_core::{lock, time};
 
 /// What of the protocol a killed cycle leaves as its evidence.
@@ -1072,14 +1074,11 @@ pub fn push_fault(home: &Path, issue: u64, line: &str) {
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
     let n = issue.to_string();
     if is_attempt(&attempt) {
-        let end = [
-            "cycle-end",
-            &n,
-            "--attempt",
-            &attempt,
-            "--status",
-            "push-fault",
-        ];
+        let end = Verb::CycleEnd {
+            issue,
+            attempt: attempt.clone(),
+            end: End::Status("push-fault".into()),
+        };
         if let Err(refused) = host::store_said(home, &end) {
             eprintln!(
                 "tehas work: the push fault of #{issue} is not on its record ({}): cycle-end {n} --attempt {attempt} --status push-fault",
@@ -1320,7 +1319,7 @@ pub fn tree(home: &Path, t: &Tree, set: &mut Aside) -> i32 {
             to_preflight(&preflight, &line);
             say(&format!("tehas work: {line}"));
         }
-        let note = Home::new(home).cycle_note(t.issue, "refused");
+        let note = Home::new(home).cycle_note(t.issue, Note::Refused);
         if let Some(rc) = install(&state, &tree, &steps, &preflight, &note) {
             return rc;
         }
@@ -1384,7 +1383,7 @@ pub struct Record {
 
 /// How many cycles hold their lock, this one with them.
 fn running(home: &Path) -> usize {
-    let held = host::store(home, &["locks-held"]).ok();
+    let held = host::store(home, &Verb::LocksHeld).ok();
     let held = held
         .as_ref()
         .and_then(|v| v.get("held")?.as_array().map(Vec::len));
@@ -1438,22 +1437,22 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
         return true;
     };
     let n = r.issue.to_string();
-    let mut args = vec!["cycle-image", &n, "--attempt", &r.attempt, "--image", id];
-    if let Some(c) = &commit {
-        args.extend(["--rukas", c]);
-    }
     let mut options = list(state, "env");
     options.extend_from_slice(&r.images);
     let text = ran_with::settings(&running(home).to_string(), &options);
     let settings = start::private_file(home, "settings", format!("{text}\n").as_bytes());
     let path = settings.as_ref().map(|p| p.to_string_lossy().into_owned());
-    match &path {
-        Some(p) => args.extend(["--settings", p]),
-        None => {
-            eprintln!("tehas work: the settings of this cycle could not be written for its record")
-        }
+    if path.is_none() {
+        eprintln!("tehas work: the settings of this cycle could not be written for its record");
     }
-    let done = host::store_try(home, 2, &args);
+    let call = Verb::CycleImage {
+        issue: r.issue,
+        attempt: r.attempt.clone(),
+        image: id.clone(),
+        rukas: commit.clone(),
+        settings: path,
+    };
+    let done = host::store_try(home, 2, &call);
     if let Some(p) = &settings {
         let _ = fs::remove_file(p);
     }
@@ -1538,9 +1537,9 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
     } else {
         "off"
     };
-    if fs::write(file("comments"), format!("{mode}\n")).is_err() {
+    if fs::write(file(Note::Comments.as_ref()), format!("{mode}\n")).is_err() {
         // What is left there is the word of a cycle before.
-        let _ = fs::remove_file(file("comments"));
+        let _ = fs::remove_file(file(Note::Comments.as_ref()));
         eprintln!("tehas work: could not write the image's word on comments, a park of this cycle offers no comments retry");
     }
     if mode == "polyfill" && state.pointer("/comments/unguard") == Some(&Value::Bool(true)) {
@@ -1556,7 +1555,7 @@ pub fn record(home: &Path, r: &Record) -> Result<Vec<String>, i32> {
             err.display()
         );
     }
-    let cid = file("cid").to_string_lossy().into_owned();
+    let cid = file(Note::Cid.as_ref()).to_string_lossy().into_owned();
     let Some(verb) = state.get("verb").and_then(Value::as_str) else {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return Err(78);

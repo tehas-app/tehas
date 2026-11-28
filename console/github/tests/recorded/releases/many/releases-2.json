@@ -1,15 +1,1 @@
-[
- {
-  "id": 1100,
-  "tag_name": "v0.100.0",
-  "name": "v0.100.0",
-  "draft": false,
-  "prerelease": false,
-  "created_at": "2025-04-17T00:00:00Z",
-  "published_at": "2025-04-17T01:00:00Z",
-  "body": null,
-  "html_url": "https://github.com/acme/widget/releases/tag/v0.100.0",
-  "assets": [],
-  "url": "https://api.github.com/repos/acme/widget/releases/1100"
- }
-]
+[{"url":"https://api.github.com/repos/tehas-app/tehas-rec-releases-many/releases/459502132","assets_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases-many/releases/459502132/assets","upload_url":"https://uploads.github.com/repos/tehas-app/tehas-rec-releases-many/releases/459502132/assets{?name,label}","html_url":"https://github.com/tehas-app/tehas-rec-releases-many/releases/tag/v0.001.0","id":459502132,"author":{"login":"janit","id":198965,"node_id":"MDQ6VXNlcjE5ODk2NQ==","avatar_url":"https://avatars.githubusercontent.com/u/198965?v=4","gravatar_id":"","url":"https://api.github.com/users/janit","html_url":"https://github.com/janit","followers_url":"https://api.github.com/users/janit/followers","following_url":"https://api.github.com/users/janit/following{/other_user}","gists_url":"https://api.github.com/users/janit/gists{/gist_id}","starred_url":"https://api.github.com/users/janit/starred{/owner}{/repo}","subscriptions_url":"https://api.github.com/users/janit/subscriptions","organizations_url":"https://api.github.com/users/janit/orgs","repos_url":"https://api.github.com/users/janit/repos","events_url":"https://api.github.com/users/janit/events{/privacy}","received_events_url":"https://api.github.com/users/janit/received_events","type":"User","user_view_type":"public","site_admin":false},"node_id":"RE_kwDOV9ACsc4bY3I0","tag_name":"v0.001.0","target_commitish":"main","name":"v0.001.0","draft":false,"immutable":false,"prerelease":false,"created_at":"2026-11-26T14:10:42Z","updated_at":"2026-11-26T14:10:47Z","published_at":"2026-11-26T14:10:47Z","assets":[],"tarball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases-many/tarball/v0.001.0","zipball_url":"https://api.github.com/repos/tehas-app/tehas-rec-releases-many/zipball/v0.001.0","body":null}]

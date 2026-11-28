@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Account, AccountId, AccountKind, Actor, At, BlueprintNo, Branch, ChangeEvent, ChangeNo,
-    ChangeState, Check, CommentId, CommitId, DeployCredential, Got, Keyring, Kind, Links, Mark,
-    Mergeable, PersonKey, ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode,
+    ChangeState, Check, CommentId, CommitId, DeployCredential, Edit, Got, Keyring, Kind, Links,
+    Mark, Mergeable, PersonKey, ProjectName, Realm, Release, RepoPath, Scope, Secret, SignInCode,
     Standing, Status, Tag, TagName, Target, TargetId, TicketKey, Token, Write,
 };
 
@@ -514,6 +514,7 @@ impl World {
                 edited: None,
                 editor: None,
                 seq,
+                fork: spec.fork,
             });
             match s.layout {
                 Layout::SameItem => s.next_ticket = s.next_ticket.max(n + 1),
@@ -522,7 +523,7 @@ impl World {
             let at = s.changes.len() - 1;
             for (login, body) in &spec.comments {
                 let author = Some(s.account(login, Realm::CodeHost));
-                let id = s.new_comment(author, body, Vec::new(), now);
+                let id = s.new_comment(author, body, Vec::new(), Some(body.to_string()), now);
                 s.changes[at].comments.push(id);
             }
             for (login, what) in &spec.events {
@@ -635,6 +636,18 @@ impl World {
 
     /// A published release of a tag, with its files.
     pub fn release(self, tag: &str, files: &[(&str, &[u8])]) -> Self {
+        self.release_as(tag, false, false, files)
+    }
+
+    /// A release of a tag the site holds as a draft or a prerelease, with
+    /// its files. A draft is not published; a prerelease is.
+    pub fn release_as(
+        self,
+        tag: &str,
+        draft: bool,
+        prerelease: bool,
+        files: &[(&str, &[u8])],
+    ) -> Self {
         let now = self.now();
         {
             let mut s = self.lock();
@@ -645,9 +658,9 @@ impl World {
                 id,
                 tag: tag.clone(),
                 title: tag.as_str().to_string(),
-                draft: false,
-                prerelease: false,
-                published: Some(now),
+                draft,
+                prerelease,
+                published: (!draft).then_some(now),
                 notes: String::new(),
                 files: Vec::new(),
                 link,
@@ -714,6 +727,76 @@ impl World {
             s.items[at].edited = Some(now);
             s.touch(at, now);
         }
+    }
+
+    /// Edit a comment as another account does, outside the ports: its
+    /// text, its last editor and the history `Blueprints::comment_edits`
+    /// and `Tickets::note_edits` answer. The text is kept as given: the
+    /// world strips no markers.
+    pub fn edit_comment_elsewhere(&self, id: &CommentId, text: &str, by: &str) {
+        let now = self.now();
+        let mut s = self.lock();
+        if let Some(at) = s.comment_at(id) {
+            let realm = s.ticket_realm();
+            let editor = s.account(by, realm);
+            let seq = s.bump();
+            let c = &mut s.comments[at];
+            c.body = text.to_string();
+            c.raw = Some(text.to_string());
+            c.editor = Some(editor.clone());
+            c.edited = Some(now);
+            c.revision += 1;
+            c.seq = seq;
+            c.edits.push(Edit {
+                by: Some(editor),
+                at: now,
+                after: text.to_string(),
+                markers: Vec::new(),
+            });
+        }
+    }
+
+    /// Add a comment as `login` to the ticket of number `number`, as a case
+    /// seeds one: the text is kept as given, the world strips no markers.
+    /// Its id, so a case can edit it. The comment is the ticket's: on the
+    /// blueprint as well, where the two are one item.
+    pub fn add_comment(&self, number: u64, login: &str, text: &str) -> Option<CommentId> {
+        let now = self.now();
+        let mut s = self.lock();
+        let key = TicketKey::Number(nz(number));
+        let at = s.ticket_at(&key)?;
+        let realm = if s.layout == Layout::SameItem || s.items[at].blueprint.is_some() {
+            Realm::CodeHost
+        } else {
+            s.ticket_realm()
+        };
+        let author = Some(s.account(login, realm));
+        let id = s.new_comment(author, text, Vec::new(), Some(text.to_string()), now);
+        s.items[at].comments.push(id.clone());
+        Some(id)
+    }
+
+    /// Take every comment off the ticket of number `number`, as a case
+    /// reseeding it. The comment ids are spent: they name nothing again.
+    pub fn clear_comments(&self, number: u64) {
+        let mut s = self.lock();
+        let key = TicketKey::Number(nz(number));
+        if let Some(at) = s.ticket_at(&key) {
+            s.items[at].comments.clear();
+        }
+    }
+
+    /// Refuse the comments of the ticket of number `number`: the reads of
+    /// its notes and of its blueprint's comments fail, as a refused read of
+    /// one issue fails. A case's way to make one issue's comment read fail.
+    pub fn fail_comments(&self, number: u64) {
+        self.lock().broken_comments.push(number);
+    }
+
+    /// Stand down every refused read: a case that seeds twice must not hold
+    /// the first run's refusals into the second.
+    pub fn clear_broken_comments(&self) {
+        self.lock().broken_comments.clear();
     }
 }
 

@@ -581,7 +581,7 @@ fn past_all_max_the_newest_n_read_as_all_max_with_more() {
 fn gh_s_answer_beside_a_failure_names_it_and_the_rest_settle_by_rest() {
     let spent = Outcome::Spent {
         pool: Pool::Priced,
-        until: At::new(replay_now()),
+        until: At::new(replay_now() + 60),
     };
     // A rate limit and an issue's number are read from gh's answer, with
     // no request more.

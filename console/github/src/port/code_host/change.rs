@@ -33,6 +33,7 @@ use std::collections::BTreeSet;
 
 use super::super::blueprint_writes::comment_revision;
 use super::super::named::Named;
+use crate::graphql::priced;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
@@ -40,7 +41,7 @@ use serde_json::Value;
 use tehas_ports::{
     Account, AccountKind, At, BlueprintNo, Bound, Branch, Change, ChangeDigest, ChangeNo,
     ChangeState, ChangedFile, Comment, CommentId, CommitId, Got, ItemName, Login, Mergeable,
-    Outcome, Pool, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Size, Unread,
+    Outcome, ProjectName, Realm, Ref, Relation, RepoPath, Review, ReviewNote, Size, Unread,
     Verdict, WebLink,
 };
 
@@ -602,6 +603,7 @@ fn read_comments(
         let link = WebLink::new(url).map_err(|_| MALFORMED)?;
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref(), bot);
+        comment.raw = Some(raw.to_string());
         if updated != created {
             let node = c.node_id.filter(|n| is_node_id(n)).ok_or(MALFORMED)?;
             touched.push((comments.len(), node, updated));
@@ -864,17 +866,6 @@ fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
     serde_json::from_value(v).map_err(|_| MALFORMED)
 }
 
-/// A spent budget of a GraphQL call is the priced pool's.
-pub(super) fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
-}
-
 /// A review's or a review comment's pull request, held to be `no` of
 /// this project: a missing link is `Unread(Malformed)`, another pull
 /// request's `Unread(Inconsistent)`.
@@ -886,11 +877,12 @@ fn on_pull(url: Option<&str>, repo: Named, no: ChangeNo) -> Got<()> {
     }
 }
 
-/// How an author stands to the project, from GitHub's `author_association`:
-/// its owner, a member of the owning organisation, a collaborator, or one
-/// of GitHub's words for none of these. A word this adapter does not know
-/// is `Unknown`, which counts as none of these too.
-fn relation(word: &str) -> Relation {
+/// How an author stands to the project, from GitHub's `author_association`
+/// or GraphQL's `authorAssociation`, which answer with the same words: its
+/// owner, a member of the owning organisation, a collaborator, or one of
+/// GitHub's words for none of these. A word this adapter does not know is
+/// `Unknown`, which counts as none of these too.
+pub(super) fn relation(word: &str) -> Relation {
     match word {
         "OWNER" => Relation::Owner,
         "MEMBER" => Relation::Member,

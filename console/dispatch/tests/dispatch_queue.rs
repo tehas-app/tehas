@@ -34,9 +34,9 @@ fn states(w: &World, list: &[(u64, &str)]) {
         let v = if s.is_empty() {
             Value::Null
         } else {
-            json!({"state": s})
+            json!({"__typename": "Issue", "number": n, "state": s})
         };
-        repo.insert(format!("b{n}"), v);
+        repo.insert(format!("n{n}"), v);
     }
     w.fx_json("blockers.json", &json!({"data": {"repository": repo}}));
 }
@@ -205,7 +205,7 @@ fn an_open_blocked_by_link_holds_a_ready_issue_and_the_slot_goes_to_the_next_one
     let r = w.poll();
     assert_eq!(r.rc, 0);
     assert_eq!(w.started(), "8 ");
-    has(&w.gh(), "issueDependenciesSummary { blockedBy }");
+    has(&w.gh(), "blockedBy(first: 100)");
     has(
         &r.out,
         "wait #7: a blocked-by link holds it: 1 blocker is open",
@@ -219,8 +219,8 @@ fn a_blocked_issue_starts_once_every_blocker_it_names_is_closed() {
     states(&w, &[(12, "CLOSED"), (34, "CLOSED")]);
     w.poll();
     assert_eq!(w.started(), "7 ");
-    has(&w.gh(), "b12: issueOrPullRequest(number: 12)");
-    has(&w.gh(), "b34: issueOrPullRequest(number: 34)");
+    has(&w.gh(), "n12: issueOrPullRequest(number: 12)");
+    has(&w.gh(), "n34: issueOrPullRequest(number: 34)");
 }
 
 #[test]

@@ -7,19 +7,27 @@ use super::site::{
     comments_of, digest, edit_markers, first, known_mark, list_order, matches, revision, text_of,
     whole, whole_kept, window, writable, Ctx, Handle,
 };
-use super::state::{Layout, State};
+use super::state::{nz, split_key, ItemRec, Layout, State};
 use crate::{
-    AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeState, ChangeToken, CloseReason,
-    Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed, Filter, Got,
-    Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit, MarkerKey,
-    MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step, StepPart,
-    Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest, TicketEvent,
-    TicketKey, TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window, WithCloser, Within,
-    Write,
+    AccountId, Applied, At, Blocker, BlockerState, Bound, ChangeDigest, ChangeState, ChangeToken,
+    CloseReason, Closed, ClosedTicket, Closer, Comment, CommentId, Cursor, Depth, Did, Edit, Filed,
+    Filter, Got, Happened, HappenedKind, Item, Kind, Mark, MarkHeld, MarkSpec, Marker, MarkerEdit,
+    MarkerKey, MarkerKind, NewTicket, Outcome, Part, Pool, Posted, Priority, Ref, Refusal, Step,
+    StepPart, Target, TargetEdit, TargetId, Ticket, TicketChange, TicketDelta, TicketDigest,
+    TicketEvent, TicketKey, TicketWrites, Tickets, Took, Unprepared, WebLink, Whole, Window,
+    WithCloser, Within, Write,
 };
 
 fn at_ticket(s: &State, key: &TicketKey) -> Got<usize> {
     s.ticket_at(key).ok_or(Outcome::NotFound)
+}
+
+/// Does the world refuse the comments of this ticket (`World::fail_comments`)?
+/// The same refusal the blueprints port gives its comments.
+fn comments_broken(s: &State, key: &TicketKey) -> bool {
+    s.broken_comments
+        .iter()
+        .any(|n| TicketKey::Number(nz(*n)) == *key || split_key(*n) == *key)
 }
 
 fn open_of(s: &State, key: &TicketKey) -> bool {
@@ -123,26 +131,29 @@ fn closed_tickets(s: &State, when: impl Fn(At) -> bool) -> Vec<ClosedTicket> {
         .filter_map(|d| {
             let at = s.ticket_at(&d.key)?;
             let item = &s.items[at];
-            let merged = match (s.layout, item.blueprint) {
-                (Layout::SameItem, Some(no)) => s
-                    .changes
-                    .iter()
-                    .filter(|c| {
-                        c.closes.contains(&no) && matches!(c.state, ChangeState::Merged { .. })
-                    })
-                    .map(|c| super::code_host::change_digest(s, c, false))
-                    .collect(),
-                _ => Vec::new(),
-            };
             Some(ClosedTicket {
                 closed: item.closed?,
                 closer: item.closer.clone(),
                 part_count: item.parts.len() as u32,
-                merged,
+                merged: merged_closing(s, item),
                 digest: d,
             })
         })
         .collect()
+}
+
+/// The merged changes that close a ticket, where ticket and blueprint are
+/// one item: elsewhere the tickets are not on the code host.
+fn merged_closing(s: &State, item: &ItemRec) -> Vec<ChangeDigest> {
+    match (s.layout, item.blueprint) {
+        (Layout::SameItem, Some(no)) => s
+            .changes
+            .iter()
+            .filter(|c| c.closes.contains(&no) && matches!(c.state, ChangeState::Merged { .. }))
+            .map(|c| super::code_host::change_digest(s, c, false))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// The notes of a ticket: its own where ticket and blueprint are apart,
@@ -343,7 +354,10 @@ impl Tickets for Handle {
             let item = &s.items[at];
             let digest = digest(s, item).ok_or(Outcome::NotFound)?;
             let mut with = WithCloser::new(digest);
-            with.closer = if item.open { None } else { item.closer.clone() };
+            if !item.open {
+                with.closer = item.closer.clone();
+                with.merged = merged_closing(s, item);
+            }
             Ok(with)
         })
     }
@@ -369,6 +383,12 @@ impl Tickets for Handle {
     fn notes(&mut self, key: &TicketKey, w: Window) -> Got<Took<Comment>> {
         self.run(Pool::Calls, |s, _| {
             let at = at_ticket(s, key)?;
+            if comments_broken(s, key) {
+                return Err(Outcome::Unavailable {
+                    why: crate::Passing::Server,
+                    sent: crate::Sent::Maybe,
+                });
+            }
             window(&notes_of(s, at), w)
         })
     }
@@ -661,7 +681,9 @@ fn note(
     writable(markers)?;
     let at = at_ticket(s, key)?;
     let author = Some(ctx.me(s));
-    let id = s.new_comment(author, body, markers.to_vec(), ctx.now);
+    let held = markers.to_vec();
+    let raw = held.is_empty().then(|| body.to_string());
+    let id = s.new_comment(author, body, held, raw, ctx.now);
     s.items[at].comments.push(id.clone());
     s.touch(at, ctx.now);
     ctx.wrote(

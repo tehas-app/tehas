@@ -120,10 +120,14 @@ fn an_account_with_a_name_like_the_app_s_is_an_outsider() {
         ready_by(&w, 7, who);
         let r = w.poll();
         assert_eq!(w.calls("fake-start"), "", "{who}");
+        // The board adapter names an account as accounts are compared: the
+        // app's spellings fold to one. The decision is the same for every
+        // spelling: none of them is on the list.
+        let said = tehas_core::accounts::folded(tehas_core::accounts::account(who));
         has(
             &r.out,
             &format!(
-                "clear #7: tehas:ready off, applied by '{who}' who may not authorise work here"
+                "clear #7: tehas:ready off, applied by '{said}' who may not authorise work here"
             ),
         );
     }

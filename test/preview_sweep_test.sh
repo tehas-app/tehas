@@ -131,7 +131,7 @@ printf '%s\n' "$(cid c0de01) 7 other/thing foreign" "$(cid c0de02) x acme/widget
 t_run "$preview --sweep"
 t_contains "$(t_calls docker)" "rm -f -v $(cid c0de01)"
 t_contains "$(t_calls docker)" "rm -f -v $(cid c0de02)"
-t_eq "$(t_calls gh | grep -c 'pulls/7')" 0
+t_eq "$(t_calls gh | grep -c -e 'pulls/7' -e 'n7:')" 0
 
 t_case "sweep: a label whose number is not one to nine digits belongs to no pull request"
 reset
@@ -143,9 +143,9 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "container $(cid c0de0b): swept, it belongs to no pull request of acme/widget"
 t_contains "$t_out" "container $(cid c0de0c): swept, it belongs to no pull request of acme/widget"
 t_contains "$t_out" "image sha256:big: swept, it belongs to no preview"
-t_eq "$(t_calls gh | grep -c -e 'pulls/1234567890' -e 'pulls/012' -e 'pulls/12$')" 0
+t_eq "$(t_calls gh | grep -c -e 'pulls/1234567890' -e 'pulls/012' -e 'pulls/12$' -e 'n1234567890:' -e 'n012:' -e 'n12:')" 0
 # Nine digits is a number: GitHub is asked, and it knows no such pull request.
-t_eq "$(t_calls gh | grep -c 'pulls/999999999$')" 1
+t_eq "$(t_calls gh | grep -c 'n999999999: pullRequest')" 1
 t_contains "$t_out" "#999999999: swept, there is no such pull request"
 
 t_case "sweep: a line whose id is not one is skipped, and nothing is removed by it"

@@ -230,7 +230,7 @@ fn not_sent(why: Passing) -> Outcome {
 fn spent(pool: Pool) -> Outcome {
     Outcome::Spent {
         pool,
-        until: tehas_ports::At::new(now()),
+        until: tehas_ports::At::new(now() + 60),
     }
 }
 

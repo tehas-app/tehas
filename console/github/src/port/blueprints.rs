@@ -28,6 +28,7 @@ mod edits;
 use super::blueprint_writes::{comment_revision, read_issue, revision};
 use super::named::Named;
 use super::unsupported;
+use crate::graphql::priced;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
@@ -36,7 +37,7 @@ use serde_json::Value;
 use tehas_ports::{
     At, Attachment, AttachmentId, Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, Blueprints,
     Bound, ChangeToken, Comment, CommentId, Cursor, Depth, Did, Edit, Got, Outcome, Pool, Refusal,
-    TicketDigest, TicketKey, Took, Unread, Whole, Within, ALL_MAX,
+    TicketDigest, TicketKey, Took, Unread, Whole, Window, Within, ALL_MAX,
 };
 
 /// The comments one page of an issue's comments asks for, the most GitHub
@@ -130,7 +131,19 @@ impl Blueprints for GitHub {
         nos: &[BlueprintNo],
         bound: Bound,
     ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
-        self.bodies_edits(nos, bound)
+        self.bodies_edits(nos, bound).0
+    }
+
+    /// As `body_edits_of`, a question that fails whole failing the read.
+    fn body_edits_together(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>> {
+        match self.bodies_edits(nos, bound) {
+            (_, Some(o)) => Err(o),
+            (each, None) => Ok(each),
+        }
     }
 
     /// One GraphQL question for each `edits::CHUNK` comments, each asked
@@ -349,6 +362,29 @@ impl GitHub {
         took.items = self.comments_from(no, stamp, from)?;
         took.more = from > 0;
         Ok(took)
+    }
+
+    /// The ticket's notes: the issue's comments, oldest first, as much as
+    /// `window` takes. An issue and its blueprint are the one item here,
+    /// so these are the same pages `comments` reads. A read that comes out
+    /// `Unread(Inconsistent)` is made once more, whole.
+    pub(super) fn ticket_notes(&mut self, no: BlueprintNo, window: Window) -> Got<Took<Comment>> {
+        self.twice(|gh| {
+            let (_, stamp) = gh.issue(no)?;
+            match window {
+                Window::Whole(bound) => {
+                    let mut took = Took::default();
+                    took.items = gh.whole_comments(no, &stamp, bound)?.into_items();
+                    Ok(took)
+                }
+                Window::Last(notes) => gh.last_comments(no, &stamp, notes.get()),
+            }
+        })
+    }
+
+    /// [`Blueprints::comment_edits`] of the one id, for the tickets port.
+    pub(super) fn note_edits_one(&mut self, id: &CommentId, bound: Bound) -> Got<Whole<Edit>> {
+        one(self.comments_edits(std::slice::from_ref(id), bound))
     }
 
     /// Every one of the issue's `count` comments, or `Unread(Cut)` past
@@ -591,17 +627,6 @@ fn answer<T: serde::de::DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<
     crate::graphql::part(out, at, now)
 }
 
-/// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
-}
-
 /// The fields of an issue's REST answer the read takes beside
 /// `read_issue`'s; each missing one is None.
 #[derive(Deserialize)]
@@ -685,6 +710,7 @@ fn read_comments(
         let sum = comment_revision(raw);
         let mut comment = Comment::new(CommentId::new(id.to_string()), created, sum, link);
         comment.author = author(c.user.as_ref(), bot);
+        comment.raw = Some(raw.to_string());
         if updated != created {
             let node = c
                 .node_id

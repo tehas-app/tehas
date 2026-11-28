@@ -10,13 +10,14 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 
+use crate::items::{alias, PER_QUESTION};
 use crate::tickets::{account, number, take, Bot};
 use crate::{gh, markers, table, ForgeError, GitHub};
 use tehas_ports::{
     Account, At, Blocker, BlockerState, Bound, ChangeNo, CloseReason, Closer, CommitId, Depth,
-    Filter, Got, Happened, HappenedKind, Item, ItemName, Outcome, Part, ProjectName, Ref, Refusal,
-    Revision, TargetId, TargetName, Ticket, TicketDigest, TicketEvent, TicketKey, TicketState,
-    Took, Unread, WebLink, Whole, Window, ALL_MAX,
+    Filter, Got, Happened, HappenedKind, Item, ItemName, MarkId, Outcome, Part, ProjectName, Ref,
+    Refusal, Revision, TargetId, TargetName, Ticket, TicketDigest, TicketEvent, TicketKey,
+    TicketState, Took, Unread, WebLink, Whole, Window, ALL_MAX,
 };
 
 pub(crate) const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
@@ -29,7 +30,7 @@ pub const CUT_TEXT: usize = 200;
 
 /// The most pages one read asks for after its first, a hundred items each.
 /// A list longer than that is `Unread(Cut)`.
-const PAGES_MAX: usize = 100;
+pub(crate) const PAGES_MAX: usize = 100;
 
 /// An account, with the user id the vouch reads beside every login.
 pub(crate) const ACTOR: &str =
@@ -52,13 +53,15 @@ const EVENTS: [(HappenedKind, &str, &str, &str); 14] = [
         HappenedKind::Marked,
         "LABELED_EVENT",
         "LabeledEvent",
-        "label { name }",
+        // The label's id beside its name: a mark renamed keeps its old id,
+        // and a caller that pins a mark reads the event's id against the pin.
+        "label { id name }",
     ),
     (
         HappenedKind::Unmarked,
         "UNLABELED_EVENT",
         "UnlabeledEvent",
-        "label { name }",
+        "label { id name }",
     ),
     (
         HappenedKind::Assigned,
@@ -256,6 +259,21 @@ pub(crate) fn digest_fields() -> String {
 /// The ticket an issue is a part of, if any.
 const PARENT: &str = "parent { number repository { databaseId nameWithOwner } }";
 
+/// The question of the ticket each issue is a part of, one alias a number.
+fn parents_question(numbers: &[u64]) -> String {
+    let mut q = String::from(
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId",
+    );
+    for n in numbers {
+        q.push_str(&format!(
+            " {}: issue(number: {n}) {{ number {PARENT} }}",
+            alias(*n)
+        ));
+    }
+    q.push_str(" } }");
+    q
+}
+
 #[derive(Deserialize)]
 pub(crate) struct Who {
     #[serde(rename = "__typename")]
@@ -278,6 +296,9 @@ impl Who {
 #[derive(Deserialize)]
 pub(crate) struct Name {
     pub(crate) name: String,
+    /// The site's id of the named thing, when the question asked it.
+    #[serde(default)]
+    pub(crate) id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -362,6 +383,14 @@ struct Answer {
     parent: Option<Option<Named>>,
 }
 
+/// An issue of the parents' question.
+#[derive(Deserialize)]
+struct Parented {
+    number: Option<u64>,
+    #[serde(default, deserialize_with = "given")]
+    parent: Option<Option<Named>>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Node {
@@ -401,7 +430,7 @@ pub(crate) fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 }
 
 /// A field that says whether it was there: `Some(None)` for an empty one.
-fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+pub(crate) fn given<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
 ) -> Result<Option<Option<T>>, D::Error> {
     Option::<T>::deserialize(d).map(Some)
@@ -438,24 +467,48 @@ pub(crate) struct Pages {
 }
 
 impl Pages {
+    /// The pages of a list read forward, or back from its end.
+    pub(crate) fn new(back: bool) -> Self {
+        Pages {
+            seen: Vec::new(),
+            back,
+        }
+    }
+
     /// The cursor of the page after this one, None after the last. A page
     /// that does not say whether there is more, or says so with no cursor
-    /// or one already used, is `Unread(Inconsistent)`.
+    /// or one already used, is `Unread(Inconsistent)`. Past `PAGES_MAX`
+    /// cursors the list is `Unread(Cut)`.
     pub(crate) fn next(&mut self, info: Option<Info>) -> Got<Option<String>> {
+        match self.after(info)? {
+            None => Ok(None),
+            Some(cursor) => self.turn(cursor, PAGES_MAX)?.ok_or(CUT).map(Some),
+        }
+    }
+
+    /// The cursor of the page after this one as the page says it, None
+    /// after the last: `Unread(Inconsistent)` where it does not say whether
+    /// there is more, or says so with no cursor.
+    pub(crate) fn after(&self, info: Option<Info>) -> Got<Option<String>> {
         let info = info.ok_or(INCONSISTENT)?;
         let (more, cursor) = match self.back {
             true => (info.has_previous_page, info.start_cursor),
             false => (info.has_next_page, info.end_cursor),
         };
-        if !more.ok_or(INCONSISTENT)? {
-            return Ok(None);
+        match more.ok_or(INCONSISTENT)? {
+            false => Ok(None),
+            true => cursor.map(Some).ok_or(INCONSISTENT),
         }
-        let cursor = cursor.ok_or(INCONSISTENT)?;
+    }
+
+    /// Turns to the page at `cursor`: `Unread(Inconsistent)` for a cursor
+    /// already used, None without turning once `most` cursors are used.
+    pub(crate) fn turn(&mut self, cursor: String, most: usize) -> Got<Option<String>> {
         if self.seen.contains(&cursor) {
             return Err(INCONSISTENT);
         }
-        if self.seen.len() >= PAGES_MAX {
-            return Err(CUT);
+        if self.seen.len() >= most {
+            return Ok(None);
         }
         self.seen.push(cursor.clone());
         Ok(Some(cursor))
@@ -578,14 +631,38 @@ impl GitHub {
         asked.ok_or(MALFORMED)?.map(|p| self.named(&p)).transpose()
     }
 
-    /// The ticket an issue is a part of: one question, for a digest read
-    /// over REST, which leaves `parent_issue_url` out of an issue that is a
-    /// part of none, so its absence cannot be told from an answer cut short.
-    pub(crate) fn parent(&mut self, key: &TicketKey) -> Got<Option<Ref<TicketKey>>> {
-        let issue = number(key)?;
-        let question = format!("query($owner: String!, $name: String!, $number: Int!) {{ repository(owner: $owner, name: $name) {{ databaseId issue(number: $number) {{ number {PARENT} }} }} }}");
-        let first = self.ask_issue(issue, &question, None, false)?;
-        self.parent_of(first.parent)
+    /// The ticket each issue is a part of, in the order asked: one aliased
+    /// question for up to a hundred distinct numbers. A digest read over
+    /// REST needs it, since REST leaves `parent_issue_url` out of an issue
+    /// that is a part of none, so its absence cannot be told from an answer
+    /// cut short.
+    pub(crate) fn parents(&mut self, numbers: &[u64]) -> Vec<Got<Option<Ref<TicketKey>>>> {
+        let mut got = Vec::with_capacity(numbers.len());
+        // A spent budget spends the questions after it: they are not asked.
+        let mut spent: Option<Outcome> = None;
+        for chunk in numbers.chunks(PER_QUESTION) {
+            if let Some(o) = &spent {
+                got.extend(chunk.iter().map(|_| Err(o.clone())));
+                continue;
+            }
+            let aliases: Vec<String> = chunk.iter().map(|n| alias(*n)).collect();
+            let nodes: Vec<Got<Parented>> =
+                self.ask_aliased("the parents' question", &parents_question(chunk), &aliases);
+            if let Some(Err(first @ Outcome::Spent { .. })) = nodes.first() {
+                let first = first.clone();
+                if nodes.iter().all(|n| n.as_ref().err() == Some(&first)) {
+                    spent = Some(first);
+                }
+            }
+            got.extend(chunk.iter().zip(nodes).map(|(n, node)| {
+                let node = node?;
+                if node.number != Some(*n) {
+                    return Err(INCONSISTENT);
+                }
+                self.parent_of(node.parent)
+            }));
+        }
+        got
     }
 
     /// A ticket's parts, whole: `Tickets::parts`.
@@ -645,7 +722,7 @@ impl GitHub {
         loop {
             let out = self
                 .ask("the list of issues", &question, None, cursor.as_deref())
-                .map_err(|e| self.outcome(&e))?;
+                .map_err(|e| self.outcome_queue_read(&e))?;
             let page: Page<Node> =
                 crate::graphql::part(&out, "/data/repository/issues", (self.now)())?;
             for node in page.nodes {
@@ -774,10 +851,7 @@ impl GitHub {
     ) -> Got<Took<TicketEvent>> {
         let asks = events(kinds, window);
         let question = of_issue(&asks);
-        let mut pages = Pages {
-            seen: Vec::new(),
-            back: matches!(window, Window::Last(_)),
-        };
+        let mut pages = Pages::new(matches!(window, Window::Last(_)));
         let mut all: Vec<TicketEvent> = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
@@ -797,6 +871,7 @@ impl GitHub {
                 let mut event = TicketEvent::new(what);
                 event.by = e.actor.as_ref().and_then(|w| w.account(self.bot.as_ref()));
                 event.at = e.created_at.as_deref().map(time).transpose()?;
+                event.mark_id = e.label.as_ref().and_then(|l| l.id.clone()).map(MarkId::new);
                 read.push(event);
             }
             let next = pages.next(page.page_info)?;

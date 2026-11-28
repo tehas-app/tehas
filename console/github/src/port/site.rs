@@ -14,13 +14,15 @@ use crate::{table, AuthorisedCurl, Curl, GitHub};
 use tehas_core::forge::{Failed, GhRunner};
 use tehas_ports::{
     Actor, At, BlueprintWrites, Blueprints, Board, Caller, CodeHost, CodeHostWrites, Got, Identity,
-    Ledger, Mark, Marker, MeterRow, Outcome, Pool, PortName, Realm, Refusal, Scope, Site,
+    Ledger, Mark, Marker, MeterRow, Notices, Outcome, Pool, PortName, Realm, Refusal, Scope, Site,
     TicketWrites, Tickets,
 };
 
 /// What makes a runner of gh for an actor: the wiring's, so the adapter
 /// never holds a token or a credential. It is asked only for an actor the
-/// site hands handles to, `Actor::Ours(Scope::Full)` and `Actor::Operator`.
+/// site hands handles to, `Actor::Ours(Scope::Full)` and `Actor::Operator`,
+/// and `Actor::Ours(Scope::Read)` for a code host, tickets, blueprints or
+/// board read handle.
 pub type MakeRunner = Arc<dyn Fn(&Actor) -> Got<Box<dyn GhRunner>> + Send + Sync>;
 
 /// GitHub as a `Site`: the code host and its own tracker, both realms.
@@ -35,7 +37,8 @@ pub struct GitHubSite {
     now: fn() -> i64,
     /// The client a person signs in through, if the wiring gave one.
     people: Option<Arc<People>>,
-    /// curl and the ledger of anonymous reads, if the wiring asked for them.
+    /// curl, the ledger and the notice sink of anonymous reads, if the
+    /// wiring asked for them.
     public: Option<Public>,
 }
 
@@ -101,15 +104,29 @@ impl GitHubSite {
 
     /// The same site answering `Actor::Anonymous`'s code host reads of a
     /// public project (Decided 76) through curl, with no credential, its
-    /// budget kept in `ledger` as the anonymous holder's.
-    pub fn with_anonymous_reads(self, ledger: Arc<dyn Ledger>) -> GitHubSite {
-        self.with_anonymous_curl(Curl::new(), ledger)
+    /// budget kept in `ledger` as the anonymous holder's, and each change
+    /// of that health told to `notices`.
+    pub fn with_anonymous_reads(
+        self,
+        ledger: Arc<dyn Ledger>,
+        notices: Arc<dyn Notices>,
+    ) -> GitHubSite {
+        self.with_anonymous_curl(Curl::new(), ledger, notices)
     }
 
     /// The same, through `curl`: a test's stub in curl's place.
-    pub fn with_anonymous_curl(self, curl: Curl, ledger: Arc<dyn Ledger>) -> GitHubSite {
+    pub fn with_anonymous_curl(
+        self,
+        curl: Curl,
+        ledger: Arc<dyn Ledger>,
+        notices: Arc<dyn Notices>,
+    ) -> GitHubSite {
         GitHubSite {
-            public: Some(Public { curl, ledger }),
+            public: Some(Public {
+                curl,
+                ledger,
+                notices,
+            }),
             ..self
         }
     }
@@ -126,13 +143,26 @@ impl GitHubSite {
     /// `Refused(Unsupported)`: a narrower scope, a given token, a person's
     /// or a deploy credential each need a token this adapter does not mint
     /// or keep yet, and handing them the full runner would widen them. The
-    /// one exception is the identity handle of the factory's account at
-    /// read scope, on a site given a client for people: it signs a person
-    /// in and runs no gh. Anonymous asking a write handle is `Forbidden`, as
-    /// the trait says; its code host reads are `code_host`'s, through curl.
+    /// exception is the factory's account at read scope. Its code host,
+    /// tickets, blueprints and board read handles run the runner the wiring
+    /// makes for it: those ports have no write, and its remote fetches
+    /// alone, so the scope is the handle's. Its identity handle, on a site
+    /// given a client for people, signs a person in and runs no gh. A write
+    /// handle asked at read scope or as Anonymous is `Forbidden`, as the
+    /// trait says; Anonymous's code host reads are `code_host`'s, through
+    /// curl.
     fn handle(&self, by: &Actor, caller: Caller, port: PortName, write: bool) -> Got<GitHub> {
         match by {
             Actor::Ours(Scope::Full) | Actor::Operator => {}
+            Actor::Ours(Scope::Read)
+                if !write
+                    && matches!(
+                        port,
+                        PortName::CodeHost
+                            | PortName::Tickets
+                            | PortName::Blueprints
+                            | PortName::Board
+                    ) => {}
             // A sign-in, the factory's account at read scope (Decided 76):
             // the client for people alone, and no runner of gh, so the
             // handle asks GitHub nothing as the factory.
@@ -145,7 +175,7 @@ impl GitHubSite {
                 gh.people = Some(Arc::clone(people));
                 return Ok(gh);
             }
-            Actor::Anonymous if write => return Err(Outcome::Forbidden),
+            Actor::Ours(Scope::Read) | Actor::Anonymous if write => return Err(Outcome::Forbidden),
             _ => return unsupported(),
         }
         let runner = Metered {
@@ -160,6 +190,7 @@ impl GitHubSite {
         let mut gh = GitHub::new(self.repo.clone(), Box::new(runner)).on_clock(self.now);
         gh.bot = Some(self.bot.clone());
         gh.as_bot = matches!(by, Actor::Ours(_));
+        gh.fetch_only = *by == Actor::Ours(Scope::Read);
         gh.people = self.people.clone();
         Ok(gh)
     }
@@ -220,7 +251,11 @@ impl Site for GitHubSite {
     }
 
     /// `Actor::Anonymous` reads through curl, on a site given it, and
-    /// never through a runner of gh.
+    /// never through a runner of gh. A site given no curl refuses the
+    /// anonymous handle: the console's update is the one program that
+    /// reads anonymously, and its wiring always gives one, so this
+    /// refusal is the wiring's guard, held by the test. The factory's
+    /// account path answers on every site.
     fn code_host(&self, by: &Actor, caller: Caller) -> Got<Box<dyn CodeHost + Send>> {
         if *by == Actor::Anonymous {
             let Some(public) = &self.public else {
@@ -388,8 +423,19 @@ mod tests {
     struct Sends(Arc<AtomicUsize>);
 
     impl GhRunner for Sends {
-        fn run(&mut self, _: &[&str]) -> Result<String, String> {
+        fn run(&mut self, args: &[&str]) -> Result<String, String> {
             self.0.fetch_add(1, Ordering::SeqCst);
+            // A push remote confirms the repository first, as every write
+            // does: answer its question as the replays do, from the
+            // synthetic name.
+            if args
+                .last()
+                .is_some_and(|q| q.ends_with("{ databaseId nameWithOwner } }"))
+            {
+                let at = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/synthetic/repository/here/name.json");
+                return std::fs::read_to_string(at).map_err(|e| e.to_string());
+            }
             Ok("{}".into())
         }
         fn run_input(&mut self, _: &[&str], _: &str) -> Result<String, String> {
@@ -418,6 +464,65 @@ mod tests {
     }
 
     const ARGS: [&str; 2] = ["api", "repos/acme/widget/issues/7/comments"];
+
+    /// A site whose wiring makes a runner that counts what reached it, and
+    /// keeps each actor it was asked a runner for.
+    fn recording_site() -> (GitHubSite, Arc<AtomicUsize>, Arc<Mutex<Vec<Actor>>>) {
+        let sent = Arc::new(AtomicUsize::new(0));
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let (s, a) = (Arc::clone(&sent), Arc::clone(&asked));
+        let make: MakeRunner = Arc::new(move |by: &Actor| {
+            a.lock().unwrap().push(by.clone());
+            Ok(Box::new(Sends(Arc::clone(&s))) as Box<dyn GhRunner>)
+        });
+        (GitHubSite::new("acme/widget", "", None, make), sent, asked)
+    }
+
+    const READ: Actor = Actor::Ours(Scope::Read);
+
+    #[test]
+    fn the_factory_s_read_scope_reads_the_code_host_through_its_own_runner() {
+        let (site, sent, asked) = recording_site();
+        let mut h = site.code_host(&READ, Caller::new("update")).unwrap();
+        let _ = h.releases(tehas_ports::ALL_MAX);
+        assert!(sent.load(Ordering::SeqCst) > 0);
+        assert_eq!(*asked.lock().unwrap(), [READ]);
+        assert!(h.remote(tehas_ports::Access::Fetch).is_ok());
+        assert_eq!(
+            h.remote(tehas_ports::Access::Push).unwrap_err(),
+            Outcome::Forbidden
+        );
+        // The full scope's handle still pushes.
+        let mut full = site
+            .code_host(&Actor::Ours(Scope::Full), Caller::new("update"))
+            .unwrap();
+        assert!(full.remote(tehas_ports::Access::Push).is_ok());
+    }
+
+    #[test]
+    fn the_factory_s_read_scope_writes_nothing_and_reads_through_its_own_runner() {
+        let (site, sent, asked) = recording_site();
+        let c = Caller::new("update");
+        assert_eq!(
+            site.code_host_writes(&READ, c).err(),
+            Some(Outcome::Forbidden)
+        );
+        assert_eq!(site.ticket_writes(&READ, c).err(), Some(Outcome::Forbidden));
+        assert_eq!(
+            site.blueprint_writes(&READ, c).err(),
+            Some(Outcome::Forbidden)
+        );
+        assert!(asked.lock().unwrap().is_empty());
+        assert!(site.tickets(&READ, c).is_ok());
+        assert!(site.blueprints(&READ, c).is_ok());
+        assert!(site.board(&READ, c).is_ok());
+        assert_eq!(*asked.lock().unwrap(), [READ, READ, READ]);
+        // With no client for people, identity is no sign-in and no runner.
+        let unsupported = Some(Outcome::Refused(tehas_ports::Refusal::Unsupported));
+        assert_eq!(site.identity(&READ, c).err(), unsupported);
+        assert_eq!(asked.lock().unwrap().len(), 3);
+        assert_eq!(sent.load(Ordering::SeqCst), 0);
+    }
 
     #[test]
     fn a_write_with_input_past_the_deadline_is_not_sent_nor_counted() {

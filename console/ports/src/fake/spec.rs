@@ -16,6 +16,7 @@ pub struct TicketSpec {
     pub(crate) markers: Vec<Marker>,
     pub(crate) marks: Vec<(Mark, Option<String>)>,
     pub(crate) closed: Option<CloseReason>,
+    pub(crate) closer: Option<Closer>,
     pub(crate) kind: Option<Kind>,
     pub(crate) priority: Option<Priority>,
     pub(crate) target: Option<TargetId>,
@@ -72,6 +73,14 @@ impl TicketSpec {
     /// Closed, for this reason.
     pub fn closed(mut self, reason: CloseReason) -> Self {
         self.closed = Some(reason);
+        self
+    }
+
+    /// Closed, for this reason, by `closer` in place of the operator's
+    /// account: a commit that said it closes it, say.
+    pub fn closed_by(mut self, reason: CloseReason, closer: Closer) -> Self {
+        self.closed = Some(reason);
+        self.closer = Some(closer);
         self
     }
 
@@ -220,14 +229,18 @@ impl TicketSpec {
         };
         for (login, body, markers) in self.comments {
             let author = Some(s.account(&login, comment_realm));
-            let id = s.new_comment(author, &body, markers, now);
+            let raw = markers.is_empty().then(|| body.clone());
+            let id = s.new_comment(author, &body, markers, raw, now);
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
             s.attach(at, name, bytes);
         }
         if let Some(reason) = self.closed {
-            let closer = Some(Closer::Account(s.account(OPERATOR, realm)));
+            let closer = Some(match self.closer {
+                Some(closer) => closer,
+                None => Closer::Account(s.account(OPERATOR, realm)),
+            });
             let item = &mut s.items[at];
             item.open = false;
             item.reason = Some(reason.clone());
@@ -334,11 +347,12 @@ impl BlueprintSpec {
         item.markers.extend(self.markers);
         for (login, body, markers) in self.comments {
             let author = Some(s.account(&login, Realm::CodeHost));
-            let id = s.new_comment(author, &body, markers, now);
+            let raw = markers.is_empty().then(|| body.clone());
+            let id = s.new_comment(author, &body, markers, raw, now);
             s.items[at].comments.push(id);
         }
         for (author, body) in self.comments_as {
-            let id = s.new_comment(Some(author), &body, Vec::new(), now);
+            let id = s.new_comment(Some(author), &body, Vec::new(), Some(body.clone()), now);
             s.items[at].comments.push(id);
         }
         for (name, bytes) in self.attachments {
@@ -367,6 +381,7 @@ pub struct ChangeSpec {
     pub(crate) events: Vec<(String, crate::ChangeHappened)>,
     pub(crate) state: Option<ChangeState>,
     pub(crate) merge_state: Option<Mergeable>,
+    pub(crate) fork: bool,
 }
 
 impl ChangeSpec {
@@ -431,6 +446,13 @@ impl ChangeSpec {
     /// Whether it can merge.
     pub fn merge_state(mut self, m: Mergeable) -> Self {
         self.merge_state = Some(m);
+        self
+    }
+
+    /// Whether the head lives in another repository: a fork's change, whose
+    /// head is no branch of this one.
+    pub fn fork(mut self, yes: bool) -> Self {
+        self.fork = yes;
         self
     }
 }

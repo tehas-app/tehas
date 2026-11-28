@@ -48,11 +48,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::outln;
-use tehas_ports::Sent;
+use tehas_ports::{CodeHost, Got, Outcome, Release, Sent, Tag, Whole, ALL_MAX};
 use text::{Held, Moved, Ver};
 use tools::{World, CADDY_FILES, TOOLS};
 
-pub fn main(given: &[String]) -> u8 {
+/// The code host handle of the public project `repo` (`owner/name`), for
+/// its releases and tags, read without a credential. The wiring makes it;
+/// the tests give a fake.
+pub type AnonHost = dyn Fn(&str) -> Got<Box<dyn CodeHost + Send>> + Send + Sync;
+
+pub fn main(given: &[String], anon: &AnonHost) -> u8 {
     let (cmd, rest) = match given.split_first() {
         Some((c, r)) if c == "check" || c == "move" => (c.as_str(), r),
         _ => return usage(),
@@ -70,10 +75,11 @@ pub fn main(given: &[String]) -> u8 {
         }
     }
     let Some(root) = root else { return usage() };
+    let world = Curl { anon };
     let result = if cmd == "check" {
-        check(&root, &Curl).map(|lines| lines.into_iter().for_each(|l| outln!("{l}")))
+        check(&root, &world).map(|lines| lines.into_iter().for_each(|l| outln!("{l}")))
     } else {
-        run(&root, release.as_deref(), &Curl)
+        run(&root, release.as_deref(), &world)
             .map(|lines| lines.into_iter().for_each(|l| outln!("{l}")))
     };
     match result {
@@ -293,50 +299,53 @@ fn relock(
     Ok(tools::sha256(lock.as_bytes()))
 }
 
-/// The world through curl, tar and npm.
-struct Curl;
+/// The world through curl, tar, npm and the code host's anonymous reads.
+struct Curl<'a> {
+    anon: &'a AnonHost,
+}
 
-impl World for Curl {
+/// One code host read that did not answer, in our words.
+fn cannot(repo: &str, o: &Outcome) -> String {
+    format!("cannot read {repo}: {}", o.line())
+}
+
+impl World for Curl<'_> {
     fn get(&self, url: &str) -> Result<Vec<u8>, String> {
-        let mut cmd = Command::new("curl");
-        cmd.args([
-            "-fsSL",
-            "--max-time",
-            "600",
-            "--retry",
-            "3",
-            "-A",
-            "tehas-pins",
-            "-K",
-            "-",
-            url,
-        ]);
-        let mut child = cmd
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        let out = Command::new("curl")
+            .args([
+                "-fsSL",
+                "--max-time",
+                "600",
+                "--retry",
+                "3",
+                "-A",
+                "tehas-pins",
+                "-K",
+                "-",
+                url,
+            ])
+            .output()
             .map_err(|e| format!("cannot run curl: {e}"))?;
-        // GitHub's API allows more with a token; it goes on standard input.
-        let token = std::env::var("GH_TOKEN")
-            .or_else(|_| std::env::var("GITHUB_TOKEN"))
-            .unwrap_or_default();
-        if let Some(mut stdin) = child.stdin.take() {
-            let safe = !token.is_empty()
-                && token
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_');
-            if url.starts_with("https://api.github.com/") && safe {
-                let _ = writeln!(stdin, "header = \"Authorization: Bearer {token}\"");
-            }
-        }
-        let out = child.wait_with_output().map_err(|e| format!("curl: {e}"))?;
         if !out.status.success() {
             let said = String::from_utf8_lossy(&out.stderr);
             let why = crate::curl::failed(out.status.code(), &said, Sent::No);
             return Err(format!("cannot get {url}: {}", why.line()));
         }
         Ok(out.stdout)
+    }
+
+    fn gh_releases(&self, repo: &str) -> Result<Vec<Release>, String> {
+        let mut host = (self.anon)(repo).map_err(|o| cannot(repo, &o))?;
+        host.releases(ALL_MAX)
+            .map(Whole::into_items)
+            .map_err(|o| cannot(repo, &o))
+    }
+
+    fn gh_tags(&self, repo: &str) -> Result<Vec<Tag>, String> {
+        let mut host = (self.anon)(repo).map_err(|o| cannot(repo, &o))?;
+        host.tags(ALL_MAX)
+            .map(Whole::into_items)
+            .map_err(|o| cannot(repo, &o))
     }
 
     fn unpack(&self, archive: &[u8], member: &str) -> Result<String, String> {

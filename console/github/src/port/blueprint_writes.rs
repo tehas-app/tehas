@@ -139,10 +139,20 @@ impl BlueprintWrites for GitHub {
 
     /// The comment read, its revision compared with `since`, then one
     /// `PATCH` of its body. The revision is [`comment_revision`] of its raw
-    /// body, markers in, as `Blueprints::comments` gives it. GitHub has no
-    /// conditional update of a comment, so the moment between the read and
-    /// the `PATCH` stays open: another account's edit in it is overwritten.
-    /// A caller that cares reads again after.
+    /// body, markers in, as `Blueprints::comments` gives it.
+    ///
+    /// The window: GitHub has no conditional update of a comment, by REST
+    /// or by GraphQL (`updateIssueComment` takes no expected state), so it
+    /// cannot be closed. It is the time from the read's answer to the
+    /// `PATCH` landing: one gh start and one request, no other request
+    /// between them, every check that needs no read made before the read.
+    /// An edit in it is overwritten and the write answers made; an edit
+    /// before the read is `Conflict(Changed)`. As only the factory's own
+    /// comment is edited, the edit in the window is the factory's own or
+    /// that of an account with write access to the repository. A caller
+    /// that cares reads again after. The contract test
+    /// `an_edit_between_the_read_and_the_patch_is_overwritten_the_window_the_port_names`
+    /// states it.
     ///
     /// Only the factory's own comment is edited, through the factory's own
     /// handle (the tehas ports owner's ruling). A handle a site made for

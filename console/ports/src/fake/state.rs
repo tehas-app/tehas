@@ -73,6 +73,9 @@ pub(crate) struct CommentRec {
     pub edited: Option<At>,
     pub body: String,
     pub markers: Vec<Marker>,
+    /// The text as given to the world, markers and all; None when only
+    /// the body and its typed markers were given.
+    pub raw: Option<String>,
     pub revision: u64,
     pub seq: u64,
     pub edits: Vec<Edit>,
@@ -105,6 +108,8 @@ pub(crate) struct ChangeRec {
     pub edited: Option<At>,
     pub editor: Option<Account>,
     pub seq: u64,
+    /// Whether the head of this change lives in another repository.
+    pub fork: bool,
 }
 
 /// A commit: its parents, message, author and every file at it.
@@ -158,6 +163,9 @@ pub(crate) struct State {
     pub default_branch: Branch,
     pub items: Vec<ItemRec>,
     pub comments: Vec<CommentRec>,
+    /// Issues whose comments the site refuses to give: the read of
+    /// them fails, as a refused read of one issue fails.
+    pub broken_comments: Vec<u64>,
     pub changes: Vec<ChangeRec>,
     pub accounts: Vec<AccountRec>,
     pub targets: Vec<Target>,
@@ -297,6 +305,7 @@ impl State {
             default_branch: Branch::new("main").expect("a branch"),
             items: Vec::new(),
             comments: Vec::new(),
+            broken_comments: Vec::new(),
             changes: Vec::new(),
             accounts: Vec::new(),
             targets: Vec::new(),
@@ -689,6 +698,7 @@ impl State {
         author: Option<Account>,
         body: &str,
         markers: Vec<Marker>,
+        raw: Option<String>,
         now: At,
     ) -> CommentId {
         let id = CommentId::new(self.fresh_id("comment"));
@@ -702,6 +712,7 @@ impl State {
             edited: None,
             body: body.to_string(),
             markers,
+            raw,
             revision: 1,
             seq,
             edits: Vec::new(),

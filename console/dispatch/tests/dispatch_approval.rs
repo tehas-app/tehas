@@ -105,7 +105,9 @@ fn a_label_from_a_listed_login_with_another_user_id_does_not_count_and_is_warned
 
 /// The dispatcher matches the allowed list in any ASCII case, as
 /// `console label allowed` does: a case variant of a listed login with the
-/// recorded id counts, and names the login as GitHub gave it.
+/// recorded id counts. The ports' adapter folds a login when it names an
+/// account, so the log says it as the list spells it; the vouch above it
+/// keeps the case GitHub gave.
 #[test]
 fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
     let w = World::new("ap-uid-case");
@@ -113,7 +115,7 @@ fn a_case_variant_of_a_listed_login_with_the_recorded_user_id_counts() {
     let r = w.dispatch(&["--dry-run"]);
     lacks(&r.out, "does not count");
     lacks(&r.out, "not an allowed account");
-    has(&r.out, "would run a cycle for #7 (labelled by Alice)");
+    has(&r.out, "would run a cycle for #7 (labelled by alice)");
 }
 
 /// The vouch folds case: a case variant with another id is doubted.
@@ -129,7 +131,7 @@ fn a_case_variant_of_a_listed_login_with_another_user_id_is_warned_about() {
             uid("alice")
         ),
     );
-    has(&r.out, "was applied by 'Alice#99', not an allowed account");
+    has(&r.out, "was applied by 'alice#99', not an allowed account");
     lacks(&r.out, "would run a cycle");
 }
 
@@ -273,7 +275,7 @@ fn the_record_names_no_comment_and_none_are_read() {
     let w = World::new("ap-no-comments");
     title_world(&w);
     assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
-    lacks(&w.gh(), "comments?per_page");
+    lacks(&w.gh(), "comments?per_page=100 --paginate");
 }
 
 /// An instance that still sets TEHAS_WORK_COMMENTS: alice's two comments
@@ -342,7 +344,7 @@ fn an_instance_that_still_sets_comments_records_no_link_of_a_comment() {
         val(&w.at_mark(r#"[.links, has("comment_links")]"#)),
         json!([[format!("{A}/1111")], false])
     );
-    lacks(&w.gh(), "issues/7/comments?per_page");
+    lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
 }
 
 #[test]
@@ -432,7 +434,7 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
         "[false,false]"
     );
     lacks(&w.gh(), "pr list");
-    lacks(&w.gh(), "issues/7/comments?per_page");
+    lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
 }
 
 /// A retry tick, the cycle's pull request #30 commented on
@@ -792,6 +794,27 @@ fn with_no_pins_the_poll_pins_the_label_on_first_sight_and_the_real_label_starts
 }
 
 #[test]
+fn an_empty_labels_answer_keeps_the_file_empty_and_a_later_label_needs_a_person_to_pin_it() {
+    // The first poll read the marks and got the empty answer: the empty
+    // list is the answer, so the pins file is kept, empty. A first
+    // application of a granting label after that counts for nothing until
+    // a person pins it.
+    let w = World::new("ap-pins-empty");
+    w.fx("labels.json", "[]");
+    w.fx("events-7.json", "[]");
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(w.started(), "");
+    assert_eq!(pins(&w), "");
+    unpinned(&w);
+    let r = w.poll();
+    assert_eq!(w.started(), "");
+    has(&r.out, "has no pin in");
+    lacks(&r.out, "pinned the label");
+    assert_eq!(pins(&w), "");
+}
+
+#[test]
 fn once_the_file_is_kept_a_label_missing_when_it_was_written_is_not_pinned_when_one_appears() {
     let w = World::new("ap-pins-kept");
     pin(&w, "tehas:plan\tLA_plan\n");
@@ -951,6 +974,11 @@ fn a_dry_run_says_the_label_would_come_off_and_changes_nothing() {
     assert_eq!(w.notes_any(), 0);
 }
 
+/// A page whose timeline takes back a mark its labels still show is an
+/// answer the board adapter does not trust: GitHub's two lists never
+/// disagree, so such an issue reads as unread and the next poll reads it
+/// again. Nothing starts and nothing is written meanwhile, which is all
+/// the old skip line did for it.
 #[test]
 fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_still_list_it() {
     let w = World::new("ap-taken-off");
@@ -966,10 +994,8 @@ fn an_approval_taken_off_after_it_was_given_starts_nothing_while_the_labels_stil
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
-    has(
-        &r.out,
-        "skip #7: tehas:ready was taken off by 'alice' since it was applied",
-    );
+    lacks(&r.out, "run a cycle for #7");
+    lacks(&r.out, "would take tehas:ready off #7");
     lacks(&r.out, "not an allowed account");
     lacks(&w.gh(), "issue edit 7");
     assert_eq!(w.marks(Some(7)), 0);

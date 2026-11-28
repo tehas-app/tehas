@@ -9,7 +9,10 @@ use crate::read::run::run_quiet;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::cycle_notes::Note;
 use tehas_core::home::Home;
+use tehas_core::units;
+use tehas_core::verb::Verb;
 
 /// What a stop does next.
 pub(super) enum Then {
@@ -42,15 +45,11 @@ impl Writer {
         };
         let heard: u64 = said_for.parse().unwrap_or(0);
         let why = quiet_why(n, heard);
-        let unit = format!("tehas-cycle@{n}.service");
-        let note = match self.calls.store(&[
-            "cycle-note",
-            &n.to_string(),
-            "--kind",
-            "quiet",
-            "--said-for",
-            &said_for,
-        ]) {
+        let unit = units::cycle(n);
+        let note = match self.calls.store(&Verb::CycleNote {
+            issue: n,
+            said_for: said_for.clone(),
+        }) {
             Ok(v) => v,
             Err(f) => {
                 if let Then::End = Self::usable(&f, log) {
@@ -84,12 +83,10 @@ impl Writer {
             Due::Again => log.push(format!("WARN: {why}: the poll asks {unit} to stop again")),
             Due::Line => {
                 log.push(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
-                let mut args = vec!["cycle-stop-asked".to_string(), n.to_string()];
-                if times != QUIET_ASKS {
-                    args.push("--said-only".into());
-                }
-                let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-                if let Err(f) = self.calls.store(&refs) {
+                if let Err(f) = self.calls.store(&Verb::CycleStopAsked {
+                    issue: n,
+                    said_only: times != QUIET_ASKS,
+                }) {
                     if let Then::End = Self::usable(&f, log) {
                         return Then::End;
                     }
@@ -101,7 +98,10 @@ impl Writer {
                 return Then::Go;
             }
         }
-        if let Err(f) = self.calls.store(&["cycle-stop-asked", &n.to_string()]) {
+        if let Err(f) = self.calls.store(&Verb::CycleStopAsked {
+            issue: n,
+            said_only: false,
+        }) {
             if let Then::End = Self::usable(&f, log) {
                 return Then::End;
             }
@@ -112,7 +112,7 @@ impl Writer {
         }
         // The reason the dispatcher stopped it, for the cycle to put in its
         // comment and its end record; as stop_done leaves its own.
-        let done = Home::new(&self.home).cycle_note(n, "done");
+        let done = Home::new(&self.home).cycle_note(n, Note::Done);
         if std::fs::write(&done, "quiet\n").is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
@@ -145,11 +145,11 @@ impl Writer {
     /// waited for until it lets its lock go.
     pub(super) fn stop_done(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
         self.changed = true;
-        let done = Home::new(&self.home).cycle_note(n, "done");
+        let done = Home::new(&self.home).cycle_note(n, Note::Done);
         if std::fs::write(&done, format!("{}\n", text(a, "why"))).is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
         }
-        let unit = format!("tehas-cycle@{n}.service");
+        let unit = units::cycle(n);
         let rc = match &self.host.stop_cmd {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, self.host.done_wait),
             None => run_quiet(
@@ -162,7 +162,7 @@ impl Writer {
         if rc != Some(0) {
             log.push(format!("WARN: could not stop {unit}"));
         }
-        let lock = Home::new(&self.home).cycle_note(n, "lock");
+        let lock = Home::new(&self.home).cycle_note(n, Note::Lock);
         for _ in 0..20 {
             if !held(&lock) {
                 return;
@@ -198,7 +198,7 @@ impl Writer {
     /// sweep_workspaces for one issue the decision found unused: its names
     /// removed under its lock, the first that cannot be ending it.
     pub(super) fn sweep(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
-        let lock = Home::new(&self.home).cycle_note(n, "lock");
+        let lock = Home::new(&self.home).cycle_note(n, Note::Lock);
         let taken = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

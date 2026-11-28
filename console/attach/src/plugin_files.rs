@@ -161,10 +161,7 @@ fn copy_file(from: &Path, to: &Path, meta: &fs::Metadata, path: &str) -> Result<
     Ok(Copied {
         path: path.to_string(),
         bytes: bytes.len() as u64,
-        sha256: Sha256::digest(&bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect(),
+        sha256: tehas_core::sum::sha256_hex(&bytes),
     })
 }
 

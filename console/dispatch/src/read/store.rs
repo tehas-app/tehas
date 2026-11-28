@@ -15,6 +15,7 @@ use super::run::Calls;
 use crate::decide::iso;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use tehas_core::verb::{Plans, Verb};
 
 fn get(v: &Value, k: &str) -> Value {
     v.get(k).cloned().unwrap_or(Value::Null)
@@ -37,12 +38,11 @@ impl Read {
     /// The first call of the read: the one the batch always makes. A
     /// `question-known` follows it when the answer names a question, and is
     /// asked in the same run.
-    pub fn args(&self) -> Vec<String> {
-        let n = self.issue().to_string();
+    pub fn call(&self) -> Verb {
         match self {
-            Read::Question(_) => vec!["plan-show".into(), n],
-            Read::Park(_) => vec!["park-show".into(), n],
-            Read::Approval(_) => vec!["approval-current".into(), n],
+            Read::Question(n) => Verb::PlanShow(Plans::Issue(*n)),
+            Read::Park(n) => Verb::ParkShow { issue: *n },
+            Read::Approval(n) => Verb::ApprovalCurrent { issue: *n },
         }
     }
 
@@ -52,15 +52,10 @@ impl Read {
         }
     }
 
-    /// The verb of the read's own call, the one `args` begins with. The rules
-    /// name a failure by it and the batch names its answers by it, so the
-    /// mapping lives beside the arguments it is read from.
+    /// The verb of the read's own call, the name `call` begins with. The
+    /// rules name a failure by it and the batch names its answers by it.
     fn name(&self) -> &'static str {
-        match self {
-            Read::Question(_) => "plan-show",
-            Read::Park(_) => "park-show",
-            Read::Approval(_) => "approval-current",
-        }
+        self.call().name()
     }
 }
 
@@ -165,13 +160,11 @@ impl Asked {
 /// The second call of a `question` read: `question-known <n> --id <id>` for the
 /// comment the issue's park or open session carries. One call of the same run,
 /// asked once the answers of the first round have said which issues carry one.
-fn known_call(n: u64, qid: &str) -> Vec<String> {
-    vec![
-        "question-known".into(),
-        n.to_string(),
-        "--id".into(),
-        qid.to_string(),
-    ]
+fn known_call(n: u64, qid: &str) -> Verb {
+    Verb::QuestionKnown {
+        issue: n,
+        id: qid.to_string(),
+    }
 }
 
 /// The most calls of one run of the store, the ceiling `store batch` itself
@@ -209,10 +202,10 @@ pub fn gather(calls: &mut Calls, asked: &mut Asked, reads: &[Read]) {
     };
     // The calls of the run, and which read or question each one answers, so the
     // answers go back by position and not by name.
-    let mut calls_of: Vec<Vec<String>> = Vec::new();
+    let mut calls_of: Vec<Verb> = Vec::new();
     let mut owners: Vec<Owner> = Vec::new();
     for read in &want {
-        calls_of.push(read.args());
+        calls_of.push(read.call());
         owners.push(Owner::Read(*read));
     }
     for (n, qid) in &ids {
@@ -223,11 +216,15 @@ pub fn gather(calls: &mut Calls, asked: &mut Asked, reads: &[Read]) {
     // issue can name the same thing, and the store is asked for it once. Each
     // call keeps the reads it answers, so one answer serves them all. The keys
     // are ordered, so a `BTreeMap` of them dedups without a scan of the list.
-    let mut slots: BTreeMap<Vec<String>, Vec<Owner>> = BTreeMap::new();
+    let mut slots: BTreeMap<Vec<String>, (Verb, Vec<Owner>)> = BTreeMap::new();
     for (call, owner) in calls_of.into_iter().zip(owners) {
-        slots.entry(call).or_default().push(owner);
+        slots
+            .entry(call.args())
+            .or_insert_with(|| (call.clone(), Vec::new()))
+            .1
+            .push(owner);
     }
-    let asked_calls: Vec<Vec<String>> = slots.keys().cloned().collect();
+    let asked_calls: Vec<Verb> = slots.values().map(|(call, _)| call.clone()).collect();
     // A list longer than one batch is asked in more than one: the store refuses
     // a request of more than `MAX_CALLS` calls whole, and every read of the
     // poll would come back as the failure of that one refusal.
@@ -252,12 +249,12 @@ enum Owner {
 /// serves every read that call answers.
 fn record(
     asked: &mut Asked,
-    chunk: &[Vec<String>],
+    chunk: &[Verb],
     answers: &[Value],
-    slots: &BTreeMap<Vec<String>, Vec<Owner>>,
+    slots: &BTreeMap<Vec<String>, (Verb, Vec<Owner>)>,
 ) {
     for (call, answer) in chunk.iter().zip(answers) {
-        let Some(owners) = slots.get(call) else {
+        let Some((_, owners)) = slots.get(&call.args()) else {
             continue;
         };
         for owner in owners {
@@ -289,26 +286,26 @@ fn question_ids(calls: &mut Calls, want: &[Read]) -> Result<Vec<(u64, String)>, 
     // issue and its call: a read of an issue the snapshot never asked is never
     // asked here either, the answer goes back to the issue by the pair it was
     // built from, and a list with nothing in it asks nothing of the store.
-    let plans: Vec<(u64, Vec<String>)> = want
+    let plans: Vec<(u64, Verb)> = want
         .iter()
         .filter(|r| matches!(r, Read::Question(_)))
-        .map(|r| (r.issue(), r.args()))
+        .map(|r| (r.issue(), r.call()))
         .collect();
-    let parks: Vec<(u64, Vec<String>)> = want
+    let parks: Vec<(u64, Verb)> = want
         .iter()
         .filter(|r| matches!(r, Read::Park(_)))
-        .map(|r| (r.issue(), r.args()))
+        .map(|r| (r.issue(), r.call()))
         .collect();
     if plans.is_empty() && parks.is_empty() {
         return Ok(Vec::new());
     }
-    let mut asked_of = |list: &[(u64, Vec<String>)]| -> Result<BTreeMap<u64, Value>, Value> {
+    let mut asked_of = |list: &[(u64, Verb)]| -> Result<BTreeMap<u64, Value>, Value> {
         // One run of the store per chunk of the list, so a long list is asked in
         // more than one rather than refused whole; each answer belongs to the
         // pair its own call was built from.
         let mut got: BTreeMap<u64, Value> = BTreeMap::new();
         for chunk in list.chunks(MAX_CALLS) {
-            let calls_of: Vec<Vec<String>> = chunk.iter().map(|(_, c)| c.clone()).collect();
+            let calls_of: Vec<Verb> = chunk.iter().map(|(_, c)| c.clone()).collect();
             let answers = calls.store_batch(&calls_of)?;
             for ((n, _), answer) in chunk.iter().zip(answers) {
                 got.insert(*n, answer);
@@ -349,7 +346,7 @@ fn question_ids(calls: &mut Calls, want: &[Read]) -> Result<Vec<(u64, String)>, 
 
 /// plan-show --open: the open sessions, or the store's failure.
 pub fn sessions(calls: &mut Calls) -> Value {
-    match calls.store(&["plan-show", "--open"]) {
+    match calls.store(&Verb::PlanShow(Plans::Open)) {
         Ok(v) => Value::Array(
             v.get("sessions")
                 .and_then(Value::as_array)
@@ -368,7 +365,7 @@ pub fn sessions(calls: &mut Calls) -> Value {
 /// order-show: the start order as tehas_core::order reads it; a store that
 /// does not answer gives an unreadable order, which orders nothing.
 pub fn order(calls: &mut Calls) -> Value {
-    match calls.store(&["order-show"]) {
+    match calls.store(&Verb::OrderShow) {
         Ok(v) => tehas_core::order::Reading::of(&get(&v, "order")).value(),
         Err(_) => json!({"state": "unreadable"}),
     }
@@ -377,7 +374,7 @@ pub fn order(calls: &mut Calls) -> Value {
 /// approval-hosts: the host's approvals that wait for a start, or
 /// `{"failed": true}`.
 pub fn hosts(calls: &mut Calls) -> Value {
-    match calls.store(&["approval-hosts"]) {
+    match calls.store(&Verb::ApprovalHosts) {
         Ok(v) if v.get("waiting").is_some_and(Value::is_array) => get(&v, "waiting"),
         _ => json!({"failed": true}),
     }
@@ -386,7 +383,7 @@ pub fn hosts(calls: &mut Calls) -> Value {
 /// cycle-show --running: each running cycle's record as running_starts
 /// reads it, Err with the store's failure.
 pub fn cycles(calls: &mut Calls) -> Result<Vec<Value>, Value> {
-    let v = calls.store(&["cycle-show", "--running"])?;
+    let v = calls.store(&Verb::CyclesRunning)?;
     Ok(v.get("cycles")
         .and_then(Value::as_array)
         .map(|a| {
@@ -423,8 +420,8 @@ pub fn park(asked: &Asked, n: u64) -> Value {
 }
 
 /// The parks owed a retry (--automatic) or a refine (--refine).
-pub fn owed(calls: &mut Calls, which: &str) -> Value {
-    match calls.store(&["park-show", which]) {
+pub fn owed(calls: &mut Calls, refine: bool) -> Value {
+    match calls.store(&Verb::ParksOwed { refine }) {
         Ok(v) => v.get("parks").cloned().unwrap_or_else(|| json!([])),
         Err(e) => e,
     }
@@ -501,7 +498,10 @@ pub fn approval(asked: &Asked, n: u64) -> (Value, Value) {
 
 /// history-show <n> --kind cycle, its lines in the shape they had before the store.
 pub fn history(calls: &mut Calls, n: u64) -> Value {
-    match calls.store(&["history-show", &n.to_string(), "--kind", "cycle"]) {
+    match calls.store(&Verb::HistoryCycles {
+        issue: Some(n),
+        how: None,
+    }) {
         Ok(v) => Value::Array(
             v.get("rows")
                 .and_then(Value::as_array)
@@ -519,7 +519,10 @@ pub fn history(calls: &mut Calls, n: u64) -> Value {
 
 /// The issues with a refresh in their history.
 pub fn refreshed(calls: &mut Calls) -> Value {
-    match calls.store(&["history-show", "--kind", "cycle", "--how", "refresh"]) {
+    match calls.store(&Verb::HistoryCycles {
+        issue: None,
+        how: Some("refresh".into()),
+    }) {
         Ok(v) => {
             let mut n: Vec<u64> = v
                 .get("rows")

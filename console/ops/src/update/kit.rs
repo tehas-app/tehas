@@ -17,7 +17,6 @@
 //!   they work under a CSP without it.
 
 use super::pages::{imports, library, normal};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -55,12 +54,7 @@ const OLD: [&str; 14] = [
     "solid-js/html",
 ];
 
-fn hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
+use tehas_core::sum::sha256_hex as hex;
 
 /// Every file under `dir` of `root` but dot files, as paths relative to `root`,
 /// in order.

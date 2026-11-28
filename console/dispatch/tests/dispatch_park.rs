@@ -177,7 +177,7 @@ fn a_retry_whose_cycle_does_not_start_is_handed_back_exit_1() {
 fn the_comments_are_read_a_hundred_at_a_time() {
     let w = World::new("park-hundred");
     start_fails(&w);
-    has(&w.gh(), "comments(last: 100)");
+    has(&w.gh(), "comments?per_page=100&page=");
 }
 
 #[test]

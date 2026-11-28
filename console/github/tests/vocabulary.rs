@@ -322,13 +322,16 @@ fn a_failed_call_answers_its_outcome() {
         why: Passing::Server,
         sent: Sent::Maybe,
     };
+    // A bare 403 is the queue read's bad minute; a 403 naming its permission
+    // is a refusal the queue never asks again.
     for (state, want) in [
-        ("forbidden", Outcome::Forbidden),
+        ("forbidden", server.clone()),
+        ("forbidden-named", Outcome::Forbidden),
         (
             "rate-limited",
             Outcome::Spent {
                 pool: Pool::Calls,
-                until: tehas_ports::At::new(replay_now()),
+                until: tehas_ports::At::new(replay_now() + 60),
             },
         ),
         ("server-error", server.clone()),
