@@ -8,6 +8,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tehas_core::testdir::TestDir;
+use tehas_ports::fake;
+use tehas_ports::{
+    Actor, Caller, CodeHost, CommitId, Got, Outcome, Refusal, Release, Site, Tag, Whole, ALL_MAX,
+};
 
 fn v(s: &str) -> Ver {
     Ver::parse(s).expect(s)
@@ -125,6 +129,8 @@ fn the_changelog_takes_the_section_already_named_for_the_release() {
 #[derive(Default)]
 struct Fake {
     bodies: HashMap<String, Vec<u8>>,
+    /// The code host's answers of each public project, by `owner/name`.
+    gh: HashMap<String, fake::World>,
     unpacked: String,
     lock: String,
     cutoff: Option<String>,
@@ -142,6 +148,22 @@ impl Fake {
     fn json(self, url: &str, body: serde_json::Value) -> Self {
         self.with(url, body.to_string())
     }
+    /// The code host's answers of the public project `repo`.
+    fn gh(mut self, repo: &str, world: fake::World) -> Self {
+        self.gh.insert(repo.to_string(), world);
+        self
+    }
+
+    /// The anonymous code host handle of `repo`, on the ports' fake.
+    fn host(&self, repo: &str) -> Result<Box<dyn CodeHost + Send>, String> {
+        let world = self
+            .gh
+            .get(repo)
+            .ok_or_else(|| format!("the fake names no project {repo}"))?;
+        fake::FakeSite::new(world)
+            .code_host(&Actor::Anonymous, Caller::new("pins"))
+            .map_err(|o| o.line().to_string())
+    }
 }
 
 impl World for Fake {
@@ -151,6 +173,18 @@ impl World for Fake {
             .get(url)
             .cloned()
             .ok_or_else(|| format!("cannot get {url}"))
+    }
+    fn gh_releases(&self, repo: &str) -> Result<Vec<Release>, String> {
+        self.host(repo)?
+            .releases(ALL_MAX)
+            .map(Whole::into_items)
+            .map_err(|o| o.line().to_string())
+    }
+    fn gh_tags(&self, repo: &str) -> Result<Vec<Tag>, String> {
+        self.host(repo)?
+            .tags(ALL_MAX)
+            .map(Whole::into_items)
+            .map_err(|o| o.line().to_string())
     }
     fn unpack(&self, _: &[u8], member: &str) -> Result<String, String> {
         assert_eq!(member, "src/embedding/engine.rs");
@@ -174,13 +208,208 @@ const NEW_DIGEST: &str = "sha256:33333333333333333333333333333333333333333333333
 const REV: &str = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a";
 const NEW_REV: &str = "614241f622f53c4eeff9890bdc4f31cfecc418b3";
 
-fn releases(tags: &[&str]) -> serde_json::Value {
-    let mut all: Vec<_> = tags
-        .iter()
-        .map(|t| json!({"tag_name": t, "draft": false, "prerelease": false}))
-        .collect();
-    all.push(json!({"tag_name": "v99.0.0", "draft": false, "prerelease": true}));
-    serde_json::Value::Array(all)
+/// The code host's answers of a tool's project: these releases, with a
+/// prerelease beside them that no move may take.
+fn gh_releases(tags: &[&str]) -> fake::World {
+    tags.iter().fold(
+        fake::World::new().release_as("v99.0.0", false, true, &[]),
+        |w, t| w.release(t, &[]),
+    )
+}
+
+/// The code host's answers of a project that makes no releases: these tags.
+fn gh_tags(names: &[&str]) -> fake::World {
+    let at = CommitId::new("f".repeat(40)).expect("a commit");
+    names.iter().fold(fake::World::new(), |w, t| w.tag(t, &at))
+}
+
+/// Pins' main argued without a tree: the code host is never asked.
+fn no_host(_: &str) -> Got<Box<dyn CodeHost + Send>> {
+    Err(Outcome::Refused(Refusal::Unsupported))
+}
+
+/// An anonymous host over a fake world, of the shape the console wires:
+/// the handle is made per read, from the world, for the anonymous actor.
+fn anon_of(world: fake::World) -> Box<super::AnonHost> {
+    Box::new(move |_| fake::FakeSite::new(&world).code_host(&Actor::Anonymous, Caller::new("pins")))
+}
+
+/// PATH with the directory of a `curl` stub in front for as long as the
+/// guard lives. Each stub call keeps its arguments as one line in `log`,
+/// answers `url_prefix` with `body` itself, and lets any other call go to
+/// the real curl: the other tests of this crate read with curl too, and
+/// their curl must stay the real one.
+struct StubbedCurl {
+    /// Keeps the stub's directory alive: the guard removes it when it drops.
+    _dir: TestDir,
+    old: Option<String>,
+    /// The log line of each call, for the test to read.
+    pub log: PathBuf,
+    /// The stub, for the error words when it does not answer.
+    stub: PathBuf,
+}
+
+impl StubbedCurl {
+    fn new(url_prefix: &str, body: &str) -> StubbedCurl {
+        let dir = TestDir::short();
+        let log = dir.join("curl.log");
+        let real = std::env::split_paths(&std::env::var("PATH").unwrap_or_default())
+            .map(|d| d.join("curl"))
+            .find(|p| p.is_file())
+            .expect("curl is on PATH: the gate needs it");
+        let script = format!(
+            "#!/bin/sh\n\
+             {{ sep=\"\"; for a in \"$@\"; do printf '%s%s' \"$sep\" \"$a\"; sep=\" \"; done; printf '\\n'; }} >> '{}'\n\
+             for a in \"$@\"; do\n\
+             \tcase $a in {url_prefix}*) printf '%s' '{body}'; exit 0 ;; esac\n\
+             done\n\
+             exec '{real}' \"$@\"\n",
+            log.display(),
+            url_prefix = url_prefix,
+            body = body,
+            real = real.display(),
+        );
+        let bin = dir.join("bin");
+        fs::create_dir_all(&bin).expect("the stub bin");
+        let stub = bin.join("curl");
+        // The executable is made by `install` in a child, never opened for
+        // writing by this process: tehas_core::testing says why.
+        tehas_core::testing::write_exe(&stub, script).expect("the stub");
+        let old = std::env::var("PATH").ok();
+        std::env::set_var(
+            "PATH",
+            format!("{}:{}", bin.display(), old.as_deref().unwrap_or("")),
+        );
+        StubbedCurl {
+            _dir: dir,
+            old,
+            log,
+            stub,
+        }
+    }
+
+    /// Words for a read the stub should have answered: the mode of the
+    /// stub and the PATH, so a miss says what it was.
+    pub fn said(&self, e: &str) -> String {
+        let mode = fs::metadata(&self.stub)
+            .map(|m| {
+                format!(
+                    "{:o}",
+                    std::os::unix::fs::PermissionsExt::mode(&m.permissions())
+                )
+            })
+            .unwrap_or_else(|e| format!("gone: {e}"));
+        format!(
+            "{e}; stub {} mode {mode}; PATH {}",
+            self.stub.display(),
+            std::env::var("PATH").unwrap_or_default()
+        )
+    }
+
+    /// The kept lines of calls whose arguments name `needle`.
+    pub fn lines(&self, needle: &str) -> Vec<String> {
+        let text = fs::read_to_string(&self.log).unwrap_or_default();
+        text.lines()
+            .filter(|l| l.contains(needle))
+            .map(String::from)
+            .collect()
+    }
+}
+
+impl Drop for StubbedCurl {
+    fn drop(&mut self) {
+        match &self.old {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
+        }
+    }
+}
+
+#[test]
+fn the_pins_curl_carries_no_credential_and_the_reads_go_on_the_port() {
+    // The real Curl world, as main builds it: a closure of the wiring's
+    // shape for the code host, curl for downloads. If a token block came
+    // back into Curl::get, the kept arguments would carry a header and
+    // this test would fail.
+    let stub = StubbedCurl::new("https://pins-stub.invalid/", "pinned body");
+    let host = anon_of(gh_releases(&["v2.1.0"]));
+    let world = super::Curl { anon: &*host };
+    let url = "https://pins-stub.invalid/tool/tool.tgz";
+    let got = world
+        .get(url)
+        .unwrap_or_else(|e| panic!("{}", stub.said(&e)));
+    assert_eq!(got, b"pinned body");
+    // The releases came on the port, not on curl. The fake's world also
+    // holds a prerelease beside the one asked for: the whole answer comes
+    // back and tools::versions does the pruning, so the read carries it.
+    let releases = world.gh_releases("cli/cli").expect("the port answers");
+    assert_eq!(
+        releases.iter().map(|r| r.tag.as_str()).collect::<Vec<_>>(),
+        ["v99.0.0", "v2.1.0"]
+    );
+    let kept = stub.lines("pins-stub.invalid");
+    assert_eq!(
+        kept,
+        [format!(
+            "-fsSL --max-time 600 --retry 3 -A tehas-pins -K - {url}"
+        )],
+        "the curl of a pins download, as it runs"
+    );
+    let said = kept[0].to_ascii_lowercase();
+    for word in ["-h ", "authorization", "oauth", "token"] {
+        assert!(
+            !said.contains(word),
+            "the pins curl carries {word}: {}",
+            kept[0]
+        );
+    }
+}
+
+#[test]
+fn a_refused_read_is_said_with_the_project_and_the_refusal_words() {
+    // The wiring answers Err when it cannot make an anonymous reader at
+    // all; the pins say it in our words, naming the project.
+    let world = super::Curl { anon: &no_host };
+    assert_eq!(
+        world.gh_releases("cli/cli").unwrap_err(),
+        "cannot read cli/cli: refused: not supported here"
+    );
+    assert_eq!(
+        world.gh_tags("rust-lang/rustup").unwrap_err(),
+        "cannot read rust-lang/rustup: refused: not supported here"
+    );
+}
+
+#[test]
+fn an_answer_over_the_bound_fails_closed_with_the_bound_words() {
+    // Past ALL_MAX the whole list is not given: the read fails closed with
+    // the bound's words, for tags and for releases alike.
+    let many: Vec<String> = (0..=ALL_MAX.get()).map(|i| format!("1.0.{i}")).collect();
+    let names: Vec<&str> = many.iter().map(String::as_str).collect();
+    let host = anon_of(gh_tags(&names));
+    let world = super::Curl { anon: &*host };
+    assert_eq!(
+        world.gh_tags("rust-lang/rustup").unwrap_err(),
+        "cannot read rust-lang/rustup: the answer is longer than its bound"
+    );
+    let over = gh_releases(&many.iter().map(String::as_str).collect::<Vec<_>>());
+    let host = anon_of(over);
+    let world = super::Curl { anon: &*host };
+    assert_eq!(
+        world.gh_releases("cli/cli").unwrap_err(),
+        "cannot read cli/cli: the answer is longer than its bound"
+    );
+    // Up to the bound the whole list is read.
+    let some: Vec<&str> = names[..ALL_MAX.get() as usize].to_vec();
+    let host = anon_of(gh_tags(&some));
+    let world = super::Curl { anon: &*host };
+    assert_eq!(
+        world
+            .gh_tags("rust-lang/rustup")
+            .expect("1000 are read")
+            .len(),
+        1000
+    );
 }
 
 fn npm(versions: &[&str]) -> serde_json::Value {
@@ -225,22 +454,21 @@ fn crate_versions(versions: &[(&str, bool)]) -> serde_json::Value {
 /// Every source answering with what is pinned, the pins of a tree at
 /// `root`, and the changes the tests make on top.
 fn sources() -> Fake {
-    let gh = "https://api.github.com/repos";
     Fake::default()
         .json("https://nodejs.org/dist/index.json", json!([{"version": "v22.1.0"}, {"version": "v24.0.0"}, {"version": "v22.2.0"}]))
         .with(
             "https://nodejs.org/dist/v22.2.0/SHASUMS256.txt",
             format!("{}  node-v22.2.0-linux-arm64.tar.xz\n{H1}  node-v22.2.0-linux-x64.tar.xz\n", "9".repeat(64)),
         )
-        .json(&format!("{gh}/cli/cli/releases?per_page=100"), releases(&["v2.1.0"]))
-        .json(&format!("{gh}/oven-sh/bun/releases?per_page=100"), releases(&["bun-v1.1.0"]))
-        .json(&format!("{gh}/koalaman/shellcheck/releases?per_page=100"), releases(&["v0.11.0", "v0.12.0"]))
+        .gh("cli/cli", gh_releases(&["v2.1.0"]))
+        .gh("oven-sh/bun", gh_releases(&["bun-v1.1.0"]))
+        .gh("koalaman/shellcheck", gh_releases(&["v0.11.0", "v0.12.0"]))
         .with("https://github.com/koalaman/shellcheck/releases/download/v0.12.0/shellcheck-v0.12.0.linux.x86_64.tar.xz", "tarball")
-        .json(&format!("{gh}/jqlang/jq/releases?per_page=100"), releases(&["jq-1.8.2"]))
-        .json(&format!("{gh}/rust-lang/rust/releases?per_page=100"), releases(&["1.99.1"]))
-        .json(&format!("{gh}/rust-lang/rustup/tags?per_page=100"), json!([{"name": "1.29.2"}]))
-        .json(&format!("{gh}/DeusData/codebase-memory-mcp/releases?per_page=100"), releases(&["v0.12.1"]))
-        .json(&format!("{gh}/google/osv-scanner/releases?per_page=100"), releases(&["v2.7.0", "v2.7.1"]))
+        .gh("jqlang/jq", gh_releases(&["jq-1.8.2"]))
+        .gh("rust-lang/rust", gh_releases(&["1.99.1"]))
+        .gh("rust-lang/rustup", gh_tags(&["1.29.2"]))
+        .gh("DeusData/codebase-memory-mcp", gh_releases(&["v0.12.1"]))
+        .gh("google/osv-scanner", gh_releases(&["v2.7.0", "v2.7.1"]))
         .with(
             "https://github.com/google/osv-scanner/releases/download/v2.7.1/osv-scanner_SHA256SUMS",
             format!("{H1}  osv-scanner_linux_amd64\n"),
@@ -404,6 +632,17 @@ fn move_writes_each_version_with_what_moves_with_it() {
         .borrow()
         .iter()
         .any(|u| u.contains("/download/v2.1.0/")));
+    // No GitHub read goes through curl: the releases and tags are the code
+    // host's answers, asked on the port.
+    assert!(
+        !world
+            .asked
+            .borrow()
+            .iter()
+            .any(|u| u.starts_with("https://api.github")),
+        "{:?}",
+        *world.asked.borrow()
+    );
 }
 
 #[test]
@@ -507,12 +746,12 @@ fn move_takes_a_release_or_a_prerelease_and_nothing_else() {
     for good in ["v1.0.0", "v1.0.0-beta.1", "v1.0.0-rc.2"] {
         let mut a = args(good);
         a.push("/nonexistent/tehas-pins-root".to_string());
-        assert_ne!(super::main(&a), 64, "{good}");
+        assert_ne!(super::main(&a, &no_host), 64, "{good}");
     }
     for bad in ["1.0.0", "v1.0", "v1.0.0-beta", "latest"] {
         let mut a = args(bad);
         a.push("/nonexistent/tehas-pins-root".to_string());
-        assert_eq!(super::main(&a), 64, "{bad}");
+        assert_eq!(super::main(&a, &no_host), 64, "{bad}");
     }
 }
 

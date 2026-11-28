@@ -59,7 +59,7 @@ fn minute(t: i64) -> String {
 }
 
 /// The report of the day before `now`.
-pub fn report(log: &str, now: i64) -> String {
+pub(crate) fn report(log: &str, now: i64) -> String {
     let by = minutes(log, now);
     let total: u64 = by.values().map(|c| c.writes).sum();
     let refused: u64 = by.values().map(|c| c.refused).sum();
