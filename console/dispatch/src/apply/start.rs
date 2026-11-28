@@ -24,6 +24,7 @@ use tehas_core::home::{Home, State};
 use tehas_core::issue_pull::names_issue;
 use tehas_core::time::from_iso;
 use tehas_core::units;
+use tehas_core::verb::Verb;
 use tehas_ports::{TicketKey, Write};
 
 /// What a claim answers when a poll before T4.7 made it whole: its parts
@@ -667,7 +668,7 @@ impl Writer {
                 };
             }
         };
-        let before = match self.calls.store(&["cycle-show", &n.to_string()]) {
+        let before = match self.calls.store(&Verb::CycleShow { issue: n }) {
             Ok(v) => match v.pointer("/cycle/attempt").cloned().unwrap_or(json!(0)) {
                 Value::Number(x) if x.as_u64().is_some_and(|a| a < 1_000_000_000) => x.as_u64(),
                 Value::Null => Some(0),
@@ -748,7 +749,7 @@ impl Writer {
         // A record starts one cycle, and any start of the issue spends it.
         self.plan_start_drop(n);
         if park_now {
-            if let Err(f) = self.store_try(3, &["park-retry", &n.to_string()]) {
+            if let Err(f) = self.store_try(3, &Verb::ParkRetry { issue: n }) {
                 if word(&f) != "unparked" {
                     log.push(format!(
                         "WARN: #{n}: the retry of its park could not be spent ({})",
@@ -910,53 +911,47 @@ impl Writer {
             return Err(none());
         };
         let f = file.to_string_lossy().into_owned();
-        let mut args: Vec<String> = vec![
-            "approval-record".into(),
-            n.to_string(),
-            "--at".into(),
-            at.to_string(),
-            "--by".into(),
-            // The store keeps one form of an App's login.
-            account(text(a, "by")).into(),
-            "--how".into(),
-            given.clone(),
-            "--body-sha".into(),
-            text(a, "body_sha256").into(),
-            "--input-file".into(),
-            f,
-        ];
-        if given == "approved" {
-            let label = a
-                .get("approved_label")
+        let label = (given == "approved").then(|| {
+            a.get("approved_label")
                 .and_then(Value::as_str)
-                .unwrap_or("tehas:ready");
-            args.extend(["--label".into(), label.into()]);
-        }
-        if let Some(t) = a.get("title_sha256").and_then(Value::as_str) {
-            args.extend(["--title-sha".into(), t.into()]);
-        }
+                .unwrap_or("tehas:ready")
+                .to_string()
+        });
+        let title_sha = a
+            .get("title_sha256")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let comment = id(a.get("comment"));
-        if !comment.is_empty()
+        let comment_id = (!comment.is_empty()
             && !comment.starts_with('0')
             && comment.len() <= 16
-            && comment.bytes().all(|b| b.is_ascii_digit())
-        {
-            args.extend(["--comment-id".into(), comment]);
-        }
-        if let Some(pr) = a.get("refresh_pr").and_then(Value::as_u64) {
+            && comment.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(comment);
+        let refresh = a.get("refresh_pr").and_then(Value::as_u64).map(|pr| {
             let head = a
                 .pointer("/refresh_of/head_sha")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            args.extend([
-                "--refresh-pr".into(),
-                pr.to_string(),
-                "--refresh-head".into(),
-                head.into(),
-            ]);
-        }
-        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let r = self.calls.store(&refs);
+            (pr.to_string(), head.to_string())
+        });
+        let (refresh_pr, refresh_head) = match refresh {
+            Some((pr, head)) => (Some(pr), Some(head)),
+            None => (None, None),
+        };
+        let r = self.calls.store(&Verb::ApprovalClaim {
+            issue: n,
+            at: at.to_string(),
+            // The store keeps one form of an App's login.
+            by: account(text(a, "by")).to_string(),
+            how: given.clone(),
+            body_sha: text(a, "body_sha256").to_string(),
+            input_file: f,
+            label,
+            title_sha,
+            comment_id,
+            refresh_pr,
+            refresh_head,
+        });
         let _ = std::fs::remove_file(&file);
         match r {
             Ok(v) => {
@@ -1169,7 +1164,7 @@ impl Writer {
     ) -> Result<(bool, Option<String>), String> {
         let park = self
             .calls
-            .store(&["park-show", &n.to_string()])
+            .store(&Verb::ParkShow { issue: n })
             .map_err(|f| word(&f))?;
         let Some(p) = park.get("park").filter(|p| !p.is_null()) else {
             return Ok((false, None));
@@ -1178,13 +1173,10 @@ impl Writer {
         if q.is_empty() {
             return Ok((true, None));
         }
-        match self.calls.store(&[
-            "question-answered",
-            &n.to_string(),
-            "--id",
-            &q,
-            "--withdraw",
-        ]) {
+        match self.calls.store(&Verb::QuestionWithdrawn {
+            issue: n,
+            id: q.clone(),
+        }) {
             Ok(_) => Ok((true, Some(q))),
             Err(f) if word(&f) == "unknown" => Ok((true, None)),
             Err(f) => {
@@ -1205,14 +1197,12 @@ impl Writer {
         };
         match self.store_try(
             3,
-            &[
-                "question-asked",
-                &n.to_string(),
-                "--id",
-                q,
-                "--kind",
-                "park",
-            ],
+            &Verb::QuestionReasked {
+                issue: n,
+                id: q.to_string(),
+                kind: "park".into(),
+                offers: None,
+            },
         ) {
             Ok(v) => {
                 self.raise_asked(n, &v.to_string(), log);
@@ -1341,13 +1331,10 @@ impl Writer {
     fn restore(&mut self, n: u64, at: i64, log: &mut Vec<String>) -> bool {
         match self.store_try(
             3,
-            &[
-                "approval-record",
-                &n.to_string(),
-                "--undo",
-                "--at",
-                &at.to_string(),
-            ],
+            &Verb::ApprovalUndo {
+                issue: n,
+                at: at.to_string(),
+            },
         ) {
             Ok(_) => true,
             Err(f) => {
@@ -1392,7 +1379,7 @@ impl Writer {
         let mut unusable: Option<String> = None;
         let began = Instant::now();
         while began.elapsed() < self.host.start_wait {
-            match self.calls.store(&["cycle-show", &n.to_string()]) {
+            match self.calls.store(&Verb::CycleShow { issue: n }) {
                 Ok(v) => {
                     unanswered = None;
                     if v.pointer("/cycle/attempt")
