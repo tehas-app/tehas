@@ -10,10 +10,8 @@ use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Blobs, BlueprintNo, Body, Bound, Branch, ChangeNo,
     ChangeToken, Cites, Comment, CommentId, CommitId, Cursor, Did, FileName, GitRemote, Got, Login,
-    Mark,
-    Marker, MarkerEdit, Outcome, Posted, ProjectName, Ref, Refusal, Relation, ReleaseId, RepoPath,
-    Reports, Rev,
-    Secret, Sum, TagName, Token, Took, WebLink, Whole, Window,
+    Mark, Marker, MarkerEdit, Outcome, Posted, ProjectName, Ref, Refusal, Relation, ReleaseId,
+    RepoPath, Reports, Rev, Secret, Sum, TagName, Token, Took, WebLink, Whole, Window,
 };
 
 /// What the code host says of the project. `tracker_on`: the code host's

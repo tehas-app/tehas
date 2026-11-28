@@ -1252,3 +1252,25 @@ fn sites_and_the_callers_stores_are_shared_and_handles_are_sent() {
     sent::<Box<dyn Board + Send>>();
     sent::<TokenLock>();
 }
+
+/// The reads added 2026-11-28 carry a default answer, so a handle that
+/// does not know them refuses rather than guesses. `StubCodeHost`
+/// overrides the port's required methods only, so it answers with the
+/// trait's own defaults.
+#[test]
+fn a_stub_that_overrides_nothing_refuses_the_reads_added_2026_11_28() {
+    let mut h = StubCodeHost::default();
+    let no = ChangeNo::from(std::num::NonZeroU64::MIN);
+    assert_eq!(
+        h.reviews(no, ALL_MAX),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+    assert_eq!(
+        h.review_comments(no, ALL_MAX),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+    assert_eq!(
+        h.may_write(&Login::new("alice")),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+}

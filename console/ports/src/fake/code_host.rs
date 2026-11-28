@@ -5,18 +5,20 @@ use std::num::NonZeroU32;
 
 use super::faulty::{CodeHostOp, Op};
 use super::site::{
-    comments_of, edit_markers, first, known_mark, text_of, whole, window, writable, Ctx, Handle,
+    comments_of, edit_markers, first, known_mark, text_of, web, whole, window, writable, Ctx,
+    Handle,
 };
 use super::state::{ChangeRec, ProposalRec, ReleaseRec, State};
 use super::tickets::{close_item, page, since, token};
 use crate::{
     Access, Actor, Applied, Blobs, Branch, Change, ChangeDelta, ChangeDigest, ChangeEvent,
-    ChangeFilter, ChangeHappened, ChangeNo, ChangeState, ChangeStates, ChangeToken, ChangedFile,
-    Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId, Compared, Cursor,
-    Did, Facts, FileName, GitCredential, GitRemote, Got, Lost, Mark, Marker, MarkerEdit, MergeHow,
-    Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted, Proposal, ProposalPart,
-    Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote, RepoPath, Rev, Secret, Status,
-    Sum, Tag, TagName, Takeover, Token, Took, Unread, WebLink, Whole, Window, Write,
+    ChangeFilter, ChangeHappened, ChangeNo, ChangeReview, ChangeState, ChangeStates, ChangeToken,
+    ChangedFile, Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId,
+    Compared, Cursor, Did, Facts, FileName, GitCredential, GitRemote, Got, Login, Lost, Mark,
+    Marker, MarkerEdit, MergeHow, Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted,
+    Proposal, ProposalPart, Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote,
+    RepoPath, Rev, ReviewComment, Secret, Status, Sum, Tag, TagName, Takeover, Token, Took, Unread,
+    WebLink, Whole, Window, Write,
 };
 use crate::{Author, Bound, Check, CheckStatus, Conclusion, StatusState};
 
@@ -260,6 +262,63 @@ impl CodeHost for Handle {
     fn activity(&mut self, no: ChangeNo, w: Window) -> Got<Took<ChangeEvent>> {
         self.run(Pool::Calls, |s, _| {
             window(&s.changes[at_change(s, no)?].events, w)
+        })
+    }
+
+    /// In the order the world was given them.
+    fn reviews(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangeReview>> {
+        self.run(Pool::Calls, |s, _| {
+            let c = &s.changes[at_change(s, no)?];
+            let project = s.project.as_str().to_string();
+            let items = c
+                .given_reviews
+                .iter()
+                .map(|(id, login, at, body)| {
+                    let mut r = ChangeReview::new(
+                        *id,
+                        *at,
+                        body.clone(),
+                        web(&format!("{project}/c/{}/reviews/{id}", no.get())),
+                    );
+                    r.by = Some(s.account(login, crate::Realm::CodeHost));
+                    r
+                })
+                .collect();
+            whole(items, bound)
+        })
+    }
+
+    /// In the order the world was given them.
+    fn review_comments(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ReviewComment>> {
+        self.run(Pool::Calls, |s, _| {
+            let c = &s.changes[at_change(s, no)?];
+            let project = s.project.as_str().to_string();
+            let items = c
+                .given_notes
+                .iter()
+                .map(|n| {
+                    let mut r = ReviewComment::new(
+                        n.id,
+                        n.at,
+                        n.body.clone(),
+                        web(&format!("{project}/c/{}/notes/{}", no.get(), n.id)),
+                    );
+                    r.by = Some(s.account(&n.login, crate::Realm::CodeHost));
+                    r.edited = n.edited;
+                    r.path = n.path.clone();
+                    r.line = n.line;
+                    r
+                })
+                .collect();
+            whole(items, bound)
+        })
+    }
+
+    /// By the account's standing; a name the world does not know is
+    /// `NotFound`, not false.
+    fn may_write(&mut self, who: &Login) -> Got<bool> {
+        self.run(Pool::Calls, |s, _| {
+            s.may_write(who.as_str()).ok_or(Outcome::NotFound)
         })
     }
 
@@ -516,6 +575,8 @@ fn open_change(s: &mut State, ctx: &Ctx, new: &NewChange) -> Got<Posted<ChangeNo
         closes: new.closes.clone(),
         files: Vec::new(),
         reviews: Vec::new(),
+        given_reviews: Vec::new(),
+        given_notes: Vec::new(),
         comments: Vec::new(),
         events: Vec::new(),
         created: ctx.now,

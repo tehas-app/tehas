@@ -15,17 +15,18 @@ use crate::{
     health, Access, AccountId, Actor, Applied, At, Attachment, AttachmentId, Blobs, Blocker,
     Blueprint, BlueprintDelta, BlueprintHit, BlueprintNo, BlueprintWrites, Blueprints, Board,
     BoardAsk, Bound, Branch, Caller, Change, ChangeAsk, ChangeDelta, ChangeDigest, ChangeEvent,
-    ChangeFilter, ChangeItem, ChangeNo, ChangeToken, ChangedFile, Checks, Cite, Cites, CloseReason,
-    Closed, ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId, CommitId, Compared, Cursor,
-    Depth, Did, Edit, Facts, FileName, Filed, Filter, Got, HappenedKind, HealthState, Holder,
-    HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark, MarkHeld, MarkSpec, Marker,
-    MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow, NewBlueprint, NewChange, NewRelease,
-    NewTicket, OpenWork, Outcome, Part, Passing, Pool, PortName, Posted, Priority, ProjectName,
-    Proposal, ProposalPart, Proposed, Realm, Refusal, Release, ReleaseId, Remote, RepoPath, Report,
-    Reports, Rev, Revision, Scope, Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing,
-    Status, Step, StepPart, Sum, Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta,
-    TicketDigest, TicketEvent, TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread,
-    WebLink, Whole, Whose, Window, WithCloser, Within, WorkItem,
+    ChangeFilter, ChangeItem, ChangeNo, ChangeReview, ChangeToken, ChangedFile, Checks, Cite,
+    Cites, CloseReason, Closed, ClosedTicket, CodeHost, CodeHostWrites, Comment, CommentId,
+    CommitId, Compared, Cursor, Depth, Did, Edit, Facts, FileName, Filed, Filter, Got,
+    HappenedKind, HealthState, Holder, HolderId, HostId, Identity, Item, Kind, Ledger, Login, Mark,
+    MarkHeld, MarkSpec, Marker, MarkerEdit, MarkerKey, MarkerKind, MergeHow, MeterRow,
+    NewBlueprint, NewChange, NewRelease, NewTicket, OpenWork, Outcome, Part, Passing, Pool,
+    PortName, Posted, Priority, ProjectName, Proposal, ProposalPart, Proposed, Realm, Refusal,
+    Release, ReleaseId, Remote, RepoPath, Report, Reports, Rev, ReviewComment, Revision, Scope,
+    Secret, Sent, SignInCode, SignInState, Site, SiteId, Standing, Status, Step, StepPart, Sum,
+    Tag, TagName, Target, TargetEdit, TargetId, Ticket, TicketDelta, TicketDigest, TicketEvent,
+    TicketKey, TicketWrites, Tickets, Token, Took, Unprepared, Unread, WebLink, Whole, Whose,
+    Window, WithCloser, Within, WorkItem,
 };
 
 /// How many seconds of failures a `Faulty` asks its ledger to keep: the
@@ -187,6 +188,12 @@ pub enum CodeHostOp {
     ChangedFiles,
     /// `CodeHost::activity`.
     Activity,
+    /// `CodeHost::reviews`.
+    Reviews,
+    /// `CodeHost::review_comments`.
+    ReviewComments,
+    /// `CodeHost::may_write`.
+    MayWrite,
     /// `CodeHost::checks`.
     Checks,
     /// `CodeHost::tags`.
@@ -1425,6 +1432,17 @@ impl<H: CodeHost + ?Sized> CodeHost for Wrap<H> {
     }
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>> {
         self.call(Op::CodeHost(C::Activity), Err, |h| h.activity(no, window))
+    }
+    fn reviews(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangeReview>> {
+        self.call(Op::CodeHost(C::Reviews), Err, |h| h.reviews(no, bound))
+    }
+    fn review_comments(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ReviewComment>> {
+        self.call(Op::CodeHost(C::ReviewComments), Err, |h| {
+            h.review_comments(no, bound)
+        })
+    }
+    fn may_write(&mut self, who: &Login) -> Got<bool> {
+        self.call(Op::CodeHost(C::MayWrite), Err, |h| h.may_write(who))
     }
     fn checks(&mut self, at: &CommitId, name: Option<&str>) -> Got<Checks> {
         self.call(Op::CodeHost(C::Checks), Err, |h| h.checks(at, name))

@@ -1099,6 +1099,90 @@ pub mod code_host {
         })
     }
 
+    /// `reviews` gives the change's reviews and `review_comments` its
+    /// notes on files, whole and in the order the site holds them, each
+    /// with the number, author, time, text, path and line the site gives
+    /// it. The fixture's change `no` holds exactly `reviews` and `notes`.
+    pub fn a_change_gives_its_reviews_and_notes(
+        h: &mut dyn crate::CodeHost,
+        no: crate::ChangeNo,
+        reviews: &[(u64, &str, crate::At, &str)],
+        notes: &[(u64, &str, crate::At, &str, &str, u32)],
+    ) -> Law {
+        const LAW: &str = "code_host::a_change_gives_its_reviews_and_notes";
+        let have = got(LAW, "the reviews", h.reviews(no, ALL_MAX))?.into_items();
+        hold(have.len() == reviews.len(), LAW, || {
+            format!("{} reviews, not {}", have.len(), reviews.len())
+        })?;
+        for (have, (id, login, at, body)) in have.iter().zip(reviews) {
+            hold(
+                have.id == *id
+                    && have.at == *at
+                    && have.body == *body
+                    && have.by.as_ref().is_some_and(|a| a.login.as_str() == *login),
+                LAW,
+                || format!("{have:?} is not review {id} by {login}"),
+            )?;
+        }
+        let have = got(LAW, "the notes", h.review_comments(no, ALL_MAX))?.into_items();
+        hold(have.len() == notes.len(), LAW, || {
+            format!("{} notes, not {}", have.len(), notes.len())
+        })?;
+        for (have, (id, login, at, body, path, line)) in have.iter().zip(notes) {
+            hold(
+                have.id == *id
+                    && have.at == *at
+                    && have.body == *body
+                    && have.line == Some(*line)
+                    && have.path.as_ref().is_some_and(|p| p.as_str() == *path)
+                    && have.by.as_ref().is_some_and(|a| a.login.as_str() == *login),
+                LAW,
+                || format!("{have:?} is not the note {id} on {path}"),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// A change with no reviews and no notes answers both whole and empty,
+    /// not a failure: there is nothing to give, which is an answer.
+    pub fn a_change_without_reviews_gives_none(
+        h: &mut dyn crate::CodeHost,
+        no: crate::ChangeNo,
+    ) -> Law {
+        const LAW: &str = "code_host::a_change_without_reviews_gives_none";
+        hold(
+            got(LAW, "the reviews", h.reviews(no, ALL_MAX))?
+                .into_items()
+                .is_empty(),
+            LAW,
+            || "a change with no reviews gave some".to_string(),
+        )?;
+        hold(
+            got(LAW, "the notes", h.review_comments(no, ALL_MAX))?
+                .into_items()
+                .is_empty(),
+            LAW,
+            || "a change with no notes gave some".to_string(),
+        )
+    }
+
+    /// `may_write` answers a name the site knows, true or false; a name
+    /// it does not know is a failure, never false: not knowing is not
+    /// saying no. The fixture knows `known` and holds no account named
+    /// `unknown`.
+    pub fn may_write_never_guesses_a_name_it_does_not_know(
+        h: &mut dyn crate::CodeHost,
+        known: &crate::Login,
+        unknown: &crate::Login,
+    ) -> Law {
+        const LAW: &str = "code_host::may_write_never_guesses_a_name_it_does_not_know";
+        got(LAW, "the write answer", h.may_write(known))?;
+        let answer = h.may_write(unknown);
+        hold(answer != Ok(false), LAW, || {
+            format!("a name the site does not hold answered {answer:?}")
+        })
+    }
+
     /// `ChangeFilter.carrying` takes the changes that carry every one of
     /// the marks, and empty narrows nothing. The fixture holds a change
     /// carrying `marks` and one that does not, within `ALL_MAX`.

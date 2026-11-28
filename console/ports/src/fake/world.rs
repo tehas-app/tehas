@@ -508,6 +508,8 @@ impl World {
                 closes: spec.closes.clone(),
                 files: spec.files.clone(),
                 reviews: Vec::new(),
+                given_reviews: spec.reviews.clone(),
+                given_notes: spec.notes.clone(),
                 comments: Vec::new(),
                 events: Vec::new(),
                 created: now,

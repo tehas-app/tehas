@@ -22,6 +22,7 @@ pub struct TicketSpec {
     pub(crate) target: Option<TargetId>,
     pub(crate) author: Option<String>,
     pub(crate) comments: Vec<(String, String, Vec<Marker>)>,
+    pub(crate) notes: Vec<(u64, String, At, String)>,
     pub(crate) assignees: Vec<String>,
     pub(crate) parts: Vec<TicketKey>,
     pub(crate) blockers: Vec<Item>,
@@ -120,6 +121,13 @@ impl TicketSpec {
     pub fn comment_marked(mut self, login: &str, body: &str, markers: Vec<Marker>) -> Self {
         self.comments
             .push((login.to_string(), body.to_string(), markers));
+        self
+    }
+
+    /// A comment numbered `id` by the site, by `login`, written at `at`.
+    pub fn note(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
+        self.notes
+            .push((id, login.to_string(), at, body.to_string()));
         self
     }
 
@@ -233,6 +241,17 @@ impl TicketSpec {
             let id = s.new_comment(author, &body, markers, raw, now);
             s.items[at].comments.push(id);
         }
+        for (id, login, created, body) in self.notes {
+            let author = Some(s.account(&login, comment_realm));
+            let id = s.new_comment_at(
+                author,
+                crate::CommentId::new(id.to_string()),
+                &body,
+                created,
+                None,
+            );
+            s.items[at].comments.push(id);
+        }
         for (name, bytes) in self.attachments {
             s.attach(at, name, bytes);
         }
@@ -262,6 +281,7 @@ pub struct BlueprintSpec {
     pub(crate) markers: Vec<Marker>,
     pub(crate) comments: Vec<(String, String, Vec<Marker>)>,
     pub(crate) comments_as: Vec<(crate::Account, String)>,
+    pub(crate) notes: Vec<(u64, String, At, String)>,
     pub(crate) closed: bool,
     pub(crate) author: Option<String>,
     pub(crate) attachments: Vec<(Option<String>, Vec<u8>)>,
@@ -305,6 +325,13 @@ impl BlueprintSpec {
     /// factory's login under another id.
     pub fn comment_as(mut self, author: crate::Account, body: &str) -> Self {
         self.comments_as.push((author, body.to_string()));
+        self
+    }
+
+    /// A comment numbered `id` by the site, by `login`, written at `at`.
+    pub fn note(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
+        self.notes
+            .push((id, login.to_string(), at, body.to_string()));
         self
     }
 
@@ -355,6 +382,17 @@ impl BlueprintSpec {
             let id = s.new_comment(Some(author), &body, Vec::new(), Some(body.clone()), now);
             s.items[at].comments.push(id);
         }
+        for (id, login, created, body) in self.notes {
+            let author = Some(s.account(&login, Realm::CodeHost));
+            let id = s.new_comment_at(
+                author,
+                crate::CommentId::new(id.to_string()),
+                &body,
+                created,
+                None,
+            );
+            s.items[at].comments.push(id);
+        }
         for (name, bytes) in self.attachments {
             s.attach(at, name, bytes);
         }
@@ -378,6 +416,8 @@ pub struct ChangeSpec {
     pub(crate) closes: Vec<BlueprintNo>,
     pub(crate) files: Vec<ChangedFile>,
     pub(crate) comments: Vec<(String, String)>,
+    pub(crate) reviews: Vec<(u64, String, At, String)>,
+    pub(crate) notes: Vec<super::state::NoteRec>,
     pub(crate) events: Vec<(String, crate::ChangeHappened)>,
     pub(crate) state: Option<ChangeState>,
     pub(crate) merge_state: Option<Mergeable>,
@@ -428,6 +468,43 @@ impl ChangeSpec {
     /// A comment by `login`.
     pub fn comment(mut self, login: &str, body: &str) -> Self {
         self.comments.push((login.to_string(), body.to_string()));
+        self
+    }
+
+    /// A review its reviewer submitted: numbered `id`, by `login`, at
+    /// `at`, with this text.
+    pub fn review(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
+        self.reviews
+            .push((id, login.to_string(), at, body.to_string()));
+        self
+    }
+
+    /// A note its reviewer left on a file: numbered `id`, by `login`, at
+    /// `at`, on `path` at `line`, with this text.
+    pub fn note(mut self, id: u64, login: &str, at: At, body: &str, path: &str, line: u32) -> Self {
+        self.notes.push(super::state::NoteRec {
+            id,
+            login: login.to_string(),
+            at,
+            edited: None,
+            body: body.to_string(),
+            path: Some(RepoPath::new(path).expect("a path")),
+            line: Some(line),
+        });
+        self
+    }
+
+    /// A note with no file to name.
+    pub fn note_free(mut self, id: u64, login: &str, at: At, body: &str) -> Self {
+        self.notes.push(super::state::NoteRec {
+            id,
+            login: login.to_string(),
+            at,
+            edited: None,
+            body: body.to_string(),
+            path: None,
+            line: None,
+        });
         self
     }
 
