@@ -24,8 +24,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use tehas_core::retry;
-use tehas_ports::{Outcome, Sent, Unread};
+use tehas_core::time;
+use tehas_ports::{
+    Bound, ChangeDigest, ChangeFilter, ChangeNo, ChangeState, ChangeStates, CodeHost, Outcome,
+    Unread,
+};
 
 const MARKER: &str = "<!-- tehas-preview -->";
 const MARKER_END: &str = "<!-- /tehas-preview -->";
@@ -38,14 +41,23 @@ const STARTS: [&str; 3] = [
 const TAIL: &str =
     "It is rebuilt when the branch changes and removed when this pull request is closed.";
 
-pub fn tell(n: &str, stamp: &str, repo: &str, root: &Path, address: &str) {
+/// The notice for pull request `n`, its description read on the sweep's
+/// code-host handle.
+pub fn tell(
+    n: &str,
+    stamp: &str,
+    repo: &str,
+    root: &Path,
+    address: &str,
+    host: &mut Option<Box<dyn CodeHost + Send>>,
+) {
     Tell {
         n,
         repo,
         dir: root.join(n),
         address,
     }
-    .tell(stamp);
+    .tell(stamp, host);
 }
 
 /// What to do with a description, decided from what GitHub has now.
@@ -55,14 +67,6 @@ enum Plan {
     Nothing,
     Closed,
     Refuse,
-}
-
-/// One short reason for a call that failed, from what gh said: a fixed line
-/// of the ports' outcomes, never gh's words (Decided 69). A token that lost
-/// access gets "not found" for every pull request, which an operator can tell
-/// from a spent budget or a call that never came back.
-fn why_failed(said: &str) -> &'static str {
-    retry::outcome_of(said, Sent::No).line()
 }
 
 fn bare(line: &str) -> &str {
@@ -86,29 +90,44 @@ fn ours(lines: &[&str]) -> bool {
         && (r.len() == 1 || (r.len() == 3 && bare(r[1]).is_empty() && bare(r[2]) == TAIL))
 }
 
+/// The pull request read on the sweep's code-host handle. Ok(None): the
+/// site answered and names no such pull request. Err: the read failed, and
+/// the outcome says why.
+fn read(
+    host: &mut Option<Box<dyn CodeHost + Send>>,
+    n: &str,
+) -> Result<Option<ChangeDigest>, Outcome> {
+    let Some(no) = n.parse::<u64>().ok().and_then(ChangeNo::new) else {
+        return Ok(None);
+    };
+    let Some(bound) = Bound::new(1) else {
+        return Err(Outcome::Unread(Unread::Malformed));
+    };
+    // The handle is None when the wiring failed before the run: no answer,
+    // as a call that never came back was before this read was a port call.
+    let Some(host) = host.as_mut() else {
+        return Err(Outcome::Unread(Unread::Malformed));
+    };
+    let filter = ChangeFilter {
+        states: ChangeStates::All,
+        numbers: vec![no],
+        bodies: true,
+        ..Default::default()
+    };
+    host.changes(&filter, bound)
+        .map(|digests| digests.into_items().into_iter().find(|d| d.no == no))
+}
+
 /// The decision about one pull request's description, and the time GitHub
 /// gives for it. Err is why the answer could not be used.
-fn plan(answer: &Value, n: &str, block: &str, create: bool) -> Result<(Plan, String), String> {
-    if answer
-        .get("number")
-        .and_then(Value::as_u64)
-        .map(|x| x.to_string())
-        != Some(n.to_string())
-    {
-        return Err("not this pull request".to_string());
-    }
-    let seen = answer
-        .get("updated_at")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-    let old = match answer.get("body") {
-        Some(Value::String(body)) => body.clone(),
-        Some(Value::Null) => String::new(),
-        _ => return Err("no description".to_string()),
+fn plan(answer: &ChangeDigest, block: &str, create: bool) -> Result<(Plan, String), String> {
+    let seen = time::iso(answer.updated.secs());
+    let old = match &answer.body {
+        Some(body) => body.clone(),
+        None => return Err("no description".to_string()),
     };
     // A merged or closed pull request keeps its description.
-    if answer.get("state").and_then(Value::as_str) != Some("open") {
+    if answer.state != ChangeState::Open {
         return Ok((Plan::Closed, seen));
     }
     let lines: Vec<&str> = if old.is_empty() {
@@ -151,6 +170,7 @@ fn plan(answer: &Value, n: &str, block: &str, create: bool) -> Result<(Plan, Str
 
 struct Tell<'a> {
     n: &'a str,
+    /// The repository, for the one write this command still makes with gh.
     repo: &'a str,
     dir: PathBuf,
     address: &'a str,
@@ -207,7 +227,7 @@ impl Tell<'_> {
         }
     }
 
-    fn tell(&self, stamp: &str) {
+    fn tell(&self, stamp: &str, host: &mut Option<Box<dyn CodeHost + Send>>) {
         let state: Value = fs::read_to_string(self.dir.join("state.json"))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -245,20 +265,34 @@ impl Tell<'_> {
         }
         block = format!("{block}\n{MARKER_END}");
 
-        let path = format!("repos/{}/pulls/{}", self.repo, self.n);
-        let answer = match self.gh(&["api", &path, "--jq", "{number, body, state, updated_at}"]) {
-            Ok(answer) => answer,
-            Err(said) => {
+        let answer = match read(host, self.n) {
+            Ok(Some(answer)) => answer,
+            // The site answered and names no such pull request: what gh's
+            // 404 said before this read was a port call.
+            Ok(None) => {
                 self.say(&format!(
                     "the description could not be read ({}), tried again at the next run",
-                    why_failed(&said)
+                    Outcome::NotFound.line()
+                ));
+                return;
+            }
+            Err(outcome) => {
+                // An answer that came but is no pull request keeps the
+                // notice's own words, as it did when the command parsed
+                // gh's answer itself; a call that failed says the outcome.
+                let words = if matches!(outcome, Outcome::Unread(_)) {
+                    "the answer about this pull request was not understood"
+                } else {
+                    "the description could not be read"
+                };
+                self.say(&format!(
+                    "{words} ({}), tried again at the next run",
+                    outcome.line()
                 ));
                 return;
             }
         };
-        let decided = serde_json::from_str::<Value>(&answer)
-            .map_err(|_| Outcome::Unread(Unread::Malformed).line().to_string())
-            .and_then(|answer| plan(&answer, self.n, &block, create));
+        let decided = plan(&answer, &block, create);
         let (decided, seen) = match decided {
             Ok(decided) => decided,
             Err(why) => {
@@ -306,6 +340,7 @@ impl Tell<'_> {
         // GitHub answers a write with the pull request as it has it then,
         // and the time of that answer goes on record, so the notice is not
         // read back at the next run only to be found unchanged.
+        let path = format!("repos/{}/pulls/{}", self.repo, self.n);
         let body = format!("body={new}");
         match self.gh(&["api", "-X", "PATCH", &path, "-f", &body]) {
             Ok(answer) => {
@@ -341,18 +376,39 @@ impl Tell<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use tehas_ports::fake::{FakeSite, World};
+    use tehas_ports::{Actor, At, Branch, Caller, CommitId, Scope, Site, WebLink};
 
     const BLOCK: &str = "<!-- tehas-preview -->\n\nPreview of `abc1234`: https://x/\n\nIt is rebuilt when the branch changes and removed when this pull request is closed.\n<!-- /tehas-preview -->";
 
-    fn answer(body: Value) -> Value {
-        json!({"number": 12, "body": body, "state": "open", "updated_at": "t1"})
+    /// A pull request of ours with this description. The time it gives is
+    /// the second after the epoch, so a seen is `1970-01-01T00:00:01Z`.
+    fn answer(body: Option<&str>) -> ChangeDigest {
+        let mut d = ChangeDigest::new(
+            ChangeNo::new(12).unwrap(),
+            ChangeState::Open,
+            Branch::new("feature/x").unwrap(),
+            CommitId::new("a".repeat(40)).unwrap(),
+            Branch::new("main").unwrap(),
+            CommitId::new("b".repeat(40)).unwrap(),
+            At::new(1),
+            At::new(1),
+            WebLink::new("https://example.test/c/12").unwrap(),
+        );
+        d.body = body.map(str::to_string);
+        d
+    }
+
+    fn closed(body: &str) -> ChangeDigest {
+        let mut d = answer(Some(body));
+        d.state = ChangeState::Closed { at: At::new(2) };
+        d
     }
 
     #[test]
     fn a_description_without_markers_gets_the_notice_above_it() {
-        let (p, seen) = plan(&answer(json!("Hello")), "12", BLOCK, true).unwrap();
-        assert_eq!(seen, "t1");
+        let (p, seen) = plan(&answer(Some("Hello")), BLOCK, true).unwrap();
+        assert_eq!(seen, "1970-01-01T00:00:01Z");
         assert_eq!(
             p,
             Plan::Write {
@@ -360,7 +416,7 @@ mod tests {
                 new: format!("{BLOCK}\n\nHello")
             }
         );
-        let (p, _) = plan(&answer(Value::Null), "12", BLOCK, true).unwrap();
+        let (p, _) = plan(&answer(Some("")), BLOCK, true).unwrap();
         assert_eq!(
             p,
             Plan::Write {
@@ -368,14 +424,14 @@ mod tests {
                 new: BLOCK.into()
             }
         );
-        let (p, _) = plan(&answer(json!("Hello")), "12", BLOCK, false).unwrap();
+        let (p, _) = plan(&answer(Some("Hello")), BLOCK, false).unwrap();
         assert_eq!(p, Plan::Nothing);
     }
 
     #[test]
     fn our_block_is_replaced_and_the_rest_kept() {
         let old = "<!-- tehas-preview -->\r\n\r\nUnable to create a preview of `x`. no\r\n<!-- /tehas-preview -->\r\nText\r\n";
-        let (p, _) = plan(&answer(json!(old)), "12", BLOCK, true).unwrap();
+        let (p, _) = plan(&answer(Some(old)), BLOCK, true).unwrap();
         assert_eq!(
             p,
             Plan::Write {
@@ -384,7 +440,7 @@ mod tests {
             }
         );
         let only = format!("{BLOCK}\n");
-        let (p, _) = plan(&answer(json!(only)), "12", BLOCK, true).unwrap();
+        let (p, _) = plan(&answer(Some(&only)), BLOCK, true).unwrap();
         assert_eq!(
             p,
             Plan::Write {
@@ -402,41 +458,41 @@ mod tests {
             "<!-- tehas-preview -->\nPreview of `x`\nmore\n<!-- /tehas-preview -->",
             "<!-- /tehas-preview -->",
         ] {
-            let (p, _) = plan(&answer(json!(body)), "12", BLOCK, true).unwrap();
+            let (p, _) = plan(&answer(Some(body)), BLOCK, true).unwrap();
             assert_eq!(p, Plan::Refuse, "{body}");
         }
     }
 
     #[test]
-    fn a_closed_pull_request_and_an_answer_of_another_shape() {
-        let closed = json!({"number": 12, "body": "x", "state": "closed"});
+    fn a_closed_pull_request_and_an_answer_that_cannot_be_used() {
+        let (p, seen) = plan(&closed("x"), BLOCK, true).unwrap();
+        assert_eq!(p, Plan::Closed);
+        assert_eq!(seen, "1970-01-01T00:00:01Z");
         assert_eq!(
-            plan(&closed, "12", BLOCK, true).unwrap(),
-            (Plan::Closed, String::new())
+            plan(&answer(None), BLOCK, true).unwrap_err(),
+            "no description"
         );
-        assert!(plan(&json!({"number": 13, "body": ""}), "12", BLOCK, true).is_err());
-        assert!(plan(&json!({"number": 12}), "12", BLOCK, true).is_err());
-        assert!(plan(&json!({"number": 12, "body": 5}), "12", BLOCK, true).is_err());
     }
 
+    /// The read on the ports' fake: the number the site names answers, any
+    /// other number or a name that is no number is no answer, and no
+    /// handle at all is an answer that cannot be read.
     #[test]
-    fn why_a_call_failed_in_our_words() {
-        assert_eq!(
-            why_failed("x\ngh: Not Found (HTTP 404)\n"),
-            "not found, or not visible to this actor"
-        );
-        assert_eq!(
-            why_failed("gh: Resource not accessible by integration (HTTP 403)"),
-            "this actor may not do this"
-        );
-        assert_eq!(
-            why_failed("API rate limit exceeded"),
-            "the budget is spent until later"
-        );
-        assert_eq!(why_failed(""), "the answer could not be read whole");
-        assert_eq!(
-            why_failed("Get \"https://api.example.test/x\": dial tcp: no such host"),
-            "the site could not be reached"
-        );
+    fn the_read_answers_only_the_number_the_site_names() {
+        let world = World::new().change(12, "feature/x", |c| c.body("Hello"));
+        let ask = |n: &str| -> Result<Option<ChangeDigest>, Outcome> {
+            let mut host = Some(
+                FakeSite::new(&world)
+                    .code_host(&Actor::Ours(Scope::Full), Caller::new("notice"))
+                    .unwrap(),
+            );
+            read(&mut host, n)
+        };
+        let got = ask("12").unwrap().expect("the digest");
+        assert_eq!(got.body.as_deref(), Some("Hello"));
+        assert_eq!(ask("13").unwrap(), None);
+        assert_eq!(ask("x").unwrap(), None);
+        let line = read(&mut None, "12").unwrap_err().line().to_string();
+        assert_eq!(line, "the answer does not read");
     }
 }

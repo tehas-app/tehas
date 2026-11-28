@@ -91,7 +91,7 @@ t_eq "$(writes)" ""
 # Asked once for the commit and state, not at every run.
 rm -f "$T"/calls/gh
 t_run "$preview"
-t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 0
 
 t_case "a serving preview that goes over the limit has its notice say there is none"
 reset
@@ -187,7 +187,7 @@ for _ in 4 5 6; do
   rm -f "$T"/calls/gh "$T/calls/gh-writes"
   t_run "$preview"
   t_eq "$(writes)" ""
-  t_eq "$(t_calls gh | grep -c 'pulls/12')" 0
+  t_eq "$(t_calls gh | grep -cE 'pulls/12|pullRequest\(number: 12\)')" 0
   t_eq "$(printf '%s\n' "$t_out" | grep -c 'the notice was not written')" 0
 done
 
