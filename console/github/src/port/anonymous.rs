@@ -1,9 +1,9 @@
 //! The code host handle of `Actor::Anonymous` (Decided 76): a public
 //! project's releases and tags, read through [`Curl`] with no credential
-//! and never through gh. It answers `releases`, `latest_release`, `tags`,
-//! `resolve_tag` and `download`; every other read is
-//! `Refused(Unsupported)` before any request, and a write handle is never
-//! made (`site.rs`).
+//! and never through gh. It answers `releases`, `recent_releases`,
+//! `latest_release`, `tags`, `resolve_tag` and `download`; every other read
+//! is `Refused(Unsupported)` before any request, and a write handle is
+//! never made (`site.rs`).
 //!
 //! GitHub answers 404 alike for a project that is not there and for one
 //! that is private, so either is `Refused(Unsupported)`, never `NotFound`.
@@ -54,7 +54,7 @@ use tehas_ports::{
     Compared, Cursor, Did, Facts, FileName, Got, HealthState, Holder, HolderId, HostId, Ledger,
     MeterRow, Notices, Outcome, Passing, Pool, PortName, Refusal, Release, ReleaseFile, ReleaseId,
     Remote, RepoPath, Report, Reports, Rev, Sent, SiteId, Tag, TagName, Took, Unread, WebLink,
-    Whole, Whose, Window,
+    Whole, Whose, Window, ALL_MAX,
 };
 
 /// The host the ledger keeps GitHub's health and budgets under.
@@ -415,6 +415,7 @@ struct RestRelease {
     draft: bool,
     prerelease: bool,
     published_at: Option<String>,
+    created_at: Option<String>,
     body: Option<String>,
     html_url: String,
     assets: Vec<RestAsset>,
@@ -428,6 +429,19 @@ struct RestAsset {
 }
 
 impl RestRelease {
+    /// The time the release was made, the same strict read as its
+    /// `published_at`: GitHub gives it for every release of the list.
+    fn created(&self) -> Got<Option<At>> {
+        self.created_at
+            .as_deref()
+            .map(|t| {
+                tehas_core::time::from_iso(t)
+                    .map(At::new)
+                    .ok_or(Outcome::Unread(Unread::Malformed))
+            })
+            .transpose()
+    }
+
     fn release(self) -> Got<Release> {
         let malformed = |_| Outcome::Unread(Unread::Malformed);
         let tag = TagName::new(self.tag_name).map_err(malformed)?;
@@ -587,8 +601,25 @@ impl CodeHost for Anonymous {
         Ok(Whole::new(releases))
     }
 
-    fn recent_releases(&mut self, _: NonZeroU32) -> Got<Took<Release>> {
-        unsupported()
+    /// The newest `first` releases, the read the token's handle makes over
+    /// the same list: every release read whole up to `ALL_MAX`, newest made
+    /// first by GitHub's `created_at`, the timeless last and ties keeping
+    /// the site's order. An anonymous reader is shown no draft, so none can
+    /// be among the answers.
+    fn recent_releases(&mut self, first: NonZeroU32) -> Got<Took<Release>> {
+        let repo = self.repo_path()?.to_string();
+        let listed: Vec<RestRelease> =
+            self.list(format!("repos/{repo}/releases?per_page=100"), ALL_MAX)?;
+        let mut keyed = Vec::with_capacity(listed.len());
+        for release in listed {
+            keyed.push((release.created()?, release));
+        }
+        keyed.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+        let items = keyed
+            .into_iter()
+            .map(|(_, release)| release.release())
+            .collect::<Got<Vec<_>>>()?;
+        Ok(super::code_host::releases::took(items, first))
     }
 
     /// GitHub's latest release; a project that answers with none has none.

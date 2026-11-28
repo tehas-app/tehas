@@ -423,10 +423,10 @@ impl Preview {
         }
     }
 
-    fn tell(&self, n: u64, seen: &str) {
+    fn tell(&self, host: &mut super::Host, n: u64, seen: &str) {
         let number = n.to_string();
         let address = self.address(&number);
-        notice::tell(&number, seen, &self.repo, &self.root, &address);
+        notice::tell(&number, seen, &self.repo, &self.root, &address, host);
     }
 
     /// The state of a pull request the console chose past the limit. Said once,
@@ -446,7 +446,7 @@ impl Preview {
     /// The chosen pull requests, newest first: their title and state, and the
     /// ones past the limit dealt with. False when a directory or a file of one
     /// could not be written.
-    fn take_chosen(&self, chosen: &[Verdict], pulls: &[Value]) -> bool {
+    fn take_chosen(&self, chosen: &[Verdict], pulls: &[Value], host: &mut super::Host) -> bool {
         for row in chosen {
             let (Verdict::Build { number, sha, seen } | Verdict::OverLimit { number, sha, seen }) =
                 row
@@ -467,7 +467,7 @@ impl Preview {
             self.retitle(&n);
             if matches!(row, Verdict::OverLimit { .. }) {
                 self.over_limit(&n, sha);
-                self.tell(*number, seen);
+                self.tell(host, *number, seen);
             }
         }
         true
@@ -545,7 +545,7 @@ impl Preview {
             "pull requests opened by someone outside the repository",
         );
 
-        if !self.take_chosen(&chosen, &pulls) {
+        if !self.take_chosen(&chosen, &pulls, host) {
             self.write_list();
             return 1;
         }
@@ -563,7 +563,7 @@ impl Preview {
         for row in &chosen {
             if let Verdict::Build { number, sha, seen } = row {
                 self.bring(&number.to_string(), sha, "");
-                self.tell(*number, seen);
+                self.tell(host, *number, seen);
             }
         }
         u8::from(!self.write_list())
