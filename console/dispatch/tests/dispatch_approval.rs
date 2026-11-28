@@ -275,7 +275,7 @@ fn the_record_names_no_comment_and_none_are_read() {
     let w = World::new("ap-no-comments");
     title_world(&w);
     assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
-    lacks(&w.gh(), "comments?per_page");
+    lacks(&w.gh(), "comments?per_page=100 --paginate");
 }
 
 /// An instance that still sets TEHAS_WORK_COMMENTS: alice's two comments
@@ -344,7 +344,7 @@ fn an_instance_that_still_sets_comments_records_no_link_of_a_comment() {
         val(&w.at_mark(r#"[.links, has("comment_links")]"#)),
         json!([[format!("{A}/1111")], false])
     );
-    lacks(&w.gh(), "issues/7/comments?per_page");
+    lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
         "[false,false]"
     );
     lacks(&w.gh(), "pr list");
-    lacks(&w.gh(), "issues/7/comments?per_page");
+    lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
 }
 
 /// A retry tick, the cycle's pull request #30 commented on

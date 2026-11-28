@@ -6,6 +6,7 @@
 mod common;
 
 use common::{has, lacks, root, World, MINIMAL};
+use serde_json::json;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -325,6 +326,10 @@ fn asking_and_blocked(w: &World) {
         "events-9.json",
         r#"[{"event":"labeled","label":{"name":"tehas:blocked"},"actor":{"login":"alice"}}]"#,
     );
+    // One comment each, so the unpaused poll pays the page read and the
+    // paused one has something to skip.
+    w.comments(8, "waiting on the answer.", "alice", json!([]));
+    w.comments(9, "waiting on the blocker.", "alice", json!([]));
 }
 
 #[test]
@@ -337,7 +342,7 @@ fn a_paused_poll_reads_no_comments_or_blockers_of_the_issues_it_would_decide_on(
     assert_eq!(w.started(), "");
     // The page's own comments count is not a comment read: the read of the
     // comments of the issues after the pause is what the pause must stop.
-    lacks(&w.gh(), "comments(last: 100)");
+    lacks(&w.gh(), "comments?per_page=100&page=");
     lacks(&w.gh(), "issueOrPullRequest");
 }
 
@@ -346,7 +351,7 @@ fn the_same_poll_unpaused_reads_them() {
     let w = World::new("guard");
     asking_and_blocked(&w);
     w.poll();
-    has(&w.gh(), "comments(last: 100)");
+    has(&w.gh(), "comments?per_page=100&page=");
 }
 
 #[test]

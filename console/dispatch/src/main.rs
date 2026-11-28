@@ -124,6 +124,7 @@ fn main() {
             board,
             mark_of,
             mark_name,
+            marker_text,
             assignee: assignee(&PathBuf::from(&home), &settings.repo),
         },
     ));
@@ -141,6 +142,12 @@ fn mark_of(label: &str) -> Option<tehas_ports::Mark> {
 /// marks back to the words the snapshot names them by.
 fn mark_name(mark: &tehas_ports::Mark) -> String {
     tehas_github::table::mark_name(mark)
+}
+
+/// A marker as the site writes it, for the comment mapping: no text for a
+/// marker the site does not write.
+fn marker_text(marker: &tehas_ports::Marker) -> String {
+    tehas_github::table::marker_text(marker).unwrap_or_default()
 }
 
 /// `TEHAS_ASSIGNEE`'s account through the site's identity, once a poll:
