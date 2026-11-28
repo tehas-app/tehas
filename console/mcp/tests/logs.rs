@@ -243,7 +243,13 @@ impl Search {
                 .unwrap_or("")
                 .to_string()
         };
-        match search(&self.dirs, records, text, files, limit, byte_cap) {
+        // A search reads typed rows; the test hands records as JSON, so they
+        // are read as the snapshot reader reads a line.
+        let rows: Vec<mcp::snapshot::Session> = records
+            .iter()
+            .filter_map(|r| mcp::snapshot::Session::from_line(r.to_string().as_bytes()))
+            .collect();
+        match search(&self.dirs, &rows, text, files, limit, byte_cap) {
             Ok((found, next)) => {
                 let found: Vec<Value> = found
                     .iter()

@@ -5,7 +5,9 @@
 //! ran the command with `--publish` and says when it was written; it is
 //! nothing's job to keep it fresh, and an old answer is served with `stale`.
 
+use crate::snapshot::Scalar;
 use crate::tools::{self, Dirs, ToolError};
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tehas_core::mask::mask;
 
@@ -65,9 +67,10 @@ pub fn tool() -> Value {
     })
 }
 
-/// The answer: the published file, copied with `spec_of` so no field of the
-/// host's own reaches the answer. A file that is not there is the tool error
-/// the read says, which is the shape of a host where nobody has asked yet.
+/// The answer: the published file, kept to what the allowlist of `spec`
+/// names, so no field of the host's own reaches the answer. A file that is
+/// not there is the tool error the read says, which is the shape of a host
+/// where nobody has asked yet.
 pub fn call(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
     call_at(dirs, tools::now())
 }
@@ -92,24 +95,6 @@ fn call_at(dirs: &Dirs, now: i64) -> Result<Map<String, Value>, ToolError> {
     {
         return Err(refuse("names no file system"));
     }
-    let mut out = Map::new();
-    tools::merge(&mut out, tools::pick(&answer, &spec()));
-    unrooted(&mut out, &answer);
-    masked_docker(&mut out);
-    let stale = answer["time"]
-        .as_str()
-        .and_then(tehas_core::time::from_iso)
-        .is_none_or(|t| now - t > STALE_SECS);
-    out.insert("stale".into(), json!(stale));
-    Ok(out)
-}
-
-/// The host's own directories stay on the host. A file system is named by the
-/// role of each path on it, `home`, `docker`, `tmp` or `scratch`, and a place
-/// by its path under the home, or by its name alone when it is outside it. The
-/// writer names the home first, so the first path of the first file system is
-/// the home.
-fn unrooted(out: &mut Map<String, Value>, answer: &Value) {
     let home = answer["filesystems"][0]["paths"][0].as_str().unwrap_or("");
     let docker = answer["dockerRoot"].as_str().unwrap_or("/var/lib/docker");
     let role = |p: &str| match p {
@@ -118,81 +103,174 @@ fn unrooted(out: &mut Map<String, Value>, answer: &Value) {
         "/tmp" => "tmp",
         _ => "scratch",
     };
-    for fs in out
-        .get_mut("filesystems")
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-    {
-        let mut raw: Vec<String> = fs["paths"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|p| p.as_str().map(str::to_string))
-            .collect();
-        // Longest first, so a path is never half-replaced by its parent.
-        raw.sort_by_key(|p| std::cmp::Reverse(p.len()));
-        if let Some(why) = fs.get("why").and_then(Value::as_str) {
-            let mut said = why.to_string();
-            for p in raw.iter().filter(|p| !p.is_empty()) {
-                said = said.replace(p.as_str(), role(p));
-            }
-            fs["why"] = json!(said);
-        }
-        // df's first column is a device path, or host:/export on a network
-        // mount. Only a plain name such as overlay is served.
-        let local = |m: &str| !m.starts_with('/') && !m.contains(':');
-        if fs
-            .get("mount")
-            .and_then(Value::as_str)
-            .is_some_and(|m| !local(m))
-        {
-            if let Some(o) = fs.as_object_mut() {
-                o.remove("mount");
-            }
-        }
-        if let Some(paths) = fs.get_mut("paths").and_then(Value::as_array_mut) {
-            for p in paths.iter_mut() {
-                *p = json!(role(p.as_str().unwrap_or("")));
-            }
-        }
-    }
-    let places = out
-        .get_mut("full")
-        .and_then(|f| f.get_mut("places"))
-        .and_then(Value::as_array_mut);
-    for place in places.into_iter().flatten() {
-        if let Some(path) = place.get("path").and_then(Value::as_str) {
-            let under = std::path::Path::new(path).strip_prefix(home).ok();
-            let named = match under {
-                Some(rel) if !home.is_empty() && rel.as_os_str().is_empty() => ".".to_string(),
-                Some(rel) if !home.is_empty() => rel.to_string_lossy().into_owned(),
-                _ => std::path::Path::new(path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-            };
-            place["path"] = json!(named);
-        }
+    let scalar = |v: &Value| serde_json::from_value::<Scalar>(v.clone()).ok();
+    let out = DiskOut {
+        time: scalar(&answer["time"]),
+        filesystems: answer["filesystems"].as_array().map(|a| {
+            a.iter()
+                .filter_map(|f| f.as_object())
+                .map(|f| {
+                    // The host's own paths, longest first, so a path is
+                    // never half-replaced by its parent in the reason.
+                    let mut longest: Vec<&str> = f
+                        .get("paths")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect();
+                    longest.sort_by_key(|p| std::cmp::Reverse(p.len()));
+                    let why = match f.get("why").and_then(scalar) {
+                        Some(Scalar::Text(t)) => {
+                            let mut said = t;
+                            for p in longest.iter().filter(|p| !p.is_empty()) {
+                                said = said.replace(p, role(p));
+                            }
+                            Some(Scalar::Text(said))
+                        }
+                        other => other,
+                    };
+                    // df's first column is a device path, or host:/export on
+                    // a network mount. Only a plain name such as overlay is
+                    // served.
+                    let local = |m: &str| !m.starts_with('/') && !m.contains(':');
+                    let mount = match f.get("mount").and_then(scalar) {
+                        Some(Scalar::Text(m)) if !local(&m) => None,
+                        m => m,
+                    };
+                    FsOut {
+                        paths: f.get("paths").and_then(Value::as_array).map(|a| {
+                            a.iter()
+                                .filter_map(scalar)
+                                .map(|p| role(p.text().unwrap_or("")).to_string())
+                                .collect()
+                        }),
+                        mount,
+                        free_bytes: f.get("freeBytes").and_then(scalar),
+                        total_bytes: f.get("totalBytes").and_then(scalar),
+                        why,
+                    }
+                })
+                .collect()
+        }),
+        full: answer
+            .get("full")
+            .and_then(Value::as_object)
+            .map(|full| FullOut {
+                places: full.get("places").and_then(Value::as_array).map(|a| {
+                    a.iter()
+                        .filter_map(|p| p.as_object())
+                        .map(|p| PlaceOut {
+                            path: p.get("path").and_then(scalar).map(|s| match s {
+                                Scalar::Text(path) => {
+                                    let under = std::path::Path::new(&path).strip_prefix(home).ok();
+                                    Scalar::Text(match under {
+                                        Some(rel)
+                                            if !home.is_empty() && rel.as_os_str().is_empty() =>
+                                        {
+                                            ".".to_string()
+                                        }
+                                        Some(rel) if !home.is_empty() => {
+                                            rel.to_string_lossy().into_owned()
+                                        }
+                                        _ => std::path::Path::new(&path)
+                                            .file_name()
+                                            .map(|n| n.to_string_lossy().into_owned())
+                                            .unwrap_or_default(),
+                                    })
+                                }
+                                other => other,
+                            }),
+                            bytes: p.get("bytes").and_then(scalar),
+                            cut: p.get("cut").and_then(scalar),
+                        })
+                        .collect()
+                }),
+                docker: full
+                    .get("docker")
+                    .and_then(Value::as_object)
+                    .map(|d| DockerOut {
+                        state: d.get("state").and_then(scalar),
+                        // Docker's own words are host text like any log line, so
+                        // they pass the mask, which also hides private network
+                        // addresses, before they are served. A line that is no
+                        // text is not one the schema promises, and is left out.
+                        lines: d
+                            .get("lines")
+                            .and_then(Value::as_array)
+                            .map(|a| a.iter().filter_map(Value::as_str).map(mask).collect()),
+                    }),
+                stopped_containers: full.get("stoppedContainers").and_then(scalar),
+            }),
+        stale: answer["time"]
+            .as_str()
+            .and_then(tehas_core::time::from_iso)
+            .is_none_or(|t| now - t > STALE_SECS),
+    };
+    match serde_json::to_value(out) {
+        Ok(Value::Object(m)) => Ok(m),
+        _ => Err(refuse("could not be served")),
     }
 }
 
-/// Docker's own words are host text like any log line, so they pass the
-/// mask, which also hides private network addresses, before they are served.
-/// A line that is no text is not one the schema promises, and is left out.
-fn masked_docker(out: &mut Map<String, Value>) {
-    let lines = out
-        .get_mut("full")
-        .and_then(|f| f.get_mut("docker"))
-        .and_then(|d| d.get_mut("lines"))
-        .and_then(Value::as_array_mut);
-    if let Some(lines) = lines {
-        *lines = lines
-            .iter()
-            .filter_map(Value::as_str)
-            .map(|t| json!(mask(t)))
-            .collect();
-    }
+/// One file system of the answer, named by the roles of its watched paths.
+#[derive(Serialize)]
+struct FsOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    paths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mount: Option<Scalar>,
+    #[serde(rename = "freeBytes", skip_serializing_if = "Option::is_none")]
+    free_bytes: Option<Scalar>,
+    #[serde(rename = "totalBytes", skip_serializing_if = "Option::is_none")]
+    total_bytes: Option<Scalar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    why: Option<Scalar>,
+}
+
+/// One place of the answer, its path under the instance's home or its name
+/// alone when it is outside it.
+#[derive(Serialize)]
+struct PlaceOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<Scalar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bytes: Option<Scalar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cut: Option<Scalar>,
+}
+
+/// What `docker system df` said, masked line by line.
+#[derive(Serialize)]
+struct DockerOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<Scalar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lines: Option<Vec<String>>,
+}
+
+/// What fills the disks, when the run was asked with --full.
+#[derive(Serialize)]
+struct FullOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    places: Option<Vec<PlaceOut>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    docker: Option<DockerOut>,
+    #[serde(rename = "stoppedContainers", skip_serializing_if = "Option::is_none")]
+    stopped_containers: Option<Scalar>,
+}
+
+/// The answer: the published file, held to what the allowlist names, so no
+/// field of the host's own reaches it.
+#[derive(Serialize)]
+struct DiskOut {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time: Option<Scalar>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    filesystems: Option<Vec<FsOut>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full: Option<FullOut>,
+    stale: bool,
 }
 
 /// The allowlist the answer is copied with: what the file holds that a person

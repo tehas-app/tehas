@@ -509,22 +509,29 @@ fn merge(streams: &[Stream], limit: usize) -> (Vec<(usize, usize)>, [usize; 2]) 
     (out, taken)
 }
 
-fn event(s: &Stream, l: &Line) -> Value {
+/// One event of an answer: the line after its time, masked and cut, with
+/// the kind its first words name and the issue it names among them. A key
+/// it does not hold is left out of the answer, as the map once left it out.
+#[derive(serde::Serialize)]
+struct Event {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time: Option<String>,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    issue: Option<u64>,
+    log: &'static str,
+    text: String,
+}
+
+fn event(s: &Stream, l: &Line) -> Event {
     let text = mask(&l.text);
-    let mut e = Map::new();
-    if let Some(t) = &l.time {
-        e.insert("time".into(), json!(t));
+    Event {
+        time: l.time.clone(),
+        kind: kind_of(s.log, &text),
+        issue: issue_of(&text),
+        log: s.log,
+        text: text.chars().take(TEXT_CUT).collect(),
     }
-    e.insert("kind".into(), json!(kind_of(s.log, &text)));
-    if let Some(n) = issue_of(&text) {
-        e.insert("issue".into(), json!(n));
-    }
-    e.insert("log".into(), json!(s.log));
-    e.insert(
-        "text".into(),
-        json!(text.chars().take(TEXT_CUT).collect::<String>()),
-    );
-    Value::Object(e)
 }
 
 /// What `factory_events` takes: the most events of an answer and the place
@@ -587,7 +594,10 @@ pub(crate) fn call(logs: &Path, asked: &EventsArgs) -> Result<Map<String, Value>
     let next = [streams[0].after(taken[0])?, streams[1].after(taken[1])?];
     let events: Vec<Value> = picked
         .iter()
-        .map(|(s, i)| event(&streams[*s], &streams[*s].lines[*i]))
+        .map(|(s, i)| {
+            serde_json::to_value(event(&streams[*s], &streams[*s].lines[*i]))
+                .expect("an event serialises")
+        })
         .collect();
     let mut out = Map::new();
     out.insert("events".into(), Value::Array(events));
