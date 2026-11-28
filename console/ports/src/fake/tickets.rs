@@ -667,7 +667,9 @@ fn note(
     writable(markers)?;
     let at = at_ticket(s, key)?;
     let author = Some(ctx.me(s));
-    let id = s.new_comment(author, body, markers.to_vec(), ctx.now);
+    let held = markers.to_vec();
+    let raw = held.is_empty().then(|| body.to_string());
+    let id = s.new_comment(author, body, held, raw, ctx.now);
     s.items[at].comments.push(id.clone());
     s.touch(at, ctx.now);
     ctx.wrote(

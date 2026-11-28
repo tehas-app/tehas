@@ -87,6 +87,10 @@ pub struct Comment {
     pub markers: Vec<Marker>,
     /// What it looked like when read.
     pub revision: Revision,
+    /// The text as it was read, markers and all; None when the reader did
+    /// not keep it. A caller that shows or sums the text shows this, so
+    /// the bytes a person wrote stand.
+    pub raw: Option<String>,
     /// Where a person opens it.
     pub link: WebLink,
 }
@@ -102,7 +106,8 @@ new!(
     editor,
     edited,
     body,
-    markers
+    markers,
+    raw
 );
 
 /// One edit of a body or a comment: who, when, the text after it without

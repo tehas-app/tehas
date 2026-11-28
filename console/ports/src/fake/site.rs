@@ -1037,6 +1037,7 @@ pub(crate) fn comment(c: &CommentRec, cut_text: bool) -> Comment {
         },
         markers: c.markers.clone(),
         revision: revision(c.revision),
+        raw: if cut_text { None } else { c.raw.clone() },
         link: c.link.clone(),
     }
 }

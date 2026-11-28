@@ -744,7 +744,9 @@ impl CodeHostWrites for Handle {
             writable(markers)?;
             let at = at_change(s, no)?;
             let author = Some(ctx.me(s));
-            let id = s.new_comment(author, body, markers.to_vec(), ctx.now);
+            let held = markers.to_vec();
+            let raw = held.is_empty().then(|| body.to_string());
+            let id = s.new_comment(author, body, held, raw, ctx.now);
             s.changes[at].comments.push(id.clone());
             change_event(s, ctx, at, ChangeHappened::Commented);
             ctx.wrote(

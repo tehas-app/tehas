@@ -118,6 +118,9 @@ pub struct Wiring {
     /// A mark as the label word it is spelled by, from the program's wiring:
     /// the queue's mapping names the marks of the open work with it.
     pub mark_name: MarkName,
+    /// A marker as the site writes it, from the program's wiring: the
+    /// comment's mapping names its markers with it.
+    pub marker_text: MarkerText,
     /// `TEHAS_ASSIGNEE`'s account, resolved once by the program's wiring
     /// through the site's identity: None with no such setting, Err with
     /// why when it could not be resolved, and the claim then goes without
@@ -133,6 +136,10 @@ pub type MarkOf = fn(&str) -> Option<tehas_ports::Mark>;
 /// The wiring's word for a mark as the site spells its label. The queue's
 /// mapping renders marks back to the words the snapshot names them by.
 pub type MarkName = fn(&tehas_ports::Mark) -> String;
+
+/// The wiring's word for a marker as the site writes it. The comment
+/// mapping renders our markers back onto a comment's body with it.
+pub type MarkerText = fn(&tehas_ports::Marker) -> String;
 
 pub use tehas_core::journal::Handles;
 

@@ -62,6 +62,12 @@ impl Blueprints for Handle {
     fn comments(&mut self, no: BlueprintNo, bound: Bound) -> Got<Whole<Comment>> {
         self.run(Pool::Calls, |s, _| {
             let at = no_blueprint(s, no)?;
+            if s.broken_comments.contains(&no.get()) {
+                return Err(Outcome::Unavailable {
+                    why: crate::Passing::Server,
+                    sent: crate::Sent::Maybe,
+                });
+            }
             whole(comments_of(s, &s.items[at].comments, false), bound)
         })
     }
@@ -279,7 +285,9 @@ impl BlueprintWrites for Handle {
             writable(markers)?;
             let at = no_blueprint(s, no)?;
             let author = Some(ctx.me(s));
-            let id = s.new_comment(author, body, markers.to_vec(), ctx.now);
+            let held = markers.to_vec();
+            let raw = held.is_empty().then(|| body.to_string());
+            let id = s.new_comment(author, body, held, raw, ctx.now);
             s.items[at].comments.push(id.clone());
             s.touch(at, ctx.now);
             ctx.wrote(
