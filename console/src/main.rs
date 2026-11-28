@@ -510,13 +510,33 @@ mod wiring {
         repo: &str,
         bound: Duration,
     ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        releases_as(by, repo, bound, "update")
+    }
+
+    /// The code host handle of the status platform read on tehas's own
+    /// release project: the same site as `releases`, its own caller.
+    pub(crate) fn platform_releases(
+        by: &tehas_ports::Actor,
+        repo: &str,
+        bound: Duration,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
+        releases_as(by, repo, bound, "platform")
+    }
+
+    fn releases_as(
+        by: &tehas_ports::Actor,
+        repo: &str,
+        bound: Duration,
+        caller: &'static str,
+    ) -> tehas_ports::Got<Box<dyn tehas_ports::CodeHost + Send>> {
         use tehas_ports::{Actor, Caller, Site};
         let make = gh_make(bound);
         let site = tehas_github::GitHubSite::new(repo, "", None, make);
+        let caller = Caller::new(caller);
         if *by != Actor::Anonymous {
-            return site.code_host(by, Caller::new("update"));
+            return site.code_host(by, caller);
         }
-        anonymous(site, Caller::new("update"))
+        anonymous(site, caller)
     }
 
     /// The code host handle of `console pins` for the public project `repo`
