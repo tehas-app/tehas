@@ -4,7 +4,9 @@
 //! (`edit_comment`). Each write is one request, sent once, never again: its
 //! title and body go as JSON on gh's standard input, never in an argument,
 //! which holds at most 128 KiB and is seen by every process on the host.
-//! `edit` and `comment` read the issue first, `edit_comment` the comment.
+//! `edit` and `comment` read the issue first, `edit_comment` the comment,
+//! and every write confirms the repository first
+//! (`GitHub::confirm_here`).
 //!
 //! Every write goes to this adapter's own repository, named by its typed
 //! number or id. `open`, `edit` and `comment` carry no marker: a write that
@@ -13,7 +15,8 @@
 //! comment's markers and changes them as `markers::edit` says, and edits
 //! only a comment the factory's own account wrote, known by its id.
 
-use super::unsupported;
+use super::named::Named;
+use super::{unsent, unsupported};
 use crate::{gh, markers, GitHub};
 use serde_json::Value;
 use tehas_ports::{
@@ -37,7 +40,7 @@ impl BlueprintWrites for GitHub {
         let path = format!("{}/issues", self.issues()?);
         let input = serde_json::json!({ "title": new.title, "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
-        let issue = read_issue(&out, &self.repo)?;
+        let issue = self.as_here(|repo| read_issue(&out, repo))?;
         Ok(Posted::new(issue.no, issue.link))
     }
 
@@ -87,7 +90,7 @@ impl BlueprintWrites for GitHub {
         }
         let failed = match self.send("PATCH", &path, &Value::Object(fields).to_string()) {
             Ok(out) => {
-                let edited = read_issue(&out, &self.repo)?;
+                let edited = self.as_here(|repo| read_issue(&out, repo))?;
                 if edited.no != no {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
@@ -131,7 +134,7 @@ impl BlueprintWrites for GitHub {
         self.read_before(no)?;
         let input = serde_json::json!({ "body": body }).to_string();
         let out = self.send("POST", &path, &input)?;
-        read_comment(&out, &self.repo, no)
+        self.as_here(|repo| read_comment(&out, repo, no))
     }
 
     /// The comment read, its revision compared with `since`, then one
@@ -204,7 +207,7 @@ impl BlueprintWrites for GitHub {
         let input = serde_json::json!({ "body": new }).to_string();
         let failed = match self.send("PATCH", &path, &input) {
             Ok(out) => {
-                let edited = read_comment(&out, &self.repo, now.no)?;
+                let edited = self.as_here(|repo| read_comment(&out, repo, now.no))?;
                 if edited.id != *id {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
@@ -257,11 +260,13 @@ impl GitHub {
         }
     }
 
-    /// One write, its JSON on gh's standard input, sent once. A failure is
+    /// One write, its JSON on gh's standard input, sent once, after
+    /// [`GitHub::confirm_here`]. A failure is
     /// its named outcome: a 422 is GitHub refusing the input, a spent
     /// budget is the writes' pool, and a runner that sends no input sent
     /// nothing. No word of gh's answer, or of the input, is kept.
     pub(super) fn send(&mut self, method: &str, path: &str, input: &str) -> Got<String> {
+        self.confirm_here()?;
         let args = ["api", "-X", method, path, "--input", "-"];
         let e = match self.call_input("the write", &args, input) {
             Ok(out) => return Ok(out),
@@ -290,7 +295,7 @@ impl GitHub {
         let out = self
             .issue_answer(no.get())
             .map_err(|e| unsent(self.outcome(&e)))?;
-        let issue = read_issue(&out, &self.repo)?;
+        let issue = self.as_here(|repo| read_issue(&out, repo))?;
         if issue.no != no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
@@ -306,7 +311,7 @@ impl GitHub {
         let out = self
             .call("the comment", &["api", path])
             .map_err(|e| unsent(self.outcome(&e)))?;
-        held(&out, &self.repo, n)
+        self.as_here(|repo| held(&out, repo, n))
     }
 }
 
@@ -335,17 +340,6 @@ pub(super) fn comment_revision(raw: &str) -> Revision {
     Revision::new(tehas_core::approval::body_sum(raw))
 }
 
-/// A failure of the read before a write: the write was not sent.
-pub(super) fn unsent(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Unavailable { why, .. } => Outcome::Unavailable {
-            why,
-            sent: Sent::No,
-        },
-        other => other,
-    }
-}
-
 /// `Refused(Invalid)` when a text holds one of our markers: a body never
 /// does, they travel beside it. As [`markers::foreign_text`] finds one: our
 /// wrapper, opening or closing, or a marker the reader reads, bare too.
@@ -369,7 +363,7 @@ pub(super) struct Issue {
 /// field every issue has is `Unread(Malformed)`; a pull request is
 /// `NotFound`, no blueprint; a link that is not this project's issue of
 /// that number is `Unread(Inconsistent)`.
-pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
+pub(super) fn read_issue(out: &str, repo: Named) -> Got<Issue> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let no = v
@@ -394,7 +388,7 @@ pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
     if v.get("pull_request").is_some_and(|p| !p.is_null()) {
         return Err(Outcome::NotFound);
     }
-    if !ends_with_folded(url, &format!("/{repo}/issues/{}", no.get())) {
+    if !repo.ends(url, "", &format!("/issues/{}", no.get())) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let link = WebLink::new(url).map_err(|_| malformed)?;
@@ -408,7 +402,7 @@ pub(super) fn read_issue(out: &str, repo: &str) -> Got<Issue> {
 
 /// The comment in gh's answer: its id, and its link, which must be the
 /// comment's on this project's issue `no`.
-pub(super) fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted<CommentId>> {
+pub(super) fn read_comment(out: &str, repo: Named, no: BlueprintNo) -> Got<Posted<CommentId>> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     let id = v
@@ -419,24 +413,13 @@ pub(super) fn read_comment(out: &str, repo: &str, no: BlueprintNo) -> Got<Posted
         .get("html_url")
         .and_then(Value::as_str)
         .ok_or(malformed.clone())?;
-    if !ends_with_folded(
-        url,
-        &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
-    ) {
+    if !repo.ends(url, "", &format!("/issues/{}#issuecomment-{id}", no.get())) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     Ok(Posted::new(
         CommentId::new(id.to_string()),
         WebLink::new(url).map_err(|_| malformed)?,
     ))
-}
-
-/// `text` ends with `tail`, ASCII case folded: GitHub names a project in
-/// any case.
-pub(super) fn ends_with_folded(text: &str, tail: &str) -> bool {
-    text.len() >= tail.len()
-        && text.is_char_boundary(text.len() - tail.len())
-        && text[text.len() - tail.len()..].eq_ignore_ascii_case(tail)
 }
 
 /// The REST id a comment's id is. Any other id names no comment here:
@@ -468,7 +451,7 @@ struct Held {
 /// a field every comment has is `Unread(Malformed)`; a comment on a pull
 /// request is `NotFound`, no blueprint's; another comment, or one of
 /// another project, is `Unread(Inconsistent)`.
-fn held(out: &str, repo: &str, n: u64) -> Got<Held> {
+fn held(out: &str, repo: Named, n: u64) -> Got<Held> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     if v.get("id").and_then(Value::as_u64) != Some(n) {
@@ -507,7 +490,7 @@ fn held(out: &str, repo: &str, n: u64) -> Got<Held> {
 /// The issue of this project a comment's link `url` names, the comment
 /// `n`: `NotFound` for a comment on a pull request, `Unread(Inconsistent)`
 /// for one of another project or another comment.
-pub(super) fn comment_issue(repo: &str, url: &str, n: u64) -> Got<BlueprintNo> {
+pub(super) fn comment_issue(repo: Named, url: &str, n: u64) -> Got<BlueprintNo> {
     let inconsistent = Outcome::Unread(Unread::Inconsistent);
     let head = url
         .strip_suffix(&format!("#issuecomment-{n}"))
@@ -518,10 +501,10 @@ pub(super) fn comment_issue(repo: &str, url: &str, n: u64) -> Got<BlueprintNo> {
         .ok()
         .and_then(BlueprintNo::new)
         .ok_or(inconsistent.clone())?;
-    if ends_with_folded(at, &format!("/{repo}/pull")) {
+    if repo.ends(at, "", "/pull") {
         return Err(Outcome::NotFound);
     }
-    if !ends_with_folded(at, &format!("/{repo}/issues")) {
+    if !repo.ends(at, "", "/issues") {
         return Err(inconsistent);
     }
     Ok(no)

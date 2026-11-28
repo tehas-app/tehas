@@ -3,6 +3,7 @@
 //! The tickets port is answered over these terms (`tickets.rs`).
 
 use crate::gh;
+use crate::port::Named;
 use crate::table::{is_label, APPROVAL_LABEL};
 use tehas_core::forge::GhRunner;
 
@@ -137,6 +138,17 @@ pub struct GitHub {
     /// GraphQL answer that names it: what tells this project from another,
     /// since a rename changes the name and not the id (`GitHub::is_here`).
     here: Here,
+    /// The name GitHub gave with the id learned, where an answer gave both:
+    /// what a link or a name in an answer is read against when the
+    /// configured name is an old one (`GitHub::as_here`).
+    here_name: Option<String>,
+    /// The handle asked for the name once: it does not ask again.
+    asked_name: bool,
+    /// The id and the name the question of the name answered, where it was
+    /// asked and answered both.
+    named: Option<(u64, String)>,
+    /// A write of this handle confirmed the repository: none asks again.
+    confirmed: bool,
 }
 
 /// What a handle learned of its repository's database id.
@@ -170,6 +182,10 @@ impl GitHub {
             comment_nodes: std::collections::HashMap::new(),
             people: None,
             here: Here::Unknown,
+            here_name: None,
+            asked_name: false,
+            named: None,
+            confirmed: false,
         }
     }
 
@@ -234,6 +250,125 @@ impl GitHub {
             Here::Id(was) if was == id => Here::Id(id),
             _ => Here::Torn,
         };
+        match self.here {
+            Here::Id(_) => {
+                if let Some(name) = v
+                    .pointer("/data/repository/nameWithOwner")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    self.here_name = Some(name.to_string());
+                }
+            }
+            _ => self.here_name = None,
+        }
+    }
+
+    /// `check` of an answer against this project's name. A question sent by
+    /// the configured name is answered under the name GitHub gives that
+    /// repository now, which a rename changes. So where `check` finds the
+    /// configured name `Unread(Inconsistent)`, and would not with any name,
+    /// it is asked again with the name GitHub gives with this project's
+    /// database id, learned once by a question when no answer gave it, and
+    /// only where that name has the configured owner. A link to another
+    /// repository fails both; a handle that cannot learn the name, or
+    /// learns one under another owner, keeps the first answer.
+    pub(crate) fn as_here<T>(
+        &mut self,
+        check: impl Fn(Named) -> tehas_ports::Got<T>,
+    ) -> tehas_ports::Got<T> {
+        let unread = |got: &tehas_ports::Got<T>| {
+            matches!(
+                got,
+                Err(tehas_ports::Outcome::Unread(
+                    tehas_ports::Unread::Inconsistent
+                ))
+            )
+        };
+        let first = check(Named::As(&self.repo));
+        if !unread(&first) || unread(&check(Named::Any)) {
+            return first;
+        }
+        match self.renamed() {
+            Some(name) => check(Named::As(&name)),
+            None => first,
+        }
+    }
+
+    /// The name GitHub gives this project's repository with its database
+    /// id, where it is not the configured name but has the configured
+    /// owner: learned as `as_here` learns it. A repository transferred to
+    /// another owner is another account's, so it is never here.
+    pub(crate) fn renamed(&mut self) -> Option<String> {
+        self.here_name()
+            .filter(|name| !name.eq_ignore_ascii_case(&self.repo) && self.owns(name))
+    }
+
+    /// `name` has the configured owner, case folded.
+    fn owns(&self, name: &str) -> bool {
+        let owner = |name: &str| name.split_once('/').map(|(owner, _)| owner.to_string());
+        owner(&self.repo)
+            .zip(owner(name))
+            .is_some_and(|(here, there)| here.eq_ignore_ascii_case(&there))
+    }
+
+    /// The name GitHub gives this project's repository with its database
+    /// id, asked once a handle when no answer gave it. None when the
+    /// question failed or the handle learned two ids.
+    fn here_name(&mut self) -> Option<String> {
+        if self.here_name.is_none() && self.here != Here::Torn && !self.asked_name {
+            self.asked_name = true;
+            let _ = self.ask_name();
+        }
+        self.here_name.clone()
+    }
+
+    /// The question of the name: the id and the name GitHub gives the
+    /// repository the configured name resolves to now.
+    fn ask_name(&mut self) -> tehas_ports::Got<(u64, String)> {
+        let (owner, name) = self.repo.split_once('/').unwrap_or((&self.repo, ""));
+        let (owner, name) = (format!("owner={owner}"), format!("name={name}"));
+        let query = "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId nameWithOwner } }";
+        let args = ["api", "graphql", "-f", &owner, "-f", &name, "-f", query];
+        let out = self
+            .call("the repository", &args)
+            .map_err(|e| crate::port::unsent(self.outcome(&e)))?;
+        let v: serde_json::Value = serde_json::from_str(out.trim())
+            .map_err(|_| tehas_ports::Outcome::Unread(tehas_ports::Unread::Malformed))?;
+        let id = v
+            .pointer("/data/repository/databaseId")
+            .and_then(|i| i.as_u64());
+        let name = v
+            .pointer("/data/repository/nameWithOwner")
+            .and_then(|n| n.as_str());
+        let named = id
+            .zip(name.map(str::to_string))
+            .ok_or(tehas_ports::Outcome::Unread(tehas_ports::Unread::Malformed))?;
+        self.named = Some(named.clone());
+        Ok(named)
+    }
+
+    /// Before a write: the repository the configured name resolves to is
+    /// this project's. Its name must have the configured owner, and its id
+    /// be the one the handle holds: `Unread(Inconsistent)` with nothing sent
+    /// otherwise. The question of the name is asked unless the handle has
+    /// its answer already; once a write confirms, the handle's later writes
+    /// ask nothing. A failure of the question is its outcome, the write not
+    /// sent, and the next write asks again.
+    pub(crate) fn confirm_here(&mut self) -> tehas_ports::Did {
+        if self.confirmed {
+            return Ok(());
+        }
+        let (id, name) = match self.named.clone() {
+            Some(named) => named,
+            None => self.ask_name()?,
+        };
+        if !self.is_here_id(Some(id))? || !self.owns(&name) {
+            return Err(tehas_ports::Outcome::Unread(
+                tehas_ports::Unread::Inconsistent,
+            ));
+        }
+        self.confirmed = true;
+        Ok(())
     }
 
     /// Whether a repository an answer names is this project's, by its
@@ -424,7 +559,7 @@ impl GitHub {
 
     /// Put `label` on the issue. A name no label can have is refused
     /// without a call.
-    pub fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
+    pub(crate) fn add_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
         if !is_label(label) {
             return Err(ForgeError::new(
                 "the label change",
@@ -457,7 +592,7 @@ impl GitHub {
 
     /// Take `label` off the issue. One that is not there is the state
     /// wanted. A name no label can have is refused without a call.
-    pub fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
+    pub(crate) fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError> {
         if !is_label(label) {
             return Err(ForgeError::new(
                 "the label change",
@@ -494,3 +629,7 @@ pub(crate) fn uri(s: &str) -> String {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../tests/label_writes/mod.rs"]
+mod label_writes;

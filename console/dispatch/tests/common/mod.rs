@@ -2717,7 +2717,10 @@ impl Drop for World {
 
 /// The start of the stub gh: the call numbered and recorded, and the answer
 /// gh_fail() named for it.
-const GH_HEAD: &str = r####"exec 6>>"$T/gh-n.lock" || exit 64
+const GH_HEAD: &str = r####"# The question of the repository's name, asked before a write: the
+# fixture project's, recorded but kept out of the count gh_fail() numbers.
+case "$*" in *"{ databaseId nameWithOwner } }") printf '%s\n' "$*" >>"$T/calls/gh"; echo '{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}'; exit 0 ;; esac
+exec 6>>"$T/gh-n.lock" || exit 64
 command -p flock 6
 raw=$(command -p cat "$T/gh-n" 2>/dev/null)
 case $raw in '' | *[!0-9]*) raw=0 ;; esac

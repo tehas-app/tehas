@@ -31,7 +31,8 @@
 
 use std::collections::BTreeSet;
 
-use super::super::blueprint_writes::{comment_revision, ends_with_folded};
+use super::super::blueprint_writes::comment_revision;
+use super::super::named::Named;
 use crate::graphql::priced;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
@@ -122,7 +123,8 @@ impl GitHub {
         let out = self
             .call("the pull request", &["api", &path])
             .map_err(|e| self.outcome(&e))?;
-        read_pull(&out, &self.repo, no, self.bot.as_ref())
+        let bot = self.bot.clone();
+        self.as_here(|repo| read_pull(&out, repo, no, bot.as_ref()))
     }
 
     /// Every issue comment of the pull request, oldest first, and those of
@@ -154,8 +156,10 @@ impl GitHub {
                 .call("the pull request's comments", &["api", &path])
                 .map_err(|e| self.outcome(&e))?;
             let held = (count - (page - 1) * PER_PAGE).min(PER_PAGE);
-            let (mut comments, touched) =
-                read_comments(&out, &self.repo, no, item, self.bot.as_ref())?;
+            let (mut comments, touched) = {
+                let bot = self.bot.clone();
+                self.as_here(|repo| read_comments(&out, repo, no, item, bot.as_ref()))?
+            };
             if comments.len() != held {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
@@ -186,7 +190,10 @@ impl GitHub {
     /// id, answered in their order. Every comment asked must be answered as
     /// an issue comment of that id, or the read is `Unread(Inconsistent)`.
     /// A failed question is the read's failure, a spent budget the priced
-    /// pool's.
+    /// pool's. The answer's repository, and each repository a closing
+    /// reference names, is this project's by `is_here_id` alone: a second
+    /// id learned anywhere in the read tears it, and the whole read is
+    /// `Unread(Inconsistent)`.
     fn ask_change(
         &mut self,
         no: ChangeNo,
@@ -199,14 +206,13 @@ impl GitHub {
             .ask("the pull request's question", &question, number, None)
             .map_err(|e| priced(self.outcome(&e)))?;
         let answer: Answer = answer(&out, (self.now)())?;
+        let repo = answer.repository.ok_or(MALFORMED)?;
+        if !self.is_here_id(repo.id)? {
+            return Err(Outcome::Unread(Unread::Inconsistent));
+        }
         let node = match pull {
             false => None,
-            true => Some(
-                answer
-                    .repository
-                    .ok_or(MALFORMED)?
-                    .read(no, self.bot.as_ref())?,
-            ),
+            true => Some(repo.read(no, self.bot.as_ref(), |id| self.is_here_id(id))?),
         };
         let nodes = answer.nodes.unwrap_or_default();
         if nodes.len() != ids.len() {
@@ -279,9 +285,11 @@ impl GitHub {
             let short = read.len() < PER_PAGE;
             for r in read {
                 let id = r.id.ok_or(MALFORMED)?;
-                if id <= last || !on_pull(r.pull_request_url.as_deref(), &self.repo, no)? {
+                if id <= last {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
+                let url = r.pull_request_url.as_deref();
+                self.as_here(|repo| on_pull(url, repo, no))?;
                 last = id;
                 let verdict = match r.state.as_deref().ok_or(MALFORMED)? {
                     "PENDING" => continue,
@@ -340,9 +348,11 @@ impl GitHub {
             }
             for n in read {
                 let id = n.id.ok_or(MALFORMED)?;
-                if id <= last || !on_pull(n.pull_request_url.as_deref(), &self.repo, no)? {
+                if id <= last {
                     return Err(Outcome::Unread(Unread::Inconsistent));
                 }
+                let url = n.pull_request_url.as_deref();
+                self.as_here(|repo| on_pull(url, repo, no))?;
                 last = id;
                 let Some((_, review)) = reviews
                     .iter_mut()
@@ -493,13 +503,13 @@ struct NoteFields {
 }
 
 /// The pull request's REST answer read. See [`GitHub::pull`].
-fn read_pull(out: &str, repo: &str, no: ChangeNo, bot: Option<&Bot>) -> Got<(Pull, Stamp)> {
+fn read_pull(out: &str, repo: Named, no: ChangeNo, bot: Option<&Bot>) -> Got<(Pull, Stamp)> {
     let f: PullFields = parse(out)?;
     if f.number != Some(no.get()) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let url = f.html_url.ok_or(MALFORMED)?;
-    if !ends_with_folded(&url, &format!("/{repo}/pull/{}", no.get())) {
+    if !repo.ends(&url, "", &format!("/pull/{}", no.get())) {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let side = |s: Option<&Side>| -> Got<(Branch, CommitId)> {
@@ -577,7 +587,7 @@ fn read_pull(out: &str, repo: &str, no: ChangeNo, bot: Option<&Bot>) -> Got<(Pul
 /// pull request is `Unread(Inconsistent)`.
 fn read_comments(
     out: &str,
-    repo: &str,
+    repo: Named,
     no: ChangeNo,
     item: BlueprintNo,
     bot: Option<&Bot>,
@@ -588,10 +598,7 @@ fn read_comments(
     for c in items {
         let id = c.id.ok_or(MALFORMED)?;
         let url = c.html_url.ok_or(MALFORMED)?;
-        if !ends_with_folded(
-            &url,
-            &format!("/{repo}/pull/{}#issuecomment-{id}", no.get()),
-        ) {
+        if !repo.ends(&url, "", &format!("/pull/{}#issuecomment-{id}", no.get())) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let raw = c.body.as_deref().unwrap_or_default();
@@ -756,9 +763,14 @@ struct Node {
 impl RepoNode {
     /// The pull request's part, which must be of `no`, else
     /// `Unread(Inconsistent)`. Closing references past one page are
-    /// `Unread(Cut)`.
-    fn read(self, no: ChangeNo, bot: Option<&Bot>) -> Got<Node> {
-        let here = self.id.ok_or(MALFORMED)?;
+    /// `Unread(Cut)`. A closing reference is here by `here`, the handle's
+    /// learned id.
+    fn read(
+        self,
+        no: ChangeNo,
+        bot: Option<&Bot>,
+        here: impl Fn(Option<u64>) -> Got<bool>,
+    ) -> Got<Node> {
         let pull = self.pull.ok_or(Outcome::Unread(Unread::Inconsistent))?;
         if pull.number != Some(no.get()) {
             return Err(Outcome::Unread(Unread::Inconsistent));
@@ -774,9 +786,9 @@ impl RepoNode {
         for c in nodes {
             let number = c.number.and_then(BlueprintNo::new).ok_or(MALFORMED)?;
             let repo = c.repository.ok_or(MALFORMED)?;
-            closes.push(match repo.id.ok_or(MALFORMED)? {
-                id if id == here => Ref::Here(number),
-                _ => Ref::Elsewhere {
+            closes.push(match here(Some(repo.id.ok_or(MALFORMED)?))? {
+                true => Ref::Here(number),
+                false => Ref::Elsewhere {
                     project: ProjectName::new(repo.name.ok_or(MALFORMED)?),
                     item: ItemName::new(number.get().to_string()),
                 },
@@ -860,14 +872,15 @@ pub(super) fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
     serde_json::from_value(v).map_err(|_| MALFORMED)
 }
 
-/// Whether a review's or a review comment's pull request is `no` of this
-/// project. A missing link is `Unread(Malformed)`.
-pub(super) fn on_pull(url: Option<&str>, repo: &str, no: ChangeNo) -> Got<bool> {
+/// A review's or a review comment's pull request, held to be `no` of
+/// this project: a missing link is `Unread(Malformed)`, another pull
+/// request's `Unread(Inconsistent)`.
+pub(super) fn on_pull(url: Option<&str>, repo: Named, no: ChangeNo) -> Got<()> {
     let url = url.ok_or(MALFORMED)?;
-    Ok(ends_with_folded(
-        url,
-        &format!("/repos/{repo}/pulls/{}", no.get()),
-    ))
+    match repo.ends(url, "/repos", &format!("/pulls/{}", no.get())) {
+        true => Ok(()),
+        false => Err(Outcome::Unread(Unread::Inconsistent)),
+    }
 }
 
 /// How an author stands to the project, from GitHub's `author_association`

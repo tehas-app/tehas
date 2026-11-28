@@ -4,7 +4,10 @@
 //! The open pull requests of the head are read first,
 //! `repos/<repo>/pulls?state=open&head=<owner>:<branch>`: one there is
 //! `Refused(Exists)` with nothing sent, as the fake answers, so a change is
-//! never opened twice. Then one `POST repos/<repo>/pulls`, its title, head,
+//! never opened twice. Then the repository is confirmed
+//! (`GitHub::confirm_here`): one that is not this project's is
+//! `Unread(Inconsistent)` with nothing sent. Then one
+//! `POST repos/<repo>/pulls`, its title, head,
 //! base, body and `draft` as JSON on gh's standard input, sent once, never
 //! again.
 //!
@@ -33,10 +36,13 @@
 //! the head before anything else.** An answer that does not parse, or one
 //! that is not this repository's pull request of this head as a draft when
 //! a draft was asked, is `Unread`, though GitHub took the `POST`. The
-//! repository is compared by its configured name, case folded: a project
-//! renamed on GitHub needs its configured name changed in the same step.
+//! repository is compared by its configured name, case folded, or, where
+//! the project was renamed, by the name GitHub gives with its repository's
+//! id (`GitHub::as_here`).
 
-use super::{ends_with_folded, project, unsent};
+use super::super::named::Named;
+use super::super::unsent;
+use super::project;
 use crate::forge::uri;
 use crate::{gh, markers, GitHub};
 use serde::Deserialize;
@@ -60,6 +66,7 @@ impl GitHub {
         if !before.is_empty() {
             return Err(Outcome::Refused(Refusal::Exists));
         }
+        self.confirm_here()?;
         let input = serde_json::json!({
             "title": new.title,
             "head": head,
@@ -70,7 +77,11 @@ impl GitHub {
         .to_string();
         let args = ["api", "-X", "POST", &path, "--input", "-"];
         let failed = match self.call_input("the change", &args, &input) {
-            Ok(out) => return read_opened(&out, &self.repo, head, new.draft).map(|(p, _)| p),
+            Ok(out) => {
+                return self
+                    .as_here(|repo| read_opened(&out, repo, head, new.draft))
+                    .map(|(p, _)| p)
+            }
             Err(e) => self.written(&e),
         };
         match failed {
@@ -118,7 +129,7 @@ impl GitHub {
         let pulls: Vec<Pull> = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
         pulls
             .into_iter()
-            .map(|p| read_pull(p, &self.repo, head))
+            .map(|p| self.as_here(|repo| read_pull(&p, repo, head)))
             .collect()
     }
 }
@@ -216,9 +227,9 @@ impl Shape {
 
 /// The pull request a `POST` answered: this repository's, of `head`, a
 /// draft when one was asked.
-fn read_opened(out: &str, repo: &str, head: &str, draft: bool) -> Got<(Posted<ChangeNo>, Shape)> {
+fn read_opened(out: &str, repo: Named, head: &str, draft: bool) -> Got<(Posted<ChangeNo>, Shape)> {
     let pull: Pull = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-    let read = read_pull(pull, repo, head)?;
+    let read = read_pull(&pull, repo, head)?;
     let is_draft = read.1.draft.ok_or(MALFORMED)?;
     if draft && !is_draft {
         return Err(Outcome::Unread(Unread::Inconsistent));
@@ -229,25 +240,26 @@ fn read_opened(out: &str, repo: &str, head: &str, draft: bool) -> Got<(Posted<Ch
 /// One pull request of a REST answer, its number and link: its link must
 /// be this repository's pull request of that number, and its head `head`
 /// in this repository.
-fn read_pull(pull: Pull, repo: &str, head: &str) -> Got<(Posted<ChangeNo>, Shape)> {
+fn read_pull(pull: &Pull, repo: Named, head: &str) -> Got<(Posted<ChangeNo>, Shape)> {
     let no = ChangeNo::new(pull.number).ok_or(MALFORMED)?;
     let here = pull.html_url.starts_with("https://github.com/")
-        && ends_with_folded(&pull.html_url, &format!("/{repo}/pull/{}", no.get()))
+        && repo.ends(&pull.html_url, "", &format!("/pull/{}", no.get()))
         && pull.head.name == head
         && pull
             .head
             .repo
-            .is_some_and(|r| r.full_name.eq_ignore_ascii_case(repo));
+            .as_ref()
+            .is_some_and(|r| repo.is(&r.full_name));
     if !here {
         return Err(Outcome::Unread(Unread::Inconsistent));
     }
     let shape = Shape {
-        base: pull.base.name,
-        title: pull.title,
+        base: pull.base.name.clone(),
+        title: pull.title.clone(),
         draft: pull.draft,
         author_id: pull.user.as_ref().and_then(|u| u.id),
-        author_kind: pull.user.and_then(|u| u.kind),
+        author_kind: pull.user.as_ref().and_then(|u| u.kind.clone()),
     };
-    let link = WebLink::new(pull.html_url).map_err(|_| MALFORMED)?;
+    let link = WebLink::new(pull.html_url.clone()).map_err(|_| MALFORMED)?;
     Ok((Posted::new(no, link), shape))
 }
