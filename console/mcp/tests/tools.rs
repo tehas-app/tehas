@@ -1125,7 +1125,7 @@ fn snapshot_sessions_skip_bad_lines_and_the_old() {
     let ids: Vec<i64> = Snapshot::open(&dir, t)
         .unwrap()
         .sessions()
-        .map(|v| v["id"].as_i64().unwrap())
+        .map(|v| v.count("id").unwrap())
         .collect();
     assert_eq!(ids, [1, 3, 6]);
 }
