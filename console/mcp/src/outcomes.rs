@@ -6,9 +6,12 @@
 //! tool would not serve one if it did.
 
 use crate::args::{Arg, Args};
+use crate::snapshot::{Fact, Loose, Scalar};
 use crate::tools::{self, bad, word, Dirs, ToolError};
 use regex::Regex;
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -178,7 +181,7 @@ impl File_ {
 
     /// The entries, one line at a time. A line that is not a JSON object is
     /// skipped, as in the snapshot; a read error ends the entries.
-    pub fn entries(&self) -> impl Iterator<Item = Value> {
+    pub fn entries(&self) -> impl Iterator<Item = Entry> {
         File::open(&self.path)
             .ok()
             .into_iter()
@@ -186,8 +189,118 @@ impl File_ {
             // like any other bad line instead of ending the reading.
             .flat_map(|f| BufReader::new(f).split(b'\n').skip(1))
             .map_while(Result::ok)
-            .filter_map(|l| serde_json::from_slice::<Value>(&l).ok())
-            .filter(Value::is_object)
+            .filter_map(|l| serde_json::from_slice::<Entry>(&l).ok())
+    }
+}
+
+/// One line of the counts file: the pair it counts, or the week it counts,
+/// the number of runs, and the maps of counts it may hold. A line that is not
+/// a JSON object reads as nothing. The readers of a line ask for a word, a
+/// whole number or a map of whole numbers; a field of another shape is the
+/// shape a writer would not give, and reads as nothing, as indexing a
+/// document read it.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Entry {
+    #[serde(rename = "tehasVersion", default)]
+    tehas_version: Fact,
+    #[serde(rename = "rukasVersion", default)]
+    rukas_version: Fact,
+    #[serde(default)]
+    week: Fact,
+    #[serde(default)]
+    runs: Loose<u64>,
+    #[serde(default)]
+    outcomes: Loose<BTreeMap<String, u64>>,
+    #[serde(rename = "failureKinds", default)]
+    failure_kinds: Loose<BTreeMap<String, u64>>,
+    #[serde(rename = "parkReasons", default)]
+    park_reasons: Loose<BTreeMap<String, u64>>,
+}
+
+impl Entry {
+    fn tehas(&self) -> Option<&str> {
+        self.tehas_version.0.as_ref().and_then(Scalar::text)
+    }
+
+    fn rukas(&self) -> Option<&str> {
+        self.rukas_version.0.as_ref().and_then(Scalar::text)
+    }
+
+    fn week(&self) -> Option<&str> {
+        self.week.0.as_ref().and_then(Scalar::text)
+    }
+
+    /// The whole number of runs, or nothing where the line holds no known
+    /// count: such a group is left out of the answer, not served.
+    fn runs(&self) -> Option<u64> {
+        Some(*self.runs.get()?)
+    }
+
+    /// The answer's copy of the line, as `pick` with the grouping's spec
+    /// copied it: the keys of the grouping and of `ENTRY`, a scalar of one
+    /// travels as the file wrote it, and a map of counts is copied whole or
+    /// not at all - one value that is no whole count drops the key.
+    fn answer(&self, by: &str, windowed: bool) -> Option<Map<String, Value>> {
+        let json_of = |f: &Scalar| serde_json::to_value(f).expect("a scalar serialises");
+        let mut m = Map::new();
+        let named: [(&str, &Fact); 3] = [
+            ("week", &self.week),
+            ("tehasVersion", &self.tehas_version),
+            ("rukasVersion", &self.rukas_version),
+        ];
+        let keep = |key: &str| {
+            if by == "week" {
+                key == "week"
+            } else {
+                key != "week"
+            }
+        };
+        for (key, f) in named {
+            if let (true, Some(f)) = (keep(key), f.0.as_ref()) {
+                m.insert(key.into(), json_of(f));
+            }
+        }
+        for (key, map) in [
+            ("outcomes", self.outcomes.get()),
+            ("failureKinds", self.failure_kinds.get()),
+            ("parkReasons", self.park_reasons.get()),
+        ] {
+            if let Some(map) = map {
+                m.insert(
+                    key.into(),
+                    Value::Object(map.iter().map(|(k, v)| (k.clone(), json!(v))).collect()),
+                );
+            }
+        }
+        m.insert("runs".into(), json!(self.runs()?));
+        if windowed && !self.bounded() {
+            m.insert("unwindowed".into(), json!(true));
+        }
+        Some(m)
+    }
+
+    /// Whether a window can bound the entry: it names a week that is a date.
+    fn bounded(&self) -> bool {
+        self.week().and_then(week_start).is_some()
+    }
+
+    /// Whether the entry falls in the window, which is given in whole days. A
+    /// week's entry stands for seven days and passes when any of them is in
+    /// it.
+    fn in_window(&self, since: Option<i64>, until: Option<i64>) -> bool {
+        let (first, last) = self.days();
+        since.is_none_or(|s| last >= day(s)) && until.is_none_or(|u| first <= day(u))
+    }
+
+    /// The first and last day an entry stands for. A version pair holds runs
+    /// of every day the file reaches, and so does an entry that names no week
+    /// or names one that is no date: it is kept, as a filter cannot be
+    /// answered from a count of what it leaves out.
+    fn days(&self) -> (i64, i64) {
+        match self.week().and_then(week_start) {
+            Some(start) => (day(start), day(start) + 6),
+            None => (i64::MIN, i64::MAX),
+        }
     }
 }
 
@@ -246,38 +359,19 @@ pub(crate) fn call(dirs: &Dirs, asked: &OutcomesArgs) -> Result<Map<String, Valu
             file.by
         )));
     }
-    let spec = crate::outcomes_schema::spec(&file.by);
     let windowed = file.by == "week" && (since.is_some() || until.is_some());
     let entries: Vec<Value> = file
         .entries()
         .filter(|e| {
-            let named = |key: &str, want: &Option<String>| {
-                want.as_ref()
-                    .is_none_or(|w| e[key].as_str() == Some(w.as_str()))
+            let named = |got: Option<&str>, want: &Option<String>| {
+                want.as_deref().is_none_or(|w| got == Some(w))
             };
-            named("tehasVersion", tehas)
-                && named("rukasVersion", rukas)
-                && in_window(e, since, until)
+            named(e.tehas(), tehas) && named(e.rukas(), rukas) && e.in_window(since, until)
         })
-        .map(|e| match tools::pick(&e, &spec) {
-            Some(Value::Object(mut m)) => {
-                // `runs` is the one key the entry must hold: a group of runs of
-                // no known size answers nothing, so it is left out rather than
-                // served, and a count that is no whole number is no count.
-                match m.remove("runs").and_then(|r| r.as_u64()) {
-                    None => Value::Null,
-                    Some(runs) => {
-                        m.insert("runs".into(), json!(runs));
-                        if windowed && !bounded(&e) {
-                            m.insert("unwindowed".into(), json!(true));
-                        }
-                        Value::Object(m)
-                    }
-                }
-            }
-            _ => Value::Null,
-        })
-        .filter(Value::is_object)
+        // `runs` is the one key the entry must hold: a group of runs of no
+        // known size answers nothing, so it is left out rather than served,
+        // and a count that is no whole number is no count.
+        .filter_map(|e| e.answer(&file.by, windowed).map(Value::Object))
         .collect();
     let mut out = Map::new();
     out.insert("by".into(), json!(file.by));
@@ -288,29 +382,6 @@ pub(crate) fn call(dirs: &Dirs, asked: &OutcomesArgs) -> Result<Map<String, Valu
     Ok(out)
 }
 
-/// Whether an entry falls in the window, which is given in whole days. A
-/// week's entry stands for seven days and passes when any of them is in it.
-fn in_window(e: &Value, since: Option<i64>, until: Option<i64>) -> bool {
-    let (first, last) = entry_days(e);
-    since.is_none_or(|s| last >= day(s)) && until.is_none_or(|u| first <= day(u))
-}
-
 fn day(t: i64) -> i64 {
     t.div_euclid(DAY)
-}
-
-/// Whether a window can bound the entry: it names a week that is a date.
-fn bounded(e: &Value) -> bool {
-    e["week"].as_str().and_then(week_start).is_some()
-}
-
-/// The first and last day an entry stands for. A version pair holds runs of
-/// every day the file reaches, and so does an entry that names no week or
-/// names one that is no date: it is kept, as a filter cannot be answered from
-/// a count of what it leaves out.
-fn entry_days(e: &Value) -> (i64, i64) {
-    match e["week"].as_str().and_then(week_start) {
-        Some(start) => (day(start), day(start) + 6),
-        None => (i64::MIN, i64::MAX),
-    }
 }
