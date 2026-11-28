@@ -20,6 +20,8 @@ mod attachments;
 mod curl;
 mod forge;
 pub mod gh;
+pub mod gh_shim;
+pub mod gh_writes;
 mod graphql;
 mod items;
 pub mod markers;

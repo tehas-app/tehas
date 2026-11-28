@@ -154,7 +154,7 @@
 //!   console gh <real gh> <log> [words]
 //!
 //! What host/shim/gh execs: a read execs gh, a write runs it and leaves a line
-//! in the write log, see src/gh_shim.rs.
+//! in the write log, see github/src/gh_shim.rs.
 //!
 //!   console run <libexec dir> <euid> <bash> tehas|tehasbot <command> ...
 //!
@@ -182,8 +182,6 @@ mod epics;
 mod export;
 mod frame;
 mod front;
-mod gh_shim;
-mod gh_writes;
 mod history;
 mod label;
 mod labels;
@@ -612,6 +610,12 @@ mod wiring {
         tehas_github::table::word(label).or_else(|| MarkName::new(label).ok().map(Mark::Project))
     }
 
+    /// `tehas github writes` and `tehasbot github-writes`: the day's writes
+    /// as the gh shim's log tells them.
+    pub(crate) fn github_writes(given: &[String]) -> u8 {
+        tehas_github::gh_writes::main(given)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::notice_words;
@@ -726,7 +730,7 @@ fn main() -> ExitCode {
     }
     if words.first().is_some_and(|w| w == "gh") {
         let given: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
-        return ExitCode::from(gh_shim::main(&given));
+        return ExitCode::from(tehas_github::gh_shim::main(&given));
     }
     if words.first().is_some_and(|w| w == "run") {
         let text = std::env::args_os().all(|a| a.to_str().is_some());
