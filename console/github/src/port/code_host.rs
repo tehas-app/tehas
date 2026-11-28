@@ -18,6 +18,7 @@ pub(super) mod download;
 mod numbers;
 pub(super) mod releases;
 mod remote;
+mod reviews;
 pub use checks::WORKFLOW_RUNS_FORBIDDEN;
 pub(super) use remote::parts;
 pub use remote::project_of;
@@ -33,9 +34,10 @@ use serde::Deserialize;
 use serde_json::Value;
 use tehas_ports::{
     Access, AccountId, At, Author, BlueprintNo, Bound, Branch, Change, ChangeDelta, ChangeDigest,
-    ChangeEvent, ChangeFilter, ChangeNo, ChangeStates, ChangeToken, ChangedFile, Checks, CodeHost,
-    CommitId, Compared, Cursor, Did, Facts, FileName, Got, Mark, Outcome, Pool, ProjectName, Ref,
-    Release, Remote, RepoPath, Rev, Tag, TagName, Took, Unread, Whole, Window,
+    ChangeEvent, ChangeFilter, ChangeNo, ChangeReview, ChangeStates, ChangeToken, ChangedFile,
+    Checks, CodeHost, Comment, CommitId, Compared, Cursor, Did, Facts, FileName, Got, Login, Mark,
+    Outcome, Pool, ProjectName, Ref, Release, Remote, RepoPath, Rev, ReviewComment, Tag, TagName,
+    Took, Unread, Whole, Window,
 };
 
 impl CodeHost for GitHub {
@@ -171,6 +173,29 @@ impl CodeHost for GitHub {
     /// The pull request's timeline, every kind, paged: see `activity.rs`.
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>> {
         self.activity_of(no, window)
+    }
+
+    /// The review bodies of the pull request, the pending ones left out:
+    /// see `reviews.rs`.
+    fn reviews(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangeReview>> {
+        self.reviews_of(no, bound)
+    }
+
+    /// The notes reviewers left on files of the pull request: see
+    /// `reviews.rs`.
+    fn review_comments(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ReviewComment>> {
+        self.review_notes_of(no, bound)
+    }
+
+    /// The conversation of the pull request, GitHub's issue-comment list
+    /// of the same number: see `reviews.rs`.
+    fn conversation(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<Comment>> {
+        self.conversation_of(no, bound)
+    }
+
+    /// Whether the account may write to the project: see `reviews.rs`.
+    fn may_write(&mut self, who: &Login) -> Got<bool> {
+        self.may_write_of(who)
     }
 
     /// The commit's check runs and status contexts, whole up to `ALL_MAX`
