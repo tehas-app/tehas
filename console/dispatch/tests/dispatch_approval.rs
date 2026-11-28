@@ -538,7 +538,7 @@ fn pr_world(w: &World) -> Run {
 fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_to_the_tick() {
     let w = World::new("ap-retry-pr");
     let r = pr_world(&w);
-    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(r.rc, 0, "{}\nGH:\n{}", r.out, w.gh());
     assert_eq!(w.started(), "7 ", "{}", r.out);
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(
@@ -656,10 +656,22 @@ fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
-    w.fx("comments-7.json", r#"{"not": "a list"}"#);
+    // The tick stays unasked, so the same poll can be asked again with a
+    // pull request of the bot's whose conversation the site answers in no
+    // shape a read takes: the retry says so and starts nothing.
+    std::fs::remove_file(w.fx.join("icomments-fails")).unwrap();
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
+    );
+    w.fx("icomments-30.json", r#"{"not": "a list"}"#);
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "unreadable comments of #7");
+    has(
+        &r.out,
+        "ERROR: the comments on the pull request of #7 could not be read",
+    );
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");

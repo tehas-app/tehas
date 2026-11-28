@@ -275,7 +275,7 @@ case "$1 $2" in
     cat "$T/fx/parent-${n%%/*}.json" 2>/dev/null || not_found ;;
   # The reviews and inline comments of a pull request, as REST lists them,
   # page by page as the code host's adapter asks.
-  "api repos/acme/widget/pulls/"*"/reviews?per_page=100*" | "api repos/acme/widget/pulls/"*"/comments?per_page=100*")
+  "api repos/acme/widget/pulls/"*"/reviews?per_page=100"* | "api repos/acme/widget/pulls/"*"/comments?per_page=100"*)
     n=${2#repos/acme/widget/pulls/}
     case "$2" in */reviews*) f=reviews ;; *) f=inline ;; esac
     cat "$T/fx/$f-${n%%/*}.json" 2>/dev/null || echo "[]" ;;

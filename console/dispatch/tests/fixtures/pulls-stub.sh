@@ -25,7 +25,14 @@ jq -n --argjson pulls "$pulls" '
       baseRefName: "main", baseRefOid: "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0",
       mergeable: "MERGEABLE", mergeStateStatus: "CLEAN",
       createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
-      lastEditedAt: null, mergedAt: null, closedAt: null,
+      lastEditedAt: null,
+      # A closed pull request was closed at a time and a merged one merged
+      # at one: GitHub always says when, so the answer says it too unless
+      # the case names its own.
+      mergedAt: ($p.mergedAt // (if ($p.state // "OPEN") == "MERGED"
+        then "2026-01-01T02:00:00Z" else null end)),
+      closedAt: ($p.closedAt // (if ($p.state // "OPEN") == "CLOSED"
+        then "2026-01-01T02:00:00Z" else null end)),
       additions: 0, deletions: 0, changedFiles: 0,
       author: ($p.author // {login: "alice"}),
       editor: null, mergedBy: null, mergeCommit: null,

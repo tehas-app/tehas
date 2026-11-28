@@ -135,7 +135,6 @@ fn reviewed(w: &World, ticked: &str, login: &str) {
             &format!("The button goes here: ![shot]({A}/7171)")
         )]),
     );
-    w.fx("icomments-7.json", "[]");
     let body = match ticked {
         "clean" => park(&["x", " ", " "]),
         "alone" => park(&[" ", "x", " "]),
@@ -362,9 +361,9 @@ fn a_retry_held_on_its_image_holds_that_issue_not_the_poll_the_next_ready_issue_
     has(&r.out, "hold #7: its text links an attachment");
 }
 
-// The comments of the issue itself are the park's question, so the REST list
-// the poll reads for a clean start is named and empty: only the pull
-// request's comments go into the record.
+// The comments of the issue itself are the park's question and the reply
+// that ticked its box: the question is the bot's and goes no further than
+// the reply, so the record holds the reply and the pull request's comment.
 #[test]
 fn a_start_by_the_clean_start_box_carries_the_comment_an_allowed_account_wrote_after_the_park() {
     let w = world("images-clean");
@@ -376,7 +375,8 @@ fn a_start_by_the_clean_start_box_carries_the_comment_an_allowed_account_wrote_a
     assert_eq!(started(&w), "7", "{}", r.out);
     has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
-    assert_eq!(w.at_mark(".retry_context | length"), "1");
+    // The pull request's comment and the reply that ticked the box.
+    assert_eq!(w.at_mark(".retry_context | length"), "2");
     has(&w.at_mark(".retry_context[0].text"), "The button goes here");
 }
 
@@ -402,7 +402,10 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
         ),
     );
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
-    assert_eq!(w.at_mark(".retry_context | length"), "0");
+    // The pull request comment of the doubtful id is not carried; only the
+    // reply that ticked the box, of alice's own recorded id, is.
+    assert_eq!(w.at_mark(".retry_context | length"), "1");
+    lacks(&w.at_mark(".retry_context | map(.text) | tostring"), "The button goes here");
 }
 
 #[test]
@@ -482,7 +485,8 @@ fn a_park_of_the_old_two_boxes_still_gives_the_clean_start_its_pull_requests_com
     assert_eq!(started(&w), "7", "{}", r.out);
     has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
-    assert_eq!(w.at_mark(".retry_context | length"), "1");
+    // The pull request's comment and the reply that ticked the box.
+    assert_eq!(w.at_mark(".retry_context | length"), "2");
 }
 
 #[test]
