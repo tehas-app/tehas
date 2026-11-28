@@ -61,7 +61,11 @@ fn facts_path(home: &Path, issue: i64) -> PathBuf {
 }
 
 /// Sets one fact of the issue's run and keeps the others.
-fn fact(home: &Path, issue: i64, key: &str, value: Value) {
+fn fact(home: &Path, issue: i64, key: &str, value: impl serde::Serialize) {
+    set_fact(home, issue, key, &serde_json::to_string(&value).unwrap());
+}
+
+fn set_fact(home: &Path, issue: i64, key: &str, raw: &str) {
     let p = facts_path(home, issue);
     let mut facts: Value = fs::read_to_string(&p)
         .ok()
@@ -69,19 +73,17 @@ fn fact(home: &Path, issue: i64, key: &str, value: Value) {
         .unwrap_or_else(|| {
             json!({"line": null, "attempt": null, "approval": null, "settings": null, "rukas": null})
         });
-    facts[key] = value;
+    facts[key] = serde_json::from_str(raw).unwrap();
     fs::write(&p, facts.to_string()).unwrap();
 }
 
 /// The run's facts with these history lines: the last one, and how many.
-fn history(home: &Path, issue: i64, lines: &[Value]) {
-    fact(
-        home,
-        issue,
-        "line",
-        lines.last().cloned().unwrap_or(Value::Null),
-    );
-    fact(home, issue, "attempt", json!(lines.len()));
+fn history(home: &Path, issue: i64, lines: &[impl serde::Serialize]) {
+    match lines.last() {
+        Some(line) => set_fact(home, issue, "line", &serde_json::to_string(line).unwrap()),
+        None => set_fact(home, issue, "line", "null"),
+    }
+    fact(home, issue, "attempt", lines.len());
 }
 
 fn given(home: &Path, issue: i64) -> Given {
@@ -125,7 +127,7 @@ fn steps(conn: &Connection) -> Vec<(String, i64, i64, i64, i64)> {
 // it: the result, the progress summary and the version on disk, and the facts
 // of the settings, the approval, the image's commit and the history line
 // `line`.
-fn cycle(home: &Path, name: &str, started: i64, line: Value) {
+fn cycle(home: &Path, name: &str, started: i64, line: impl serde::Serialize) {
     let dir = fixture(name);
     fs::copy(
         dir.join("result.json"),
@@ -1111,7 +1113,7 @@ fn an_issue_without_history_records_nothing() {
     assert_eq!(code(&home, Given::default()), 65);
     assert_eq!(code(&home, given(&home, 5)), 65);
     // Facts with no history line, or one with no start.
-    history(&home, 5, &[]);
+    history(&home, 5, &[] as &[Value]);
     assert_eq!(code(&home, given(&home, 5)), 65);
     history(&home, 5, &[json!({"at": "2026-10-18T10:16:39Z", "rc": 0})]);
     assert_eq!(code(&home, given(&home, 5)), 65);
@@ -2505,10 +2507,13 @@ fn an_event_far_in_the_past_is_stored_as_given() {
 
 // A planning turn of issue 7 in flight: its record as the poll leaves
 // it when the turn has ended, as facts, and what `tehas plan` wrote beside it.
-fn turn(home: &Path, record: Value, out: Option<Value>) {
-    fs::write(facts_path(home, 7), record.to_string()).unwrap();
+fn turn(home: &Path, record: impl serde::Serialize, out: Option<impl serde::Serialize>) {
+    fs::write(facts_path(home, 7), serde_json::to_string(&record).unwrap()).unwrap();
     if let Some(o) = out {
-        put_at(h(home).plan_file(7, ".out"), &o.to_string());
+        put_at(
+            h(home).plan_file(7, ".out"),
+            &serde_json::to_string(&o).unwrap(),
+        );
     }
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
 }
@@ -2738,7 +2743,7 @@ fn a_planning_turn_not_in_flight_records_nothing() {
         json!([1, 2]),
         json!(null),
     ] {
-        turn(&home, record, None);
+        turn(&home, record, None::<Value>);
         assert_eq!(
             execute(&home, &plan_cmd(&home, "0"), now).unwrap_err().0,
             65

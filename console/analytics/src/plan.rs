@@ -16,9 +16,10 @@
 //! the model's turns: the turn's answer holds no usage, so no usage column is
 //! set. The turn ended when the poll collected it, which is now.
 
+use crate::loose::{Loose, Many};
 use crate::run::{iso_ms, read_facts, read_json, tehas_version, Run};
 use rusqlite::{params, Connection};
-use serde_json::Value;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tehas_core::home::Home;
 
@@ -43,35 +44,61 @@ pub const MILLWRIGHT_MARK: &str = tehas_core::grammar::MILLWRIGHT;
 #[cfg(not(test))]
 const MILLWRIGHT_MARK: &str = tehas_core::grammar::MILLWRIGHT;
 
+/// The poll's record of the planning turn in flight. Every field is
+/// [`Loose`] or [`Many`]: one of another shape reads as nothing, as the
+/// reader has always done.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct PlanRecord {
+    running: Loose<bool>,
+    started_at: Loose<String>,
+    turns: Loose<i64>,
+    label: Loose<String>,
+    answers: Many<Answer>,
+}
+
+/// One answer on the record. The `millwright` key is the mark of
+/// [`MILLWRIGHT_MARK`]: the test of the mark reads an answer marked with it,
+/// so a renamed word in the core fails there.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct Answer {
+    turn: Loose<i64>,
+    #[serde(rename = "millwright")]
+    millwright: Loose<bool>,
+}
+
+/// What `tehas plan` left beside the record: the session on exit 0, lost
+/// when Pi no longer had it.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct OutFile {
+    session: Loose<String>,
+    lost: Loose<bool>,
+}
+
 pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, String> {
     let none = || format!("no planning turn of issue {issue} in flight, so none to record");
-    let rec = read_facts(given.facts.as_deref()).ok_or_else(none)?;
-    let rec = rec.as_object().ok_or_else(none)?;
-    if rec.get("running").and_then(Value::as_bool) != Some(true) {
+    let rec = read_facts::<Loose<PlanRecord>>(given.facts.as_deref())
+        .and_then(|r| r.0)
+        .ok_or_else(none)?;
+    if rec.running.0 != Some(true) {
         return Err(none());
     }
     let started = rec
-        .get("startedAt")
-        .and_then(Value::as_str)
-        .and_then(iso_ms)
+        .started_at
+        .get()
+        .and_then(|at| iso_ms(at))
         .map(|ms| ms / 1000)
         .ok_or_else(none)?;
-    let before = rec
-        .get("turns")
-        .and_then(Value::as_i64)
-        .filter(|n| *n >= 0)
-        .unwrap_or(0);
+    let before = rec.turns.whole().unwrap_or(0);
     let turn = before + 1;
-    let out = read_json(&Home::new(home).plan_file(issue as u64, ".out"));
-    let lost = out
-        .as_ref()
-        .and_then(|o| o.get("lost"))
-        .and_then(Value::as_bool)
-        == Some(true);
+    let out = read_json::<Loose<OutFile>>(&Home::new(home).plan_file(issue as u64, ".out"))
+        .and_then(|o| o.0);
+    let lost = out.as_ref().and_then(|o| o.lost.0) == Some(true);
     let session = out
         .as_ref()
-        .and_then(|o| o.get("session"))
-        .and_then(Value::as_str)
+        .and_then(|o| o.session.get())
         .is_some_and(|s| !s.is_empty());
     let code = given.rc.parse::<i64>().ok();
 
@@ -88,7 +115,7 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
         image_built: given.image_built,
         ..Run::default()
     };
-    run.how = Some(how(rec, turn).to_string());
+    run.how = Some(how(&rec, turn).to_string());
     run.status = if code != Some(0) && lost {
         Some("lost".to_string())
     } else if code.is_none() {
@@ -104,21 +131,21 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
 /// Who started the turn: the label the first (`refine` when tehas:refine
 /// started the session, else `approved`), an answer each later one, or the
 /// millwright's answer, marked `millwright` on record. The mark alone decides: the `by` account of the answer is not consulted.
-fn how(rec: &serde_json::Map<String, Value>, turn: i64) -> &'static str {
+fn how(rec: &PlanRecord, turn: i64) -> &'static str {
     if turn == 1 {
-        return match rec.get("label").and_then(Value::as_str) {
+        return match rec.label.get().map(String::as_str) {
             Some("tehas:refine") => "refine",
             _ => "approved",
         };
     }
+    // serde cannot name a field by a constant: `Answer` spells the mark and
+    // the test of the mark reads an answer marked with it.
+    debug_assert_eq!("millwright", MILLWRIGHT_MARK);
     let millwright = rec
-        .get("answers")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_object)
-        .filter(|a| a.get("turn").and_then(Value::as_i64) == Some(turn))
-        .any(|a| a.get(MILLWRIGHT_MARK).and_then(Value::as_bool) == Some(true));
+        .answers
+        .items()
+        .iter()
+        .any(|a| a.turn.0 == Some(turn) && a.millwright.0 == Some(true));
     if millwright {
         "millwright"
     } else {
