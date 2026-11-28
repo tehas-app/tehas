@@ -5,16 +5,18 @@
 //! held to the limit, the whole call bound in time, no credential in any
 //! request, and the adapter's file gone whatever happens. curl is a stub
 //! that answers each address from a route the test writes, else a 404, and
-//! keeps the arguments and the environment it was given. No test reaches
-//! the network.
+//! keeps the arguments and the environment it was given. The release and
+//! the project are the live answers in `tests/recorded/anonymous/`; the
+//! file's bytes and the other hosts' answers are the test's own. No test
+//! reaches the network.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use tehas_core::testdir::TestDir;
 use tehas_github::{Curl, GitHubSite, MakeRunner, CURL_ENV, DOWNLOAD_HOSTS, DOWNLOAD_LIMIT};
-use tehas_ports::fake::MemoryLedger;
+use tehas_ports::fake::{MemoryLedger, NoticeLog};
 use tehas_ports::{
     Actor, At, Caller, CodeHost, CommitId, FileName, HealthState, Holder, HolderId, HostId, Ledger,
     Outcome, Passing, Pool, Refusal, Sent, Site, TagName, Unread, Whose,
@@ -24,17 +26,23 @@ const CALLER: Caller = Caller::new("test.anonymous-download");
 const UNSUPPORTED: Outcome = Outcome::Refused(Refusal::Unsupported);
 const NOW: i64 = 1_795_530_000;
 
-const RELEASE: &str = "https://api.github.com/repos/acme/widget/releases/tags/v1.4.1";
-const ASSET: &str = "https://api.github.com/repos/acme/widget/releases/assets/11";
-const PAGE: &str = "https://github.com/acme/widget/releases/download/v1.4.1/install";
+const REPO: &str = "tehas-app/tehas-rec-releases";
+const PROJECT: &str = "https://api.github.com/repos/tehas-app/tehas-rec-releases";
+const RELEASE: &str =
+    "https://api.github.com/repos/tehas-app/tehas-rec-releases/releases/tags/v1.1.0";
+const ASSET: &str =
+    "https://api.github.com/repos/tehas-app/tehas-rec-releases/releases/assets/796197977";
+const PAGE: &str = "https://github.com/tehas-app/tehas-rec-releases/releases/download/v1.1.0/tehas-v1.1.0-linux-x86_64.tar.gz";
+/// The file the recorded release lists, 232 bytes.
+const FILE: &str = "tehas-v1.1.0-linux-x86_64.tar.gz";
 /// The shape the API's redirect for an asset by id has today: seen on an
 /// anonymous read of a public release on 2026-11-24, its values made up.
 const RELEASE_ASSET: &str = "https://release-assets.githubusercontent.com/github-production-release-asset/1/0d3f6b52-2c1e-4f7a-9d8e-1a2b3c4d5e6f?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-11-24T12%3A05%3A00Z&rscd=attachment%3B+filename%3Dinstall&rsct=application%2Foctet-stream&skoid=a1&sktid=b2&skt=2026-11-24T11%3A05%3A00Z&ske=2026-11-24T12%3A05%3A00Z&sks=b&skv=2018-11-09&sig=c2lnbmF0dXJl%3D&jwt=eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjF9.c2ln&response-content-disposition=attachment%3B%20filename%3Dinstall&response-content-type=application%2Foctet-stream";
 const OBJECT: &str = "https://objects.githubusercontent.com/github-production-release-asset/1/11?X-Amz-Signature=abc&response-content-disposition=attachment%3B+filename%3Dinstall";
 
-/// The file the release lists as `install`, 98 bytes.
+/// The bytes served for `FILE`, as many as the release lists.
 fn install() -> Vec<u8> {
-    (0..98u8).collect()
+    (0..232u8).collect()
 }
 
 /// A stub curl in a test directory: it keeps each call's arguments in
@@ -81,15 +89,17 @@ if [ -f "$f.exit" ]; then exit "$(cat "$f.exit")"; fi
             dir,
             _serial: serial,
         };
-        stub.answer(
+        stub.answer_from(
             RELEASE,
-            200,
-            &[],
-            br#"{"id":7,"tag_name":"v1.4.1","name":"v1.4.1","draft":false,"prerelease":false,
-"published_at":"2026-11-24T07:54:05Z","body":"","html_url":"https://github.com/acme/widget/releases/tag/v1.4.1",
-"assets":[{"id":11,"name":"install","size":98},{"id":12,"name":"big","size":5000}]}"#,
+            "recorded/anonymous/repos_tehas_app_tehas_rec_releases_releases_tags_v1_1_0",
         );
         stub
+    }
+
+    /// `address` answers with the file `answer` under `tests/`.
+    fn answer_from(&self, address: &str, answer: &str) {
+        let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        std::fs::copy(tests.join(answer), self.route(address)).unwrap();
     }
 
     fn route(&self, address: &str) -> PathBuf {
@@ -174,8 +184,8 @@ fn site(stub: &Stub) -> GitHubSite {
 }
 
 fn site_with(stub: &Stub, ledger: Arc<MemoryLedger>) -> GitHubSite {
-    GitHubSite::new("acme/widget", "tehas-bot[bot]", Some(900), no_gh())
-        .with_anonymous_curl(Curl::at(stub.program()), ledger)
+    GitHubSite::new(REPO, "tehas-app[bot]", Some(900), no_gh())
+        .with_anonymous_curl(Curl::at(stub.program()), ledger, Arc::new(NoticeLog::new()))
         .on_clock(|| NOW)
 }
 
@@ -184,14 +194,14 @@ fn handle(site: &dyn Site) -> Box<dyn CodeHost> {
 }
 
 fn tag() -> TagName {
-    TagName::new("v1.4.1").unwrap()
+    TagName::new("v1.1.0").unwrap()
 }
 
 fn name(n: &str) -> FileName {
     FileName::new(n).unwrap()
 }
 
-/// `install` downloaded within `limit`, and what was written.
+/// `file` downloaded within `limit`, and what was written.
 fn download(h: &mut dyn CodeHost, file: &str, limit: u64) -> (Result<(), Outcome>, Vec<u8>) {
     let mut into = Vec::new();
     let got = h.download(&tag(), &name(file), limit, &mut into);
@@ -286,7 +296,7 @@ fn a_file_served_by_the_api_host_itself_is_downloaded() {
     let stub = Stub::new("github-anon-dl-api");
     stub.answer(ASSET, 200, &[], &install());
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Ok(()));
     assert_eq!(into, install());
     assert_eq!(stub.asked(), [RELEASE, ASSET]);
@@ -301,7 +311,7 @@ fn a_redirect_to_github_com_then_to_the_objects_host_is_followed() {
     stub.redirect(PAGE, OBJECT);
     stub.answer(OBJECT, 200, &[], &install());
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Ok(()));
     assert_eq!(into, install());
     assert_eq!(stub.asked(), [RELEASE, ASSET, PAGE, OBJECT]);
@@ -323,7 +333,7 @@ fn a_redirect_within_the_api_host_is_followed() {
     stub.redirect(ASSET, moved);
     stub.answer(moved, 200, &[], &install());
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Ok(()));
     assert_eq!(into, install());
     assert_eq!(stub.asked(), [RELEASE, ASSET, moved]);
@@ -339,7 +349,7 @@ fn a_third_redirect_is_refused_with_nothing_written() {
     stub.redirect(OBJECT, again);
     stub.answer(again, 200, &[], &install());
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Err(UNSUPPORTED));
     assert!(into.is_empty());
     assert_eq!(stub.asked(), [RELEASE, ASSET, PAGE, OBJECT], "never asked");
@@ -366,7 +376,7 @@ fn a_redirect_to_any_other_host_is_refused_with_nothing_written() {
         "https://github.com/a/../../install",
         "https://github.com/install#x",
         "//evil.example/install",
-        "/acme/widget/install",
+        "/tehas-app/tehas-rec-releases/install",
         "https://github.com/a%2F..%2F..%2Finstall",
     ]
     .iter()
@@ -378,7 +388,7 @@ fn a_redirect_to_any_other_host_is_refused_with_nothing_written() {
             stub.answer(to, 200, &[], &install());
         }
         let site = site(&stub);
-        let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+        let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
         assert_eq!(got, Err(UNSUPPORTED), "{to:?}");
         assert!(into.is_empty(), "{to:?}");
         assert_eq!(stub.asked(), [RELEASE, ASSET], "{to:?} never asked");
@@ -390,7 +400,7 @@ fn a_redirect_to_any_other_host_is_refused_with_nothing_written() {
 fn a_redirect_to_http_is_refused_with_nothing_written() {
     for (n, to) in [
         "http://objects.githubusercontent.com/install",
-        "http://github.com/acme/widget/releases/download/v1.4.1/install",
+        "http://github.com/tehas-app/tehas-rec-releases/releases/download/v1.1.0/tehas-v1.1.0-linux-x86_64.tar.gz",
         "ftp://github.com/install",
     ]
     .iter()
@@ -399,7 +409,7 @@ fn a_redirect_to_http_is_refused_with_nothing_written() {
         let stub = Stub::new(&format!("github-anon-dl-http-{n}"));
         stub.redirect(ASSET, to);
         let site = site(&stub);
-        let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+        let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
         assert_eq!(got, Err(UNSUPPORTED), "{to}");
         assert!(into.is_empty());
         assert_eq!(stub.asked(), [RELEASE, ASSET]);
@@ -417,7 +427,7 @@ fn a_listed_size_over_the_limit_is_refused_before_the_download() {
     let stub = Stub::new("github-anon-dl-listed");
     stub.answer(ASSET, 200, &[], &install());
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 97);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 231);
     assert_eq!(got, Err(Outcome::Unread(Unread::TooLarge)));
     assert!(into.is_empty());
     assert_eq!(stub.asked(), [RELEASE], "no download");
@@ -427,25 +437,25 @@ fn a_listed_size_over_the_limit_is_refused_before_the_download() {
 #[test]
 fn a_byte_stream_over_the_limit_is_cut_and_refused_with_the_file_gone() {
     let stub = Stub::new("github-anon-dl-stream");
-    // Listed at 98, under the limit of 100, but served at 200 000.
+    // Listed at 232, under the limit of 300, but served at 200 000.
     stub.redirect(ASSET, OBJECT);
     stub.answer(OBJECT, 200, &[], &vec![b'x'; 200_000]);
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 100);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 300);
     assert_eq!(got, Err(Outcome::Unread(Unread::TooLarge)));
     assert!(into.is_empty());
     assert!(left_behind().is_empty());
     // curl is given the same cap.
     let argv = stub.calls("argv").pop().unwrap();
-    assert!(argv.windows(2).any(|w| w == ["--max-filesize", "100"]));
+    assert!(argv.windows(2).any(|w| w == ["--max-filesize", "300"]));
 }
 
 #[test]
 fn a_file_served_at_another_size_than_listed_is_inconsistent() {
     let stub = Stub::new("github-anon-dl-short");
-    stub.answer(ASSET, 200, &[], &install()[..97]);
+    stub.answer(ASSET, 200, &[], &install()[..231]);
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
     assert!(into.is_empty());
     assert!(left_behind().is_empty());
@@ -454,29 +464,36 @@ fn a_file_served_at_another_size_than_listed_is_inconsistent() {
 #[test]
 fn a_file_the_release_does_not_list_or_a_missing_release_is_not_found() {
     let stub = Stub::new("github-anon-dl-missing");
-    stub.answer("https://api.github.com/repos/acme/widget", 200, &[], b"{}");
+    stub.answer_from(
+        PROJECT,
+        "recorded/anonymous/repos_tehas_app_tehas_rec_releases",
+    );
     let site = site(&stub);
     let mut h = handle(&site);
     let (got, _) = download(h.as_mut(), "other", 1 << 20);
     assert_eq!(got, Err(Outcome::NotFound));
     assert_eq!(stub.asked(), [RELEASE], "no download");
     let mut into = Vec::new();
-    let got = h.download(
-        &TagName::new("v9.9.9").unwrap(),
-        &name("install"),
-        1,
-        &mut into,
-    );
+    let got = h.download(&TagName::new("v9.9.9").unwrap(), &name(FILE), 1, &mut into);
     assert_eq!(got, Err(Outcome::NotFound));
 }
 
 #[test]
 fn a_private_or_missing_project_is_refused() {
     let stub = Stub::new("github-anon-dl-private");
-    let site = GitHubSite::new("acme/private", "tehas-bot[bot]", Some(900), no_gh())
-        .with_anonymous_curl(Curl::at(stub.program()), Arc::new(MemoryLedger::new()))
-        .on_clock(|| NOW);
-    let (got, _) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let site = GitHubSite::new(
+        "tehas-app/tehas-rec-gone",
+        "tehas-app[bot]",
+        Some(900),
+        no_gh(),
+    )
+    .with_anonymous_curl(
+        Curl::at(stub.program()),
+        Arc::new(MemoryLedger::new()),
+        Arc::new(NoticeLog::new()),
+    )
+    .on_clock(|| NOW);
+    let (got, _) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Err(UNSUPPORTED));
 }
 
@@ -486,7 +503,7 @@ fn a_refused_fetch_leaves_nothing() {
     stub.redirect(ASSET, OBJECT);
     stub.answer(OBJECT, 403, &[], b"<Error>expired</Error>");
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Err(Outcome::Forbidden));
     assert!(into.is_empty());
     assert!(left_behind().is_empty());
@@ -496,7 +513,7 @@ fn a_refused_fetch_leaves_nothing() {
 fn archive_stays_unsupported_with_no_request() {
     let stub = Stub::new("github-anon-dl-archive");
     let site = site(&stub);
-    let at = CommitId::new("1641015e605f6dcd998166bb3857712e335db7f1").unwrap();
+    let at = CommitId::new("f703bfa5b38d4088f9235eed9fde20a16370e0ee").unwrap();
     let mut into = Vec::new();
     assert_eq!(
         handle(&site).archive(&at, 1 << 20, &mut into).err(),
@@ -539,7 +556,7 @@ fn the_download_is_bound_at_600_seconds_and_the_reads_at_30() {
     );
     let read = curl
         .argv(
-            "repos/acme/widget/releases/latest",
+            "repos/tehas-app/tehas-rec-releases/releases/latest",
             Duration::from_secs(3_600),
         )
         .unwrap();
@@ -550,10 +567,7 @@ fn the_download_is_bound_at_600_seconds_and_the_reads_at_30() {
     stub.redirect(ASSET, OBJECT);
     stub.answer(OBJECT, 200, &[], &install());
     let site = site(&stub);
-    assert_eq!(
-        download(handle(&site).as_mut(), "install", 1 << 20).0,
-        Ok(())
-    );
+    assert_eq!(download(handle(&site).as_mut(), FILE, 1 << 20).0, Ok(()));
     // The 600 s are the whole call's: each hop is given what is left, in
     // whole seconds.
     let times = stub.max_times();
@@ -572,7 +586,7 @@ fn a_deadline_nearer_than_600_seconds_bounds_the_download() {
     let site = site(&stub);
     let view = site.until(At::new(NOW + 7));
     assert_eq!(
-        download(handle(view.as_ref()).as_mut(), "install", 1 << 20).0,
+        download(handle(view.as_ref()).as_mut(), FILE, 1 << 20).0,
         Ok(())
     );
     assert_eq!(stub.max_times(), ["7", "7"]);
@@ -584,7 +598,7 @@ fn a_fetch_curl_says_timed_out_is_a_timeout_with_the_file_gone() {
     stub.answer(ASSET, 200, &[], &install()[..10]);
     stub.exit(ASSET, 28);
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(
         got,
         Err(Outcome::Unavailable {
@@ -603,7 +617,7 @@ fn a_fetch_that_never_answers_is_stopped_at_its_bound() {
     let site = site(&stub);
     let view = site.until(At::new(NOW + 1));
     let started = Instant::now();
-    let (got, into) = download(handle(view.as_ref()).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(view.as_ref()).as_mut(), FILE, 1 << 20);
     assert_eq!(
         got,
         Err(Outcome::Unavailable {
@@ -621,7 +635,7 @@ fn past_the_deadline_a_download_makes_no_request() {
     let stub = Stub::new("github-anon-dl-past");
     let site = site(&stub);
     let view = site.until(At::new(NOW - 1));
-    let (got, _) = download(handle(view.as_ref()).as_mut(), "install", 1 << 20);
+    let (got, _) = download(handle(view.as_ref()).as_mut(), FILE, 1 << 20);
     assert_eq!(
         got,
         Err(Outcome::Unavailable {
@@ -647,7 +661,7 @@ fn every_redirect_is_held_to_the_hosts_and_https_before_it_is_followed() {
         stub.redirect(PAGE, second);
         stub.answer(second, 200, &[], &install());
         let site = site(&stub);
-        let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+        let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
         assert_eq!(got, Err(UNSUPPORTED), "{second}");
         assert!(into.is_empty());
         assert_eq!(stub.asked(), [RELEASE, ASSET, PAGE], "{second} never asked");
@@ -662,10 +676,7 @@ fn the_hop_to_the_objects_host_carries_no_credential() {
     stub.redirect(PAGE, OBJECT);
     stub.answer(OBJECT, 200, &[], &install());
     let site = site(&stub);
-    assert_eq!(
-        download(handle(&site).as_mut(), "install", 1 << 20).0,
-        Ok(())
-    );
+    assert_eq!(download(handle(&site).as_mut(), FILE, 1 << 20).0, Ok(()));
     let calls = stub.calls("argv");
     let envs = stub.calls("env");
     let at = calls
@@ -701,16 +712,16 @@ fn the_hop_to_the_objects_host_carries_no_credential() {
 #[test]
 fn the_cap_is_held_on_the_stream_not_on_the_content_length() {
     let stub = Stub::new("github-anon-dl-lying-length");
-    // GitHub's length and the listing both say 98; the stream is longer.
+    // GitHub's length and the listing both say 232; the stream is longer.
     stub.redirect(ASSET, OBJECT);
     stub.answer(
         OBJECT,
         200,
-        &[("content-length", "98")],
+        &[("content-length", "232")],
         &vec![b'x'; 200_000],
     );
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 100);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 300);
     assert_eq!(got, Err(Outcome::Unread(Unread::TooLarge)));
     assert!(into.is_empty());
     assert!(left_behind().is_empty());
@@ -722,7 +733,7 @@ fn a_redirect_with_no_location_is_malformed() {
         let stub = Stub::new(&format!("github-anon-dl-nowhere-{n}"));
         stub.answer(ASSET, 302, &headers, b"");
         let site = site(&stub);
-        let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+        let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
         assert_eq!(got, Err(Outcome::Unread(Unread::Malformed)));
         assert!(into.is_empty());
         assert_eq!(stub.asked(), [RELEASE, ASSET]);
@@ -755,7 +766,7 @@ fn a_retry_after_from_the_objects_host_does_not_spend_the_api_budget() {
         let ledger = Arc::new(MemoryLedger::new());
         let site = site_with(&stub, Arc::clone(&ledger));
         let mut h = handle(&site);
-        let (got, into) = download(h.as_mut(), "install", 1 << 20);
+        let (got, into) = download(h.as_mut(), FILE, 1 << 20);
         assert_eq!(
             got,
             Err(Outcome::Unavailable {
@@ -769,29 +780,32 @@ fn a_retry_after_from_the_objects_host_does_not_spend_the_api_budget() {
         let anonymous = Holder::Anonymous(HolderId::new("anonymous"));
         let whose = Whose::Pool(anonymous.clone(), Pool::Calls);
         assert_eq!(ledger.health(&host, &whose).unwrap(), HealthState::Healthy);
+        // The budget kept is the recorded release's, never the other host's.
         let kept = ledger.budget(&host, &anonymous, Pool::Calls).unwrap();
-        assert!(kept.is_none(), "no budget read off another host's answer");
+        assert_eq!(
+            kept.map(|b| (b.left, b.resets.secs())),
+            Some((32, 1_795_704_168))
+        );
         // The API is still asked.
         let before = stub.asked().len();
-        let _ = download(h.as_mut(), "install", 1 << 20);
+        let _ = download(h.as_mut(), FILE, 1 << 20);
         assert!(stub.asked().len() > before, "not parked");
         assert!(left_behind().is_empty());
     }
 }
 
 /// A 2xx from the API that ignored `Accept` and sent the asset's JSON is
-/// not parsed: it fails on its size.
+/// not parsed: it fails on its size. GitHub cannot be made to send it, so
+/// the answer is synthetic.
 #[test]
 fn json_from_the_api_in_place_of_the_bytes_is_inconsistent() {
     let stub = Stub::new("github-anon-dl-json");
-    stub.answer(
+    stub.answer_from(
         ASSET,
-        200,
-        &[("content-type", "application/json; charset=utf-8")],
-        br#"{"id":11,"name":"install","size":98,"browser_download_url":"https://evil.example/x"}"#,
+        "synthetic/anonymous/json-asset/repos_tehas_app_tehas_rec_releases_releases_assets_796197977",
     );
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)));
     assert!(into.is_empty());
     assert_eq!(stub.asked(), [RELEASE, ASSET], "never followed");
@@ -806,7 +820,7 @@ fn a_redirect_to_the_release_assets_host_is_followed() {
     stub.redirect(ASSET, RELEASE_ASSET);
     stub.answer(RELEASE_ASSET, 200, &[], &install());
     let site = site(&stub);
-    let (got, into) = download(handle(&site).as_mut(), "install", 1 << 20);
+    let (got, into) = download(handle(&site).as_mut(), FILE, 1 << 20);
     assert_eq!(got, Ok(()));
     assert_eq!(into, install());
     assert_eq!(stub.asked(), [RELEASE, ASSET, RELEASE_ASSET]);

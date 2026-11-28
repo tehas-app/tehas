@@ -460,6 +460,11 @@ fn when_its_label_cannot_be_changed_nothing_is_said_on_it_and_the_poll_goes_on_t
 #[test]
 fn an_approval_starts_one_cycle_a_second_poll_on_the_same_label_event_starts_nothing_a3() {
     let w = World::new("st-a3");
+    // The marks read answers with the ready mark's id, as on a host.
+    w.fx_json(
+        "labels.json",
+        &json!([{"id": "LA_ready", "name": READY_MARK}]),
+    );
     w.queue(&["7"]);
     w.poll();
     assert_eq!(w.started(), "7 ");

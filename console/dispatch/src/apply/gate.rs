@@ -11,6 +11,7 @@ use crate::read::run::{run, run_grace, run_quiet};
 use serde_json::Value;
 use std::time::Duration;
 use tehas_core::home::{Home, State};
+use tehas_core::units;
 
 /// The script tehas-index.service runs, index_launch's: the index's exit
 /// status kept, and a poll asked for at its end.
@@ -37,7 +38,7 @@ impl Writer {
                 "-p".into(),
                 "LoadState".into(),
                 "--value".into(),
-                format!("tehas-cycle@{n}.service"),
+                units::cycle(n),
             ],
             Duration::from_secs(30),
         );

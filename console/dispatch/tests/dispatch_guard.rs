@@ -282,7 +282,12 @@ fn a_failed_call_names_ghs_error_by_words_of_a_fixed_list() {
     w.touch("gh-stderr-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "ERROR: gh api graphql failed: HTTP 502");
+    // The queue is read through the board port now: its words are the
+    // poll's own, and they hold nothing of what gh answered.
+    has(
+        &r.out,
+        "ERROR: the open work of the queue could not be read",
+    );
     lacks(&r.out, "sk-secret");
 }
 
@@ -293,7 +298,11 @@ fn an_error_with_no_word_of_the_list_keeps_the_words_the_poll_has_always_had() {
     w.touch("gh-stderr-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "ERROR: gh api graphql failed");
+    // As above: no word of the answer reaches the log, whatever it held.
+    has(
+        &r.out,
+        "ERROR: the open work of the queue could not be read",
+    );
     lacks(&r.out, "an agent wrote");
 }
 
@@ -326,7 +335,9 @@ fn a_paused_poll_reads_no_comments_or_blockers_of_the_issues_it_would_decide_on(
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
     assert_eq!(w.started(), "");
-    lacks(&w.gh(), "comments");
+    // The page's own comments count is not a comment read: the read of the
+    // comments of the issues after the pause is what the pause must stop.
+    lacks(&w.gh(), "comments(last: 100)");
     lacks(&w.gh(), "issueOrPullRequest");
 }
 
@@ -335,7 +346,7 @@ fn the_same_poll_unpaused_reads_them() {
     let w = World::new("guard");
     asking_and_blocked(&w);
     w.poll();
-    has(&w.gh(), "comments");
+    has(&w.gh(), "comments(last: 100)");
 }
 
 #[test]

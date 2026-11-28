@@ -1,0 +1,29 @@
+HTTP/2 200 
+date: Thu, 26 Nov 2026 14:14:18 GMT
+content-type: application/json; charset=utf-8
+cache-control: public, max-age=60, s-maxage=60
+vary: Accept,Accept-Encoding, Accept, X-Requested-With
+etag: W/"f141a4882517e61a0bbee53e831ead5538dbeea6cbfddf11a56ded11fe2a780d"
+last-modified: Thu, 26 Nov 2026 14:09:41 GMT
+x-github-media-type: github.v3; format=json
+x-github-api-version-selected: 2022-11-28
+access-control-expose-headers: ETag, Link, Location, Retry-After, X-GitHub-OTP, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Used, X-RateLimit-Resource, X-RateLimit-Reset, X-OAuth-Scopes, X-Accepted-OAuth-Scopes, X-Poll-Interval, X-GitHub-Media-Type, X-GitHub-SSO, X-GitHub-Request-Id, Deprecation, Sunset, Warning
+access-control-allow-origin: *
+strict-transport-security: max-age=31536000; includeSubdomains; preload
+x-frame-options: deny
+x-content-type-options: nosniff
+x-xss-protection: 0
+referrer-policy: origin-when-cross-origin, strict-origin-when-cross-origin
+content-security-policy: default-src 'none'
+server: github.com
+accept-ranges: bytes
+x-ratelimit-limit: 60
+x-ratelimit-remaining: 33
+x-ratelimit-used: 27
+x-ratelimit-resource: core
+x-ratelimit-reset: 1795704168
+content-length: 689
+x-github-request-id: B89A:F2AFA:4B02FA7:6ECC288:6B083EBA
+x-github-edge-region: fra
+
+{"node_id":"TA_kwDOV8_-FNoAKDYyMjNiMzhkNjBhYWY5ZjBkMTczZDEwMTlhNTIwNmYzZTgyMjIxOTM","sha":"6223b38d60aaf9f0d173d1019a5206f3e8222193","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/git/tags/6223b38d60aaf9f0d173d1019a5206f3e8222193","tagger":{"name":"janit","email":"198965+janit@users.noreply.github.com","date":"2026-11-26T14:09:48Z"},"object":{"sha":"f703bfa5b38d4088f9235eed9fde20a16370e0ee","type":"commit","url":"https://api.github.com/repos/tehas-app/tehas-rec-releases/git/commits/f703bfa5b38d4088f9235eed9fde20a16370e0ee"},"tag":"v1.1.0","message":"v1.1.0\n","verification":{"verified":false,"reason":"unsigned","signature":null,"payload":null,"verified_at":null}}

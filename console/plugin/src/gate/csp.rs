@@ -7,6 +7,7 @@
 //! serves an error page in its place.
 
 use sha2::{Digest, Sha256};
+use tehas_core::file::base64;
 
 /// `Permissions-Policy` of every answer of the gate.
 pub const PERMISSIONS: &str = "camera=(), microphone=(), geolocation=()";
@@ -37,23 +38,6 @@ impl Refused {
 pub struct Blocks {
     pub scripts: Vec<String>,
     pub styles: Vec<String>,
-}
-
-fn base64(data: &[u8]) -> String {
-    const LETTERS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let at = |i: usize| chunk.get(i).copied().unwrap_or(0) as u32;
-        let n = at(0) << 16 | at(1) << 8 | at(2);
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(LETTERS[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 /// The source expression of a block's text.

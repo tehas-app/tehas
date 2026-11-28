@@ -21,11 +21,12 @@ use serde_json::Value;
 
 use super::unsupported;
 use crate::forge::uri;
+use crate::graphql::{self, priced};
 use crate::GitHub;
 use tehas_core::accounts;
 use tehas_ports::{
-    Account, AccountId, AccountKind, At, Got, Identity, Login, Outcome, Pool, ProjectName, Realm,
-    Refusal, Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
+    Account, AccountId, AccountKind, Got, Identity, Login, Outcome, ProjectName, Realm, Refusal,
+    Scope, Secret, SignInCode, SignInState, Standing, Token, Unread, WebLink,
 };
 
 /// The question of who the token is. GraphQL's `viewer` answers for a
@@ -101,6 +102,11 @@ impl Identity for GitHub {
         }
     }
 
+    /// GitHub's account of a numeric id: no program of tehas asks one,
+    /// which asks by login asks [`Identity::account_by_login`]. The fake
+    /// answers it and the identity tests drive it there; the adapter
+    /// refuses it before any request, as the test holds. The port method
+    /// stays: nothing leaves a port after the freeze of 2026-11-30.
     fn account(&mut self, _: &AccountId) -> Got<Account> {
         unsupported()
     }
@@ -178,10 +184,16 @@ impl Identity for GitHub {
         Err(Outcome::Unread(Unread::Inconsistent))
     }
 
+    /// The minting of a token is the outsource, a building feature: the
+    /// fake models a mint and the laws drive it there, while the adapter
+    /// mints and keeps no token yet and refuses before any request, as
+    /// the test holds. The port methods stay for it: nothing leaves a
+    /// port after the freeze of 2026-11-30.
     fn token(&mut self, _: Scope) -> Got<Token> {
         unsupported()
     }
 
+    /// See [`Self::token`].
     fn token_over(&mut self, _: Scope, _: &[ProjectName]) -> Got<Token> {
         unsupported()
     }
@@ -316,17 +328,6 @@ pub(super) fn id_of(who: &AccountId) -> Got<u64> {
     }
 }
 
-/// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
-}
-
 /// An answer that does not parse.
 const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 
@@ -335,19 +336,8 @@ const MALFORMED: Outcome = Outcome::Unread(Unread::Malformed);
 /// rate is limited, `Unread(Inconsistent)` for any other.
 fn read_me(out: &str, now: i64) -> Got<(Login, u64)> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
-    if let Some(errors) = v.get("errors").filter(|e| !e.is_null()) {
-        let limited = errors.as_array().is_some_and(|all| {
-            all.iter()
-                .any(|e| e.get("type").and_then(Value::as_str) == Some("RATE_LIMITED"))
-        });
-        return Err(if limited {
-            Outcome::Spent {
-                pool: Pool::Priced,
-                until: At::new(now),
-            }
-        } else {
-            Outcome::Unread(Unread::Inconsistent)
-        });
+    if v.get("errors").is_some_and(|e| !e.is_null()) {
+        return Err(graphql::limited(&graphql::errors(out), now));
     }
     let viewer = v
         .pointer_mut("/data/viewer")
@@ -509,6 +499,7 @@ mod tests {
 
     #[test]
     fn a_spent_graphql_call_is_the_priced_pools() {
+        use tehas_ports::{At, Pool};
         let at = At::new(5);
         assert_eq!(
             priced(Outcome::Spent {

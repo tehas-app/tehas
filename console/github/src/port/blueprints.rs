@@ -27,6 +27,7 @@ mod edits;
 
 use super::blueprint_writes::{comment_revision, ends_with_folded, read_issue, revision};
 use super::unsupported;
+use crate::graphql::priced;
 use crate::ticket::CUT_TEXT;
 use crate::tickets::{account, Bot};
 use crate::{gh, markers, GitHub};
@@ -129,7 +130,19 @@ impl Blueprints for GitHub {
         nos: &[BlueprintNo],
         bound: Bound,
     ) -> Vec<(BlueprintNo, Got<Whole<Edit>>)> {
-        self.bodies_edits(nos, bound)
+        self.bodies_edits(nos, bound).0
+    }
+
+    /// As `body_edits_of`, a question that fails whole failing the read.
+    fn body_edits_together(
+        &mut self,
+        nos: &[BlueprintNo],
+        bound: Bound,
+    ) -> Got<Vec<(BlueprintNo, Got<Whole<Edit>>)>> {
+        match self.bodies_edits(nos, bound) {
+            (_, Some(o)) => Err(o),
+            (each, None) => Ok(each),
+        }
     }
 
     /// One GraphQL question for each `edits::CHUNK` comments, each asked
@@ -581,17 +594,6 @@ fn one<K>(mut several: Vec<(K, Got<Whole<Edit>>)>) -> Got<Whole<Edit>> {
 /// (a comment deleted since its page was read among them).
 fn answer<T: serde::de::DeserializeOwned>(out: &str, at: &str, now: i64) -> Got<T> {
     crate::graphql::part(out, at, now)
-}
-
-/// A spent budget of a GraphQL call is the priced pool's.
-fn priced(o: Outcome) -> Outcome {
-    match o {
-        Outcome::Spent { until, .. } => Outcome::Spent {
-            pool: Pool::Priced,
-            until,
-        },
-        o => o,
-    }
 }
 
 /// The fields of an issue's REST answer the read takes beside

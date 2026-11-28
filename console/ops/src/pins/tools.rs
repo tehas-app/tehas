@@ -3,7 +3,7 @@
 
 use super::text::Ver;
 use serde_json::Value;
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha512};
 use std::path::Path;
 
 /// The outside world a move reads. The tests give it a fake.
@@ -140,12 +140,7 @@ pub const CADDY_FILES: &[&str] = &[
     "preview/Dockerfile",
 ];
 
-pub fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
+pub use tehas_core::sum::sha256_hex as sha256;
 
 fn json(world: &dyn World, url: &str) -> Result<Value, String> {
     let body = world.get(url)?;

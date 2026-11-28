@@ -162,8 +162,8 @@ and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 
 With `TEHAS_BRANCH_CHECK` set, each poll reads that check on the branch's
 head commit: its check runs, the commit's statuses and the workflow runs of
-GitHub Actions that the check runs belong to. GitHub needs these repository
-permissions on the app for it:
+GitHub Actions that the check runs belong to, in one GraphQL question. GitHub
+needs these repository permissions on the app for it:
 
 | Permission | Access | What the poll reads with it |
 | --- | --- | --- |
@@ -314,9 +314,9 @@ granting label, as the next section says.
 The dispatcher keeps the GitHub node id of each label whose application
 grants work (`tehas:ready`, `tehas:plan`, `tehas:refine`, `tehas:finish`,
 `tehas:blocked`, `tehas:lean` and `tehas:classic`) in `~/tehas/state/labels`,
-one `<name><tab><id>` line each. The first page of each poll reads the
-repository's `tehas:` labels with their ids, and the label events read from
-GraphQL carry the id of their label:
+one `<name><tab><id>` line each. The queue read of each poll asks the
+tickets for the repository's `tehas:` labels with their ids, and the label
+events read from GitHub carry the id of their label:
 
 - `tehas labels`, which `install.sh` runs and `tehas update` runs when the
   table of labels changes, makes the labels and then pins them, and prints

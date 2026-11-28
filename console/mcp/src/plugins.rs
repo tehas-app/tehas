@@ -14,6 +14,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
+use tehas_core::text::one_line;
 
 /// The start of every plugin tool's name. The server's own are `factory_*`.
 pub const PREFIX: &str = "plugin_";
@@ -170,10 +171,6 @@ fn read_tool(row: Row) -> Option<Tool> {
         about,
         params,
     })
-}
-
-fn one_line(s: &str, max: usize) -> bool {
-    !s.is_empty() && s.chars().count() <= max && !s.chars().any(char::is_control)
 }
 
 /// Runs one call for the key `key_id`, the key's fingerprint. Ok is the

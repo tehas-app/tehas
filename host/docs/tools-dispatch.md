@@ -99,15 +99,20 @@ never touched, and a closed one whose cycle still holds its lock on this host
 waits for that cycle. The control issue `TEHAS_CONTROL_ISSUE` names is left out
 of every edit: it is not work, whatever label it carries. To the issues it tidies
 that do not carry `tehas:shipped` it adds the label, in the same edit, when the
-last closed event of the issue is a merged pull request, or, when that event
-names no pull request as its closer, when GitHub lists a merged pull request as
-closing the issue. That list is what GitHub derives from the text and the links
-of the issue, not what the close event recorded, so a pull request that merely
-names the issue in its text is on it. One further GraphQL
-search a poll answers that for all of them at once, and only when there is a
-label to give, and it is the same read
-[tehasbot status](/tools-health#tehasbot-status-and-the-console) makes, and the same console
-code decides its answer (`console/ops/src/shipped.rs`).
+last closed event of the issue is a merged pull request of this repository, or,
+when that event names no pull request of this repository as its closer, when
+GitHub lists a merged pull request of this repository as closing the issue.
+That list is what GitHub derives from the text and the links of the issue, not
+what the close event recorded, so a pull request that merely names the issue in
+its text is on it. A pull request of another repository never earns the label.
+One further read a poll answers that for all of them at once, through the
+tickets port (`Tickets::several_with_closers`, see [the forge page](/forge)),
+and only when there is a label to give. It reads the closer and the merged pull
+requests that [tehasbot status](/tools-health#tehasbot-status-and-the-console)
+reads, and the same console code decides its answer
+(`shipped::by_merge` in `console/ops/src/shipped.rs`). The read has the same
+bound as the search, `TEHAS_TIDY_WAIT` seconds, and is tried once more on a
+bad minute.
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
 closer the read answered as a person or an unmerged pull request, and which
@@ -116,10 +121,12 @@ still come off and the line says
 `WARN: tidy #N: no merged pull request was read as the closer, tehas:shipped was
 not added`, which covers both the closer that was read as unmerged and the
 closer the read could not name as a pull request. When the read itself failed or
-timed out, that line is said once for
+timed out, or did not read one of the issues, that line is said once for
 the whole poll as `WARN: tidy: the read of what closed these issues failed: <reason>,
 tehas:shipped was not added for N issues`, so a search GitHub refused reads
-differently from a factory that shipped nothing. A dry run passes `--dry-run` and
+differently from a factory that shipped nothing. The reason is the tickets
+port's, in tehas's words, such as `the site failed; it may have been sent` or
+`timed out; it may have been sent`, not gh's. A dry run passes `--dry-run` and
 logs `tidy #N: would remove <labels>` instead, and `would add tehas:shipped` for
 the label it would give.
 A search that fails, times out or cannot be read is logged
@@ -402,10 +409,19 @@ number is an open issue. Every edit of the body after the label is judged,
 not only the last: an outside account's edit holds the issue even when an
 allowed account saves the body after it. For an issue its labels would start
 that was edited, and for an edited issue with a question a person may answer
-`retry` to, the poll reads the body's edit history, the last 100 edits;
-a longer history, or an edit that names no account, holds the issue too
-(`skip #N: its text was changed by 'unknown' ...`), and a history GitHub does
-not give ends the poll with exit 1. A closed issue and a pull request are never taken,
+`retry` to, the poll reads the body's edit history, up to a hundred
+versions counted from the text as created;
+a longer history, one whose versions do not agree (a version deleted from
+it among them), one GitHub's answer leaves out or names an error at that
+issue for, or an edit that names no account (a deleted one among them),
+holds that issue alone (`skip #N: its text was changed by 'unknown' ...`).
+A call that fails, an answer that cannot be read, an error GitHub names no
+one issue for (the repository not found, or not visible to the token,
+among them), or an issue GitHub cannot find ends the poll with exit 1
+(`ERROR: unreadable edit history of #N: ...`). The poll reads the history
+through the GitHub adapter's handles, which it makes again every poll; a
+poll that cannot make them reads every history it needs as unreadable, so
+it ends the same way. A closed issue and a pull request are never taken,
 whatever label they carry. The poll's lists are of open issues, so what this
 catches is a number that changed since the list was read. The poll asks GitHub
 what a number is once a poll, and only for an issue its labels would otherwise
@@ -420,7 +436,7 @@ the pull request's description says `Closes #N` (or `Fixes` or `Resolves`) and
 the pull request targets the default branch, or when a person links them by
 hand. A pull request of another branch, stacked on another, earns no such
 reference, so the poll reads the open pull requests' own descriptions, all of
-them in lists of 100 from the queue's first page on, and holds an issue one of them names with a closing keyword,
+them in lists of 100 as pages of the repository's open pull requests, and holds an issue one of them names with a closing keyword,
 whatever branch it targets: a keyword and the references held to it by commas
 or the words `and` and `or`, so `Closes #7, #8 and #9` holds three issues. The
 text is a description nobody has reviewed, from any author: all it can do is

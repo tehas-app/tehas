@@ -25,6 +25,7 @@ use std::env;
 use std::path::PathBuf;
 use tehas_core::grammar::digits;
 use tehas_core::question::{stored_choices, Offered};
+use tehas_core::verb::Verb;
 use tehas_core::{exit, time};
 
 const USAGE: &str =
@@ -266,12 +267,11 @@ pub fn main(given: &[String]) -> u8 {
         );
         return exit::FAILED;
     }
-    let call: Vec<String> = match a.which {
-        Which::Issue(issue) => vec!["question-show".into(), issue.to_string()],
-        Which::Waiting => vec!["question-list".into()],
-        Which::After(id) => vec!["question-list".into(), "--after".into(), id.to_string()],
+    let call = match a.which {
+        Which::Issue(issue) => Verb::QuestionShow { issue },
+        Which::Waiting => Verb::QuestionList { after: None },
+        Which::After(id) => Verb::QuestionList { after: Some(id) },
     };
-    let call: Vec<&str> = call.iter().map(String::as_str).collect();
     let line = match store::line(&here, &call) {
         Ok(line) => line,
         Err(r) => {
@@ -282,7 +282,7 @@ pub fn main(given: &[String]) -> u8 {
     let Some(rows) = rows(&line) else {
         eprintln!(
             "tehas question: the store's answer to {} could not be read",
-            call[0]
+            call.name()
         );
         return exit::FAILED;
     };

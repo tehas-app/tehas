@@ -11,6 +11,7 @@
 //! directory while the arguments are checked and from the tree after that, as
 //! the script read it once it had changed into the tree.
 
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{self, Read};
@@ -584,10 +585,7 @@ pub fn pack(a: &Args, pack_root: Option<&str>, pwd: &Path) -> Result<Packed, Fai
     let Ok(bytes) = fs::read(&partial) else {
         return fail(1, "cannot read the tarball to hash it");
     };
-    let hash: String = Sha256::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let hash = tehas_core::sum::sha256_hex(&bytes);
     // sha256sum -c reads it from the out dir: the hash, two spaces, the name.
     let sha_line = format!("{hash}  {tarball}");
     let staged_sha = stage.0.join(format!("{tarball}.sha256"));
