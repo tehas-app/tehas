@@ -77,15 +77,6 @@ case "$name $1" in
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
   "store "*) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
   "docker rm") echo "$3" ;;
-  "gh issue") case "$2 $*" in
-      "view "*"--json labels"*) cat "$d/labels-$3" 2>/dev/null || echo '{"labels":[]}' ;;
-      "view "*"--json body"*) cat "$d/body-$3" 2>/dev/null || echo '{"body":""}' ;;
-      # An issue asked for its state alone, as `plan_post` asks it before it
-      # posts a turn: its own file, so a case can hold the issue open for one
-      # read and closed for the next.
-      "view "*"--json state"*) cat "$d/state-$3" 2>/dev/null || echo '{"state":"OPEN"}' ;;
-      "view "*"--json title"*) cat "$d/view-$3" 2>/dev/null || echo '{}' ;;
-    esac ;;
   "gh api") case "$*" in *"-X POST"*/comments*) echo 99 ;; esac
     case "$2" in
       repos/*/issues/[0-9]*) case "$2" in
@@ -301,6 +292,31 @@ fn reads_from(t: &mut World, world: &tehas_ports::fake::World) {
     t.w.ports = Some(Handles {
         writes,
         ..handles(world)
+    });
+}
+
+/// The open world with issue `n` as `f` shapes it, for the reads of the
+/// ports: the issue a plan turn reads, and the child a refine reads.
+fn reads_issue(
+    t: &mut World,
+    n: u64,
+    f: impl FnOnce(tehas_ports::fake::TicketSpec) -> tehas_ports::fake::TicketSpec,
+) {
+    reads_from(t, &open_issues().ticket(n, f));
+}
+
+/// The reads of the ports, every one answered by the faulty site: a read
+/// the site cannot answer.
+fn reads_faulty(t: &mut World, op: tehas_ports::fake::TicketsOp) {
+    let faulty = tehas_ports::fake::Faulty::new(tehas_ports::fake::FakeSite::new(&open_issues()))
+        .on(
+            tehas_ports::fake::Op::Tickets(op),
+            tehas_ports::fake::Fault::Unreachable,
+        );
+    let writes = t.w.ports.take().unwrap().writes;
+    t.w.ports = Some(Handles {
+        writes,
+        ..site_handles(&faulty)
     });
 }
 
@@ -892,9 +908,21 @@ fn a_probe_on_a_host_runs_the_cycles_push_check_with_the_cycle_token() {
     );
 }
 
+// The words of the tests' label change, named once each; the running
+// mark's word is the reader's own.
+const READY: &str = "tehas:ready";
+const NHA: &str = "needs-human-attention";
+const REPLACED: &str = "tehas:replaced";
+const RUNNING: &str = crate::read::github::RUNNING;
+
+/// The words of the change that fails to go, as its line names them.
+fn failed_flags() -> String {
+    format!("--remove-label {READY} --add-label {NHA}")
+}
+
 fn label() -> Value {
-    json!({"issue": 7, "remove": ["tehas:ready"], "add": ["needs-human-attention"],
-        "fail": "WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention",
+    json!({"issue": 7, "remove": [READY], "add": [NHA],
+        "fail": format!("WARN: label change on #7 failed: {}", failed_flags()),
         "log": "clear #7: done", "say": "Tehas took it off."})
 }
 
@@ -940,6 +968,70 @@ fn a_failed_label_change_logs_its_line_and_says_nothing() {
         a.log
     );
     assert_eq!(t.writes(), vec![marked(7, "tehas:ready", false)]);
+}
+
+/// A change that rests on a mark read again: the mark is gone from the
+/// ticket since the queue list was read, so the change is not made.
+#[test]
+fn a_label_change_that_rests_on_a_gone_mark_is_skipped() {
+    let mut t = world();
+    let mut a = label();
+    a["reread"] = json!(RUNNING);
+    a["first"] = json!("park #7: it carries the mark and no cycle holds it");
+    // The world holds issue 7 open and unmarked: the mark is gone.
+    reads_from(&mut t, &open_issues());
+    let a = t.apply(json!([a]));
+    assert_eq!(
+        a.log,
+        vec![format!(
+            "skip #7: {RUNNING} is gone from it since the list was read"
+        )]
+    );
+    assert!(t.writes().is_empty());
+}
+
+/// The same change with the mark still on the ticket: the read says it is
+/// there, and what follows the read is what always followed it.
+#[test]
+fn a_label_change_whose_reread_mark_is_still_on_goes_on() {
+    let mut t = world();
+    let mut a = label();
+    a["reread"] = json!(RUNNING);
+    a["first"] = json!("park #7: it carries the mark and no cycle holds it");
+    reads_from(&mut t, &open_issues().ticket(7, |i| i.mark(mark(RUNNING))));
+    let a = t.apply(json!([a]));
+    assert_eq!(
+        a.log,
+        vec![
+            "park #7: it carries the mark and no cycle holds it",
+            "clear #7: done"
+        ]
+    );
+    assert_eq!(
+        t.writes(),
+        vec![
+            marked(7, READY, false),
+            marked(7, NHA, true),
+            note(7, "Tehas took it off."),
+        ]
+    );
+}
+
+/// A reread the site cannot answer ends the poll: the change is not made on
+/// a ticket the poll could not read.
+#[test]
+fn a_label_change_whose_reread_cannot_be_read_ends_the_poll() {
+    let mut t = world();
+    let mut a = label();
+    a["reread"] = json!(RUNNING);
+    reads_faulty(&mut t, tehas_ports::fake::TicketsOp::Several);
+    let a = t.apply(json!([a]));
+    assert_eq!(
+        a.log,
+        vec!["ERROR: GitHub's answer for #7 could not be read"]
+    );
+    assert_eq!(a.exit, Some(1));
+    assert!(t.writes().is_empty());
 }
 
 /// A label word no mark has is refused at the send, never sent as a raw
@@ -3499,11 +3591,7 @@ fn a_refine_that_filed_replaces_its_issue() {
         &t,
         json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
     );
-    fs::write(
-        t.dir.join("body-9"),
-        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 9, |i| i.text("The plan.\n## Later parts\nNone"));
     turn_ended(
         &t,
         7,
@@ -3561,11 +3649,7 @@ fn a_close_the_journal_said_done_raises_no_ticket_closed() {
         &t,
         json!({"turns": 1, "session": "s-1", "label": refine_word()}),
     );
-    fs::write(
-        t.dir.join("body-9"),
-        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 9, |i| i.text("The plan.\n## Later parts\nNone"));
     turn_ended(
         &t,
         7,
@@ -3602,11 +3686,7 @@ fn a_close_the_site_answered_without_a_time_raises_no_event() {
         &t,
         json!({"turns": 1, "session": "s-1", "label": refine_word()}),
     );
-    fs::write(
-        t.dir.join("body-9"),
-        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 9, |i| i.text("The plan.\n## Later parts\nNone"));
     turn_ended(
         &t,
         7,
@@ -3697,11 +3777,7 @@ fn a_close_answered_but_not_recorded_raises_once_from_the_settle() {
         &t,
         json!({"turns": 1, "session": "s-1", "label": refine_word()}),
     );
-    fs::write(
-        t.dir.join("body-9"),
-        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 9, |i| i.text("The plan.\n## Later parts\nNone"));
     turn_ended(
         &t,
         7,
@@ -3843,7 +3919,7 @@ const LABEL_OFF: &str = "--remove-label tehas:question --remove-label tehas:plan
 /// The poll a drafted plan with no open points ends in, up to the store's
 /// `clear`: a session of `by`, its `tehas:plan` by `labeller`, the issue open
 /// and the draft kept.
-fn clear_plan(t: &World, session: Value, labeller: &str) {
+fn clear_plan(t: &mut World, session: Value, labeller: &str) {
     clear_draft(
         t,
         session,
@@ -3853,7 +3929,7 @@ fn clear_plan(t: &World, session: Value, labeller: &str) {
 }
 
 /// The same poll with some other draft kept beside the session.
-fn clear_draft(t: &World, session: Value, labeller: &str, draft: &Value) {
+fn clear_draft(t: &mut World, session: Value, labeller: &str, draft: &Value) {
     plan_row(t, session);
     turn_ended(
         t,
@@ -3872,22 +3948,26 @@ fn clear_draft(t: &World, session: Value, labeller: &str, draft: &Value) {
         .to_string(),
     )
     .unwrap();
-    fs::write(
-        t.dir.join("view-7"),
-        json!({"title": "search", "body": "make it fast", "state": "OPEN", "labels": []})
-            .to_string(),
-    )
-    .unwrap();
+    // The issue as the tickets port reads it for the plan: open, its title
+    // and its text what `made` and the sum read.
+    reads_issue(t, 7, |i| i.title("search").text("make it fast"));
 }
 
 fn alices_session() -> Value {
     json!({"turns": 1, "session": "s-1", "label": "tehas:plan", "by": "alice", "answers": []})
 }
 
-/// The state the stub of `gh issue view --json state` answers for issue 7, as
-/// `plan_post` asks it before it posts anything of a turn.
-fn issue_state(t: &World, state: &str) {
-    fs::write(t.dir.join("state-7"), json!({"state": state}).to_string()).unwrap();
+/// Issue 7 as the tickets port answers its state, as `plan_post` asks it
+/// before it posts anything of a turn: closed for a turn that is dropped,
+/// open, as every issue of the world is, for one that is posted.
+fn issue_state(t: &mut World, open: bool) {
+    reads_issue(t, 7, |i| {
+        if open {
+            i
+        } else {
+            i.closed(tehas_ports::CloseReason::NotPlanned)
+        }
+    });
 }
 
 fn the_record(t: &World) -> PathBuf {
@@ -3917,7 +3997,7 @@ fn asks(t: &World) {
 #[test]
 fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     let a = t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
     assert!(
@@ -3969,7 +4049,7 @@ fn a_plan_with_no_open_points_goes_on_masked_and_its_sum_binds_the_masked_text()
     let title = format!("feat: search is fast at {}", plan_address());
     let body = format!("{PLAN_BODY}\n\nUse {PLAN_SECRET} and postgres://u:hunter2word@db/x.");
     clear_draft(
-        &t,
+        &mut t,
         alices_session(),
         "alice",
         &json!({"title": title, "spec": body}),
@@ -4043,7 +4123,7 @@ fn a_ticked_plan_is_written_masked_with_its_title_cut_to_what_github_holds() {
 #[test]
 fn the_plan_goes_on_with_the_issues_words_folded_as_the_tick_does() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     t.apply(json!([{"plan_collect": 7}]));
     let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
     assert!(
@@ -4063,16 +4143,12 @@ const SPEC_BLOCK: &str = "```pi-spec v1\n{\"intent\":\"faster search\"}\n```";
 #[test]
 fn an_issue_s_spec_block_survives_the_plan_and_is_in_the_sum_the_ready_must_match() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
-    // The issue as `gh issue view` answers it, with the block at the top.
-    fs::write(
-        t.dir.join("view-7"),
-        json!({"title": "search",
-               "body": format!("{SPEC_BLOCK}\n\nmake it fast"),
-               "state": "OPEN", "labels": []})
-        .to_string(),
-    )
-    .unwrap();
+    clear_plan(&mut t, alices_session(), "alice");
+    // The issue on the tickets port, with the block at the top of its text.
+    reads_issue(&mut t, 7, |i| {
+        i.title("search")
+            .text(format!("{SPEC_BLOCK}\n\nmake it fast").as_str())
+    });
     t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
     // The write holds the block above the plan's own text.
@@ -4111,20 +4187,16 @@ fn a_plan_that_links_a_new_attachment_is_refused_whether_or_not_the_block_links_
     let held = "https://github.com/user-attachments/assets/held-by-the-person";
     let mut t = world();
     clear_draft(
-        &t,
+        &mut t,
         alices_session(),
         "alice",
         &json!({"title": PLAN_TITLE,
                 "spec": format!("{PLAN_BODY}\n\nSee {added}")}),
     );
-    fs::write(
-        t.dir.join("view-7"),
-        json!({"title": "search",
-               "body": format!("```pi-spec v1\n{{\"link\":\"{held}\"}}\n```\n\nmake it fast"),
-               "state": "OPEN", "labels": []})
-        .to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 7, |i| {
+        i.title("search")
+            .text(format!("```pi-spec v1\n{{\"link\":\"{held}\"}}\n```\n\nmake it fast").as_str())
+    });
     t.apply(json!([{"plan_collect": 7}]));
     let w = t.writes();
     // Nothing was written over the issue: the plan named a link of its own.
@@ -4135,7 +4207,7 @@ fn a_plan_that_links_a_new_attachment_is_refused_whether_or_not_the_block_links_
 #[test]
 fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_terms() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     t.fail("send", "EditTicket");
     let a = t.apply(json!([{"plan_collect": 7}]));
     assert!(a.log.iter().any(|l| l.contains("could not be written")));
@@ -4144,8 +4216,8 @@ fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_term
     // The record goes first, so no label is ever on with none behind it.
     assert!(the_record(&t).exists());
     fs::remove_file(t.dir.join("fail-send")).unwrap();
-    // The issue moved on: what was decided is what is written.
-    fs::remove_file(t.dir.join("view-7")).unwrap();
+    // The issue moved on: what was decided is what is written, from the
+    // outcome kept for this poll.
     t.apply(json!([{"plan_post": 7}]));
     assert!(changed(&t.writes(), 7, LABEL_OFF));
     assert!(the_record(&t).exists());
@@ -4165,7 +4237,7 @@ fn a_masked_or_cut_plan_that_could_not_be_written_is_written_by_the_next_poll() 
     ] {
         let mut t = world();
         clear_draft(
-            &t,
+            &mut t,
             alices_session(),
             "alice",
             &json!({"title": title, "spec": spec}),
@@ -4185,7 +4257,7 @@ fn a_masked_or_cut_plan_that_could_not_be_written_is_written_by_the_next_poll() 
 #[test]
 fn a_plan_with_open_points_asks() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     turn_ended(
         &t,
         7,
@@ -4204,7 +4276,7 @@ fn a_refine_session_asks_whatever_its_outcome_says() {
     let mut t = world();
     let mut row = alices_session();
     row["label"] = json!("tehas:refine");
-    clear_plan(&t, row, "alice");
+    clear_plan(&mut t, row, "alice");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
 }
@@ -4214,7 +4286,7 @@ fn an_automatic_session_asks() {
     let mut t = world();
     let mut row = alices_session();
     row["auto"] = json!(true);
-    clear_plan(&t, row, "alice");
+    clear_plan(&mut t, row, "alice");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
 }
@@ -4225,14 +4297,14 @@ fn the_millwrights_tehas_plan_asks_even_on_the_list() {
     t.w.host.allowed.push("mill-bot".into());
     let mut row = alices_session();
     row["by"] = json!("mill-bot");
-    clear_plan(&t, row, "mill-bot");
+    clear_plan(&mut t, row, "mill-bot");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
     let mut t = world();
     t.w.host.allowed.push("mill-bot".into());
     let mut row = alices_session();
     row["by"] = json!("mill-bot[bot]");
-    clear_plan(&t, row, "mill-bot[bot]");
+    clear_plan(&mut t, row, "mill-bot[bot]");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
 }
@@ -4243,7 +4315,7 @@ fn a_plan_the_millwright_answered_for_asks() {
     let mut row = alices_session();
     row["answers"] = json!([{"turn": 1, "by": "alice", "millwright": false},
         {"turn": 2, "by": "mill-bot", "millwright": true}]);
-    clear_plan(&t, row, "alice");
+    clear_plan(&mut t, row, "alice");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
 }
@@ -4253,7 +4325,7 @@ fn an_account_outside_the_list_asks() {
     let mut t = world();
     let mut row = alices_session();
     row["by"] = json!("mallory");
-    clear_plan(&t, row, "mallory");
+    clear_plan(&mut t, row, "mallory");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
 }
@@ -4261,7 +4333,7 @@ fn an_account_outside_the_list_asks() {
 #[test]
 fn a_session_the_label_events_do_not_bear_out_asks() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "mallory");
+    clear_plan(&mut t, alices_session(), "mallory");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
 }
@@ -4272,24 +4344,24 @@ fn an_unknown_labeller_asks() {
     let mut t = world();
     let mut row = alices_session();
     row["by"] = Value::Null;
-    clear_plan(&t, row, "alice");
+    clear_plan(&mut t, row, "alice");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
     // Events that name nobody.
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     fs::write(t.dir.join("events-7"), "[]").unwrap();
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
     // An answer that is no list of events.
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     fs::write(t.dir.join("events-7"), "{}").unwrap();
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
     // Events that could not be read.
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     t.fail("gh", "/events");
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
@@ -4297,40 +4369,47 @@ fn an_unknown_labeller_asks() {
 
 #[test]
 fn an_issue_that_cannot_be_read_or_is_not_waiting_asks() {
-    let view = |extra: Value| {
-        let mut v =
-            json!({"title": "search", "body": "make it fast", "state": "OPEN", "labels": []});
-        for (k, x) in extra.as_object().unwrap() {
-            v[k] = x.clone();
-        }
-        v.to_string()
-    };
-    for (what, answer) in [
-        ("no answer", "{}".to_string()),
-        ("closed", view(json!({"state": "CLOSED"}))),
-        (
-            "already approved",
-            view(json!({"labels": [{"name": "tehas:ready"}]})),
-        ),
-    ] {
+    use tehas_ports::fake::{Fault, TicketSpec, TicketsOp};
+    fn approved(i: TicketSpec) -> TicketSpec {
+        i.title("search").text("make it fast").mark(mark(READY))
+    }
+    // The port read answers: the issue approved with its ready mark,
+    // which approves the text the plan would replace. A closed issue is no
+    // variant here: the state `plan_post` reads before any write of the turn
+    // is now the same read, so a closed issue is dropped at that gate, which
+    // `a_turn_that_ends_after_its_issue_was_closed_is_dropped_and_its_session_closed`
+    // says, as `plan_clear`'s own guard stays for the race between the two.
+    {
         let mut t = world();
-        clear_plan(&t, alices_session(), "alice");
-        fs::write(t.dir.join("view-7"), answer).unwrap();
+        clear_plan(&mut t, alices_session(), "alice");
+        reads_issue(&mut t, 7, approved);
         t.apply(json!([{"plan_collect": 7}]));
-        eprintln!("{what}");
         asks(&t);
     }
-    let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
-    t.fail("gh", "--json title");
-    t.apply(json!([{"plan_collect": 7}]));
-    asks(&t);
+    // A read the site could not answer, and one the site failed with an
+    // error of its own: the plan asks, as it did when the gh read failed or
+    // answered an issue with nothing on it. The faulty site is the last word
+    // on the reads, set after the clear's own `reads_issue`.
+    for fault in [Fault::Unreachable, Fault::Server { applied: false }] {
+        let mut t = world();
+        clear_plan(&mut t, alices_session(), "alice");
+        let faulty =
+            tehas_ports::fake::Faulty::new(tehas_ports::fake::FakeSite::new(&open_issues()))
+                .on(tehas_ports::fake::Op::Tickets(TicketsOp::Ticket), fault);
+        let writes = t.w.ports.take().unwrap().writes;
+        t.w.ports = Some(Handles {
+            writes,
+            ..site_handles(&faulty)
+        });
+        t.apply(json!([{"plan_collect": 7}]));
+        asks(&t);
+    }
 }
 
 #[test]
 fn a_draft_that_is_gone_asks() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     fs::remove_file(t.dir.join("works/tehas-work-plan-7.keep/draft.json")).unwrap();
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
@@ -4363,8 +4442,8 @@ fn a_turn_that_ends_after_its_issue_was_closed_is_dropped_and_its_session_closed
     // person closed it, and posted its plan, its open points and its boxes, and
     // put tehas:question back for the tidy to take off again.
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
-    issue_state(&t, "CLOSED");
+    clear_plan(&mut t, alices_session(), "alice");
+    issue_state(&mut t, false);
     let a = t.apply(json!([{"plan_collect": 7}]));
     posts_nothing_of_itself(&t);
     // The session is closed as `plan_close` closes one whose record is gone.
@@ -4404,7 +4483,7 @@ fn a_waiting_turn_of_a_closed_issue_is_dropped_with_no_line_of_its_own() {
         json!({"session": "s-2", "text": "Drafted.",
                "question": {"question": "Tick.", "options": [{"label": TICK}]}}),
     );
-    issue_state(&t, "CLOSED");
+    issue_state(&mut t, false);
     let a = t.apply(json!([{"plan_post": 7}]));
     assert_eq!(
         a.log,
@@ -4419,8 +4498,8 @@ fn a_turn_that_ends_while_its_issue_is_open_posts_as_before() {
     // The other side of the same read: an open issue answers OPEN and the turn
     // of the case above is posted whole.
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
-    issue_state(&t, "OPEN");
+    clear_plan(&mut t, alices_session(), "alice");
+    issue_state(&mut t, true);
     turn_ended(
         &t,
         7,
@@ -4456,7 +4535,7 @@ fn a_turn_waits_when_the_state_of_its_issue_cannot_be_read() {
         json!({"session": "s-2", "text": "Drafted.",
                "question": {"question": "Tick.", "options": [{"label": TICK}]}}),
     );
-    t.fail("gh", "--json state");
+    reads_faulty(&mut t, tehas_ports::fake::TicketsOp::Several);
     let a = t.apply(json!([{"plan_post": 7}]));
     assert!(
         a.log
@@ -4551,7 +4630,7 @@ fn a_clear_plan_that_fails_the_check_asks_and_starts_nothing() {
     ] {
         let mut t = world();
         clear_draft(
-            &t,
+            &mut t,
             alices_session(),
             "alice",
             &json!({"title": title, "spec": spec}),
@@ -4702,7 +4781,7 @@ fn a_clear_refusal_whose_outcome_cannot_be_kept_posts_it_once() {
     // on every poll for as long as the keep failed.
     let mut t = world();
     clear_draft(
-        &t,
+        &mut t,
         alices_session(),
         "alice",
         &json!({"title": REFUSED_TITLE, "spec": PLAN_BODY}),
@@ -4882,7 +4961,7 @@ fn a_chosen_draft_that_passes_the_check_is_written_as_it_was() {
 #[test]
 fn a_plan_that_links_an_attachment_the_issue_did_not_asks() {
     let mut t = world();
-    clear_plan(&t, alices_session(), "alice");
+    clear_plan(&mut t, alices_session(), "alice");
     let link = "https://github.com/user-attachments/assets/abc";
     fs::write(
         t.dir.join("works/tehas-work-plan-7.keep/draft.json"),
@@ -4890,19 +4969,16 @@ fn a_plan_that_links_an_attachment_the_issue_did_not_asks() {
     )
     .unwrap();
     // On the issue now is not approved: an outsider may have put it there.
-    fs::write(
-        t.dir.join("view-7"),
-        json!({"title": "s", "body": format!("Look: {link}"), "state": "OPEN", "labels": []})
-            .to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 7, |i| {
+        i.title("s").text(format!("Look: {link}").as_str())
+    });
     t.apply(json!([{"plan_collect": 7}]));
     asks(&t);
     // One in the brief was approved with it.
     let mut t = world();
     let mut row = alices_session();
     row["brief"] = json!(format!("# search\n\nLook: {link}\n"));
-    clear_plan(&t, row, "alice");
+    clear_plan(&mut t, row, "alice");
     fs::write(
         t.dir.join("works/tehas-work-plan-7.keep/draft.json"),
         json!({"title": "t", "spec": format!("See {link} there")}).to_string(),
@@ -4969,11 +5045,7 @@ fn a_refine_with_later_parts_is_refined_and_stays_open() {
         &t,
         json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
     );
-    fs::write(
-        t.dir.join("body-9"),
-        json!({"body": "## Later parts\n- part two"}).to_string(),
-    )
-    .unwrap();
+    reads_issue(&mut t, 9, |i| i.text("## Later parts\n- part two"));
     turn_ended(
         &t,
         7,
@@ -5315,16 +5387,14 @@ fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
         &t,
         json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
     );
-    fs::write(
-        t.dir.join("body-9"),
-        json!({"body": "Replaces #7\r\n\nThe plan.\n## Later parts\nNone"}).to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("labels-7"),
-        json!({"labels": [{"name": "tehas:replaced"}]}).to_string(),
-    )
-    .unwrap();
+    reads_from(
+        &mut t,
+        &open_issues()
+            .ticket(7, |i| i.mark(mark(REPLACED)))
+            .ticket(9, |i| {
+                i.text("Replaces #7\r\n\nThe plan.\n## Later parts\nNone")
+            }),
+    );
     fs::write(
         Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"filed": ["https://github.com/example-owner/example-product/issues/9"]}).to_string(),
@@ -5348,7 +5418,7 @@ fn a_repository_named_issues_is_its_own() {
     let mut t = world();
     t.w.repo = "owner/issues".into();
     plan_row(&t, json!({"turns": 1, "label": "tehas:refine"}));
-    fs::write(t.dir.join("body-5"), json!({"body": "x"}).to_string()).unwrap();
+    reads_issue(&mut t, 5, |i| i.text("x"));
     fs::write(
         Home::new(&t.w.home).plan_file(7, ".out"),
         json!({"filed": ["https://github.com/owner/issues/issues/5"]}).to_string(),
@@ -7786,25 +7856,34 @@ mod resilience {
         ]
     }
 
-    /// The plan's edit reads the issue's revision first (`Tickets::several`).
-    /// A read that fails or answers oddly writes nothing over the issue,
-    /// takes no label off and keeps the record for the next poll.
+    /// The plan's post reads the issue on the tickets port before anything
+    /// of the turn is written (`Tickets::several`), and its edit reads the
+    /// revision to write over. A read that fails or answers oddly writes
+    /// nothing over the issue and takes no label off. The post holds at the
+    /// read rather than keeping a start it could not verify: the record is
+    /// not made, and the next poll reads again.
     #[test]
     fn a_plan_whose_issue_cannot_be_read_is_not_written() {
         for fault in read_faults() {
             let mut t = world();
+            clear_plan(&mut t, alices_session(), "alice");
+            // After the clear's own reads, which shape the ports: the fault
+            // has to be the last word on the reads of this poll.
             reads_faulted(&mut t, Op::Tickets(TicketsOp::Several), fault);
-            clear_plan(&t, alices_session(), "alice");
             let a = t.apply(json!([{"plan_collect": 7}]));
             assert!(
-                a.log.iter().any(|l| l.contains("could not be written")),
+                a.log.iter().any(|l| l.contains("could not be read")),
                 "{fault:?}: {:?}",
                 a.log
             );
             let w = t.writes();
             assert!(!edited(&w, 7), "{fault:?}: {w:?}");
             assert!(!changed(&w, 7, LABEL_OFF), "{fault:?}");
-            assert!(the_record(&t).exists(), "{fault:?}");
+            assert!(!the_record(&t).exists(), "{fault:?}: {w:?}");
+            assert!(
+                !w.iter().any(|c| c.contains("plan-end 7 --close")),
+                "{fault:?}: {w:?}"
+            );
         }
     }
 

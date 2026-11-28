@@ -659,33 +659,41 @@ impl Writer {
         // A change that rests on a label read again now: gone, the change is
         // not made; a read that fails ends the poll.
         if let Some(want) = a.get("reread").and_then(Value::as_str) {
-            let repo = self.repo.clone();
-            let path = format!("repos/{repo}/issues/{n}");
-            let labels = match self.calls.gh(&["api", &path]) {
-                Ok(v) => v
-                    .get("labels")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .filter(|_| v.is_object()),
-                Err(_) => {
-                    log.push(format!("ERROR: gh api {path} failed"));
-                    self.ended = Some(1);
+            // The label read again on the tickets port, as a mark: the
+            // change rests on it, and a mark the wiring does not know is
+            // not on the ticket.
+            let mark = match (self.mark_of)(want) {
+                Some(m) => m,
+                None => {
+                    log.push(format!(
+                        "skip #{n}: {want} is gone from it since the list was read"
+                    ));
                     return;
                 }
             };
-            let Some(labels) = labels else {
+            let Some(key) = ticket(n) else {
                 log.push(format!("ERROR: GitHub's answer for #{n} could not be read"));
                 self.ended = Some(1);
                 return;
             };
-            if !labels
-                .iter()
-                .any(|l| l.get("name").and_then(Value::as_str) == Some(want))
-            {
-                log.push(format!(
-                    "skip #{n}: {want} is gone from it since the list was read"
-                ));
+            let Some(h) = self.ports.as_mut() else {
+                log.push(format!("ERROR: GitHub's answer for #{n} could not be read"));
+                self.ended = Some(1);
                 return;
+            };
+            match h.tickets.several(std::slice::from_ref(&key)).pop() {
+                Some((_, Ok(d))) if d.marks.contains(&mark) => {}
+                Some((_, Ok(_))) => {
+                    log.push(format!(
+                        "skip #{n}: {want} is gone from it since the list was read"
+                    ));
+                    return;
+                }
+                _ => {
+                    log.push(format!("ERROR: GitHub's answer for #{n} could not be read"));
+                    self.ended = Some(1);
+                    return;
+                }
             }
         }
         if let Some(line) = a.get("first").and_then(Value::as_str) {
