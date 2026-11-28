@@ -660,11 +660,7 @@ fn read_entry(run: &mut Run, e: &ResultIssue) {
                 .collect();
         }
     }
-    run.result_driver = e
-        .driver
-        .0
-        .clone()
-        .filter(|d| DRIVERS.contains(&d.as_str()));
+    run.result_driver = e.driver.0.clone().filter(|d| DRIVERS.contains(&d.as_str()));
     let mut seen: Vec<String> = Vec::new();
     for s in e.steps.items() {
         let Some(name) = word(&s.step, 80) else {
