@@ -512,12 +512,16 @@ fn a_store_that_cannot_run_is_absent_and_is_not_asked_again() {
     let h = Host::new("no-store");
     let store = h.dir.join("libexec/store");
     fs::remove_file(&store).unwrap();
-    let missing = tehas_cycle::host::store_try(&h.dir, 3, &["publish"]).unwrap_err();
+    let missing =
+        tehas_cycle::host::store_try(&h.dir, 3, &tehas_core::verb::Verb::Publish { health: None })
+            .unwrap_err();
     assert_eq!(missing.word, "absent", "{}", missing.line);
     assert!(missing.line.contains("is not an executable file"));
     fs::write(&store, "not a program").unwrap();
     fs::set_permissions(&store, fs::Permissions::from_mode(0o644)).unwrap();
-    let plain = tehas_cycle::host::store_try(&h.dir, 3, &["publish"]).unwrap_err();
+    let plain =
+        tehas_cycle::host::store_try(&h.dir, 3, &tehas_core::verb::Verb::Publish { health: None })
+            .unwrap_err();
     assert_eq!(plain.word, "absent", "{}", plain.line);
 }
 

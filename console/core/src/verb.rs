@@ -25,6 +25,36 @@ pub enum Plans {
     Issue(u64),
 }
 
+/// The account of a cycle's report, as [`Verb::CycleEndByReport`] holds it:
+/// the words of the run's end. The paths of the result and the progress are
+/// given when their files stand, as the cycle's own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndByReport {
+    pub issue: u64,
+    pub attempt: String,
+    pub status: String,
+    pub step: String,
+    pub rc: String,
+    pub oom: String,
+    pub forks: String,
+    pub runner_exit: Option<String>,
+    pub host_saw: bool,
+    pub stalled: Option<String>,
+    pub timed: bool,
+    pub branch: Option<String>,
+    pub pr: Option<String>,
+    pub result: Option<String>,
+    pub progress: Option<String>,
+    pub cap: Option<String>,
+    pub park_reason: Option<String>,
+    pub failure_kind: Option<String>,
+    pub failure_cause: Option<String>,
+    pub provider: bool,
+    pub parked: bool,
+    pub never_ran: bool,
+    pub signalled: bool,
+}
+
 /// One call of the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verb {
@@ -53,10 +83,40 @@ pub enum Verb {
     CycleStartByHand {
         issue: u64,
     },
+    /// `cycle-start`, with the pi-rukas commit of the image when it has one.
+    CycleStart {
+        issue: u64,
+        rukas: Option<String>,
+        by_hand: bool,
+    },
     CycleEnd {
         issue: u64,
         attempt: String,
         end: End,
+    },
+    /// `cycle-end` as the cycle's report ends it: the run's whole account.
+    /// The account is wide, so it stands boxed, keeping the enum the size of
+    /// its other calls.
+    CycleEndByReport(Box<EndByReport>),
+    /// `cycle-image`: the image and its settings on the record of the start.
+    CycleImage {
+        issue: u64,
+        attempt: String,
+        image: String,
+        rukas: Option<String>,
+        settings: Option<String>,
+    },
+    /// `cycle-heartbeat`: the step and status of a running cycle, or its end
+    /// without a report. `progress` is its steps' numbers as `--flag <digits>`
+    /// pairs, in the order they were read.
+    CycleHeartbeat {
+        issue: u64,
+        attempt: Option<String>,
+        running: bool,
+        status: String,
+        step: Option<String>,
+        text: String,
+        progress: Vec<(String, String)>,
     },
     CycleShow {
         issue: u64,
@@ -68,6 +128,22 @@ pub enum Verb {
     },
     ParkRetry {
         issue: u64,
+    },
+    /// `park`: the cycle's park on record, its reason by tehas's word.
+    Park {
+        issue: u64,
+        attempt: String,
+        reason: String,
+        step: Option<String>,
+        pr: Option<String>,
+    },
+    /// `question-asked`: a question put on the record before it is asked.
+    QuestionAsked {
+        issue: u64,
+        id: String,
+        kind: String,
+        body_sha: String,
+        offers: String,
     },
     /// `question-answered --withdraw`: the question taken off the record.
     QuestionWithdrawn {
@@ -102,7 +178,21 @@ pub enum Verb {
     ApprovalCurrent {
         issue: u64,
     },
+    /// `approval-view`: the approval of an issue, or of one attempt.
+    ApprovalView {
+        issue: u64,
+        attempt: Option<String>,
+    },
+    /// `settings-view`: the settings a cycle ran with.
+    SettingsView {
+        issue: u64,
+        attempt: String,
+    },
     ApprovalHosts,
+    /// `records --issue`: the plugin records of an issue.
+    Records {
+        issue: u64,
+    },
     PlanShow(Plans),
     HistoryShow {
         issue: Option<u64>,
@@ -150,19 +240,26 @@ impl Verb {
             Verb::BackupShow => "backup",
             Verb::Upkeep { .. } => "upkeep",
             Verb::Publish { .. } => "publish",
-            Verb::CycleStartByHand { .. } => "cycle-start",
-            Verb::CycleEnd { .. } => "cycle-end",
+            Verb::CycleStartByHand { .. } | Verb::CycleStart { .. } => "cycle-start",
+            Verb::CycleEnd { .. } | Verb::CycleEndByReport(_) => "cycle-end",
+            Verb::CycleImage { .. } => "cycle-image",
+            Verb::CycleHeartbeat { .. } => "cycle-heartbeat",
             Verb::CycleShow { .. } | Verb::CyclesRunning => "cycle-show",
             Verb::LocksHeld => "locks-held",
             Verb::ParkShow { .. } => "park-show",
             Verb::ParkRetry { .. } => "park-retry",
+            Verb::Park { .. } => "park",
+            Verb::QuestionAsked { .. } => "question-asked",
             Verb::QuestionWithdrawn { .. } => "question-answered",
             Verb::QuestionShow { .. } => "question-show",
             Verb::QuestionList { .. } => "question-list",
             Verb::AnswerRecord { .. } => "answer-record",
             Verb::ApprovalRecord { .. } | Verb::ApprovalUndo { .. } => "approval-record",
             Verb::ApprovalCurrent { .. } => "approval-current",
+            Verb::ApprovalView { .. } => "approval-view",
+            Verb::SettingsView { .. } => "settings-view",
             Verb::ApprovalHosts => "approval-hosts",
+            Verb::Records { .. } => "records",
             Verb::PlanShow(_) => "plan-show",
             Verb::HistoryShow { .. } => "history-show",
             Verb::PollShow { .. } => "poll-show",
@@ -221,11 +318,139 @@ impl Verb {
                     }
                 }
             }
+            Verb::CycleStart {
+                issue,
+                rukas,
+                by_hand,
+            } => {
+                a.issue(*issue);
+                a.maybe("--rukas", rukas.as_ref());
+                a.switch("--by-hand", *by_hand);
+            }
+            Verb::CycleEndByReport(b) => {
+                let EndByReport {
+                    issue,
+                    attempt,
+                    status,
+                    step,
+                    rc,
+                    oom,
+                    forks,
+                    runner_exit,
+                    host_saw,
+                    stalled,
+                    timed,
+                    branch,
+                    pr,
+                    result,
+                    progress,
+                    cap,
+                    park_reason,
+                    failure_kind,
+                    failure_cause,
+                    provider,
+                    parked,
+                    never_ran,
+                    signalled,
+                } = &**b;
+                a.issue(*issue);
+                a.flag("--attempt", attempt);
+                a.flag("--status", status);
+                a.flag("--step", step);
+                a.flag("--rc", rc);
+                a.flag("--oom", oom);
+                a.flag("--forks", forks);
+                a.maybe("--runner-exit", runner_exit.as_ref());
+                if *host_saw {
+                    a.flag("--host-saw", "killed");
+                }
+                a.maybe("--stalled", stalled.as_ref());
+                a.switch("--timed", *timed);
+                a.maybe("--branch", branch.as_ref());
+                a.maybe("--pr", pr.as_ref());
+                a.maybe("--result", result.as_ref());
+                a.maybe("--progress", progress.as_ref());
+                a.maybe("--cap", cap.as_ref());
+                a.maybe("--park-reason", park_reason.as_ref());
+                a.maybe("--failure-kind", failure_kind.as_ref());
+                a.maybe("--failure-cause", failure_cause.as_ref());
+                a.switch("--provider", *provider);
+                a.switch("--parked", *parked);
+                a.switch("--never-ran", *never_ran);
+                a.switch("--signalled", *signalled);
+            }
+            Verb::CycleImage {
+                issue,
+                attempt,
+                image,
+                rukas,
+                settings,
+            } => {
+                a.issue(*issue);
+                a.flag("--attempt", attempt);
+                a.flag("--image", image);
+                a.maybe("--rukas", rukas.as_ref());
+                a.maybe("--settings", settings.as_ref());
+            }
+            Verb::CycleHeartbeat {
+                issue,
+                attempt,
+                running,
+                status,
+                step,
+                text,
+                progress,
+            } => {
+                a.issue(*issue);
+                a.maybe("--attempt", attempt.as_ref());
+                a.switch(if *running { "--running" } else { "--ended" }, true);
+                a.flag("--status", status);
+                a.maybe("--step", step.as_ref());
+                a.flag("--text", text);
+                for (flag, value) in progress {
+                    a.flag(flag, value);
+                }
+            }
             Verb::CycleShow { issue }
             | Verb::ParkShow { issue }
             | Verb::ParkRetry { issue }
             | Verb::QuestionShow { issue }
             | Verb::ApprovalCurrent { issue } => a.issue(*issue),
+            Verb::Park {
+                issue,
+                attempt,
+                reason,
+                step,
+                pr,
+            } => {
+                a.issue(*issue);
+                a.flag("--attempt", attempt);
+                a.flag("--reason", reason);
+                a.maybe("--step", step.as_ref());
+                a.maybe("--pr", pr.as_ref());
+            }
+            Verb::QuestionAsked {
+                issue,
+                id,
+                kind,
+                body_sha,
+                offers,
+            } => {
+                a.issue(*issue);
+                a.flag("--id", id);
+                a.flag("--kind", kind);
+                a.flag("--body-sha", body_sha);
+                a.flag("--offers", offers);
+            }
+            Verb::ApprovalView { issue, attempt } => {
+                a.issue(*issue);
+                a.maybe("--attempt", attempt.as_ref());
+            }
+            Verb::SettingsView { issue, attempt } => {
+                a.issue(*issue);
+                a.flag("--attempt", attempt);
+            }
+            Verb::Records { issue } => a.flag("--issue", issue),
             Verb::CyclesRunning => a.switch("--running", true),
             Verb::QuestionWithdrawn { issue, id } => {
                 a.issue(*issue);
@@ -384,5 +609,40 @@ mod tests {
             ["order-set", "--issues", "3,1", "--only", "--until", "9"]
         );
         assert_eq!(Verb::HistoryShow { issue: None }.args(), ["history-show"]);
+    }
+
+    #[test]
+    fn a_heartbeat_names_running_or_ended_and_its_numbers_in_order() {
+        let beat = Verb::CycleHeartbeat {
+            issue: 7,
+            attempt: Some("2".into()),
+            running: true,
+            status: "running".into(),
+            step: Some("explore".into()),
+            text: String::new(),
+            progress: vec![("--step-number".to_string(), "2".to_string())],
+        };
+        assert_eq!(
+            beat.args(),
+            [
+                "cycle-heartbeat",
+                "7",
+                "--attempt",
+                "2",
+                "--running",
+                "--status",
+                "running",
+                "--step",
+                "explore",
+                "--text",
+                "",
+                "--step-number",
+                "2"
+            ]
+        );
+        assert_eq!(
+            Verb::Records { issue: 7 }.args(),
+            ["records", "--issue", "7"]
+        );
     }
 }

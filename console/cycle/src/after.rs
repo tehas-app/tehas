@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tehas_core::home::{Home, State};
 use tehas_core::jq::{obj, J};
 use tehas_core::time::{iso, now};
+use tehas_core::verb::Verb;
 
 /// A call of the analytics may take this long: a stopped cycle has
 /// TimeoutStopSec for its whole report, and two calls are part of it.
@@ -212,8 +213,13 @@ pub fn approved(home: &Path, issue: u64, attempt: u64) -> String {
     if !analytics_on(home) {
         return "null".into();
     }
-    let (n, a) = (issue.to_string(), attempt.to_string());
-    match host::store(home, &["approval-view", &n, "--attempt", &a]) {
+    match host::store(
+        home,
+        &Verb::ApprovalView {
+            issue,
+            attempt: Some(attempt.to_string()),
+        },
+    ) {
         Ok(a) => approval_of(&a).dump(),
         Err(_) => "null".into(),
     }
@@ -280,7 +286,13 @@ fn analytics_run(home: &Path, a: &After) {
     let e = &a.ended;
     let at = iso(now());
     let (n, attempt) = (e.issue.to_string(), a.attempt.to_string());
-    let view = host::store(home, &["settings-view", &n, "--attempt", &attempt]);
+    let view = host::store(
+        home,
+        &Verb::SettingsView {
+            issue: e.issue,
+            attempt: attempt.clone(),
+        },
+    );
     let facts = run_facts(
         &history_line(a, &at),
         Some(a.attempt),
@@ -319,7 +331,7 @@ fn analytics_run(home: &Path, a: &After) {
 pub fn after(home: &Path, a: &After) {
     let e = &a.ended;
     let n = e.issue;
-    if let Err(f) = host::store_try(home, 3, &["publish"]) {
+    if let Err(f) = host::store_try(home, 3, &Verb::Publish { health: None }) {
         log(&format!(
             "WARN: the live view is not published after the end of #{n} ({}: {})",
             f.word, f.line

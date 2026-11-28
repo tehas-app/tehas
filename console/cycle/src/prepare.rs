@@ -40,6 +40,7 @@ use tehas_core::install::{self, Step};
 use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
+use tehas_core::verb::{End, Verb};
 use tehas_core::{lock, time};
 
 /// What of the protocol a killed cycle leaves as its evidence.
@@ -1073,14 +1074,11 @@ pub fn push_fault(home: &Path, issue: u64, line: &str) {
     let attempt = env("TEHAS_CYCLE_ATTEMPT");
     let n = issue.to_string();
     if is_attempt(&attempt) {
-        let end = [
-            "cycle-end",
-            &n,
-            "--attempt",
-            &attempt,
-            "--status",
-            "push-fault",
-        ];
+        let end = Verb::CycleEnd {
+            issue,
+            attempt: attempt.clone(),
+            end: End::Status("push-fault".into()),
+        };
         if let Err(refused) = host::store_said(home, &end) {
             eprintln!(
                 "tehas work: the push fault of #{issue} is not on its record ({}): cycle-end {n} --attempt {attempt} --status push-fault",
@@ -1385,7 +1383,7 @@ pub struct Record {
 
 /// How many cycles hold their lock, this one with them.
 fn running(home: &Path) -> usize {
-    let held = host::store(home, &["locks-held"]).ok();
+    let held = host::store(home, &Verb::LocksHeld).ok();
     let held = held
         .as_ref()
         .and_then(|v| v.get("held")?.as_array().map(Vec::len));
@@ -1439,22 +1437,22 @@ fn on_record(home: &Path, r: &Record, state: &Value, seen: &Seen) -> bool {
         return true;
     };
     let n = r.issue.to_string();
-    let mut args = vec!["cycle-image", &n, "--attempt", &r.attempt, "--image", id];
-    if let Some(c) = &commit {
-        args.extend(["--rukas", c]);
-    }
     let mut options = list(state, "env");
     options.extend_from_slice(&r.images);
     let text = ran_with::settings(&running(home).to_string(), &options);
     let settings = start::private_file(home, "settings", format!("{text}\n").as_bytes());
     let path = settings.as_ref().map(|p| p.to_string_lossy().into_owned());
-    match &path {
-        Some(p) => args.extend(["--settings", p]),
-        None => {
-            eprintln!("tehas work: the settings of this cycle could not be written for its record")
-        }
+    if path.is_none() {
+        eprintln!("tehas work: the settings of this cycle could not be written for its record");
     }
-    let done = host::store_try(home, 2, &args);
+    let call = Verb::CycleImage {
+        issue: r.issue,
+        attempt: r.attempt.clone(),
+        image: id.clone(),
+        rukas: commit.clone(),
+        settings: path,
+    };
+    let done = host::store_try(home, 2, &call);
     if let Some(p) = &settings {
         let _ = fs::remove_file(p);
     }
