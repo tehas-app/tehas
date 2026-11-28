@@ -51,14 +51,14 @@ const USAGE: &str = "usage: console gh <real gh> <log> [words]";
 /// What a write is: its kind, and the repository and number it names, each
 /// empty when the arguments do not say.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Write {
+pub(crate) struct Write {
     pub kind: String,
     pub repo: String,
     pub number: String,
 }
 
 /// The write a call makes, or None for a read. From the arguments alone.
-pub fn classify(args: &[String]) -> Option<Write> {
+pub(crate) fn classify(args: &[String]) -> Option<Write> {
     let (kind, repo, number) = match args.first().map(String::as_str) {
         Some("api") => api(args)?,
         Some(cmd @ ("issue" | "pr" | "label")) => verb(cmd, args)?,
@@ -229,7 +229,7 @@ fn verb(cmd: &str, args: &[String]) -> Option<(String, String, String)> {
 }
 
 /// 403 or 429 when gh's error stream says so, 403 first; else `-`.
-pub fn marker(stderr: &[u8]) -> &'static str {
+pub(crate) fn marker(stderr: &[u8]) -> &'static str {
     let has = |n: &[u8]| stderr.windows(n.len()).any(|w| w == n);
     if has(b"HTTP 403") {
         "403"
@@ -242,7 +242,7 @@ pub fn marker(stderr: &[u8]) -> &'static str {
 
 /// The log's line: six fields, each one word, so no tab or newline of an odd
 /// argument takes a field or a line of its own.
-pub fn line(at: i64, w: &Write, rc: i32, marker: &str) -> String {
+pub(crate) fn line(at: i64, w: &Write, rc: i32, marker: &str) -> String {
     let field = |s: &str| {
         if s.is_empty() {
             "-".to_string()
@@ -263,7 +263,7 @@ pub fn line(at: i64, w: &Write, rc: i32, marker: &str) -> String {
 /// short list, the same as host/sandbox/gh-shim, and anything else counts as
 /// a write, so a command gh adds later is refused too. `gh api` reads with
 /// `-X GET`, with no method and no field, or as a graphql query.
-pub fn reads(args: &[String]) -> bool {
+pub(crate) fn reads(args: &[String]) -> bool {
     let a = |k: usize| args.get(k).map(String::as_str).unwrap_or("");
     match (a(0), a(1)) {
         ("search" | "--version" | "version", _) => true,
@@ -310,7 +310,7 @@ fn other(args: &[String]) -> Write {
 
 /// What a refused write was, in the words of its log line: `gh issue edit
 /// o/r#7`, with no number or repository when the call names none.
-pub fn refused(w: &Write) -> String {
+pub(crate) fn refused(w: &Write) -> String {
     let mut s = format!("gh {}", w.kind);
     if !w.repo.is_empty() {
         s.push(' ');
@@ -326,14 +326,14 @@ pub fn refused(w: &Write) -> String {
 /// GitHub refused the call for a rate limit: gh failed and its error stream
 /// says 429, or 403 and "rate limit", which GitHub puts on lines of their own.
 /// As host/sandbox/gh-shim reads it.
-pub fn rate_limited(rc: i32, stderr: &[u8]) -> bool {
+pub(crate) fn rate_limited(rc: i32, stderr: &[u8]) -> bool {
     let text = String::from_utf8_lossy(stderr).to_lowercase();
     rc != 0
         && (text.contains("http 429") || text.contains("http 403") && text.contains("rate limit"))
 }
 
 /// A call that reads standard input, which a second attempt could not read.
-pub fn reads_stdin(args: &[String]) -> bool {
+pub(crate) fn reads_stdin(args: &[String]) -> bool {
     args.iter()
         .any(|a| a == "-" || a.ends_with("@-") || a.ends_with("=-"))
 }
@@ -341,19 +341,19 @@ pub fn reads_stdin(args: &[String]) -> bool {
 /// Whether a write may be sent a second time, its output held back until then:
 /// not when it reads standard input, and not when standard input or output is
 /// a terminal, where gh prompts only while its output is the terminal itself.
-pub fn may_resend(args: &[String], stdin_tty: bool, stdout_tty: bool) -> bool {
+pub(crate) fn may_resend(args: &[String], stdin_tty: bool, stdout_tty: bool) -> bool {
     !stdin_tty && !stdout_tty && !reads_stdin(args)
 }
 
 /// Whether the caller lets a rate-limited write be sent again: not when
 /// TEHAS_GH_RETRY is 0.
-pub fn retry_on(given: Option<&str>) -> bool {
+pub(crate) fn retry_on(given: Option<&str>) -> bool {
     given.map(str::trim) != Some("0")
 }
 
 /// The pause before the second attempt: TEHAS_GH_RETRY_WAIT in seconds, or a
 /// minute when it is unset or no number.
-pub fn retry_wait(given: Option<&str>) -> Duration {
+pub(crate) fn retry_wait(given: Option<&str>) -> Duration {
     Duration::from_secs(given.and_then(|w| w.trim().parse().ok()).unwrap_or(60))
 }
 
