@@ -276,6 +276,7 @@ fn the_record_names_no_comment_and_none_are_read() {
     title_world(&w);
     assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
     lacks(&w.gh(), "comments?per_page=100 --paginate");
+    lacks(&w.gh(), "comments?per_page=100&page=1");
 }
 
 /// An instance that still sets TEHAS_WORK_COMMENTS: alice's two comments
@@ -345,6 +346,7 @@ fn an_instance_that_still_sets_comments_records_no_link_of_a_comment() {
         json!([[format!("{A}/1111")], false])
     );
     lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
+    lacks(&w.gh(), "issues/7/comments?per_page=100&page=1");
 }
 
 #[test]
@@ -407,9 +409,10 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     let w = World::new("ap-retry-alone");
     retry_world(&w, false, &[" ", "x", " "]);
     issue_comments(&w, 7, &[]);
-    w.fx(
-        "prlist.json",
-        r#"[{"number":30,"headRefName":"feature/issue-7-search","body":""}]"#,
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
     );
     issue_comments(
         &w,
@@ -435,16 +438,31 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     );
     lacks(&w.gh(), "pr list");
     lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
+    // The reads of the ports, too, are not asked for: the list of the
+    // bot's changes and the notes of the issue.
+    lacks(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
 }
+
+/// The code host's id of the instance bot, the viewer of a read of its own
+/// changes: the sum of the characters of its login, the id these worlds
+/// record for it.
+const BOT: u64 = 903;
 
 /// A retry tick, the cycle's pull request #30 commented on
 /// by alice, mallory and bob, another issue's #31 and a second of #7's, #32.
 fn pr_world(w: &World) -> Run {
     retry_world(w, false, &["x", " "]);
     issue_comments(w, 7, &[]);
-    w.fx(
-        "prlist.json",
-        r#"[{"number":30,"headRefName":"feature/issue-7-search","body":""},{"number":31,"headRefName":"feature/issue-8-other","body":""},{"number":32,"headRefName":"x","body":"Fixes #7"}]"#,
+    // The bot's changes the retry lists: #30 whose head names the issue,
+    // #31 of another issue, and #32 whose body closes this one.
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}},
+            {"number": 31, "headRefName": "feature/issue-8-other", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}},
+            {"number": 32, "headRefName": "x", "body": "Fixes #7",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
     );
     issue_comments(
         w,
@@ -537,7 +555,7 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
     );
     has(
         &w.gh(),
-        "pr list --repo acme/widget --author tehas-bot[bot] --state all",
+        "states: [OPEN, CLOSED, MERGED]",
     );
 }
 
@@ -582,7 +600,7 @@ fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "pr list");
+    has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(
         w.approval(
             r#"[has("comment_links"), (.retry_context | map(.source))]"#,
@@ -598,6 +616,7 @@ fn pull_requests_that_cannot_be_listed_start_no_retry_and_change_no_label_exit_1
     retry_world(&w, false, &["x", " "]);
     issue_comments(&w, 7, &[]);
     w.touch("pr-fails");
+    w.touch("pulls-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     has(

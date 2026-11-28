@@ -5,7 +5,11 @@ jq -n --argjson pulls "$pulls" '
   # This repository answers with databaseId 111; a head repository of it
   # says the head is a branch here, another id or a null one a fork. GitHub
   # gives a pull request a body always: none reads as the empty text.
-  {data: {repository: {databaseId: 111, nameWithOwner: "acme/widget",
+  # The viewer of a me read is the instance bot: its id is the sum of the
+  # characters of its login, the id the worlds record for it. A case that
+  # wants its pull request taken as the one of the bot names that id as
+  # the author of it.
+  {data: {viewer: {databaseId: 903}, repository: {databaseId: 111, nameWithOwner: "acme/widget",
     pullRequests: {totalCount: ($pulls | length),
     pageInfo: {hasNextPage: false, endCursor: null},
     nodes: ($pulls | map(. as $p | ($p.number // 0) as $no | {

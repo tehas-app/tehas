@@ -89,12 +89,7 @@ case "$name $1" in
     case "$2" in
       */issues/[0-9]*/comments*) f=${2#*/issues/}; f=$d/comments-${f%%/*}
         if [ -f "$f" ]; then cat "$f"; else cat "$d/comments" 2>/dev/null || echo '[]'; fi ;;
-      */pulls/[0-9]*/reviews*) f=${2#*/pulls/}; cat "$d/reviews-${f%%/*}" 2>/dev/null || echo '[]' ;;
-      */pulls/[0-9]*/comments*) f=${2#*/pulls/}; cat "$d/inline-${f%%/*}" 2>/dev/null || echo '[]' ;;
-      */collaborators/*/permission) f=${2#*/collaborators/}
-        cat "$d/perm-${f%%/*}" 2>/dev/null || echo '{"permission":"write","role_name":"write"}' ;;
     esac ;;
-  "gh pr") cat "$d/prs" 2>/dev/null || echo '[]' ;;
   "git -C") case "$3" in
       status) cat "$d/dirty" 2>/dev/null ;;
       rev-parse) echo "abc1234" ;;
@@ -313,6 +308,46 @@ fn reads_faulty(t: &mut World, op: tehas_ports::fake::TicketsOp) {
             tehas_ports::fake::Op::Tickets(op),
             tehas_ports::fake::Fault::Unreachable,
         );
+    let writes = t.w.ports.take().unwrap().writes;
+    t.w.ports = Some(Handles {
+        writes,
+        ..site_handles(&faulty)
+    });
+}
+
+/// A site time from its stamp, for the worlds the comments retry reads.
+fn fake_at(iso: &str) -> tehas_ports::At {
+    tehas_ports::At::new(tehas_core::time::from_iso(iso).expect("a time"))
+}
+
+/// The reads a comments retry makes: the notes of the issue and, for its
+/// pull requests, the change list, the conversation, the reviews, the
+/// notes on files, and the answer of who may write.
+fn comment_reads() -> Vec<tehas_ports::fake::Op> {
+    use tehas_ports::fake::{BlueprintsOp, CodeHostOp, Op, TicketsOp};
+    vec![
+        Op::Tickets(TicketsOp::Notes),
+        Op::Blueprints(BlueprintsOp::Comments),
+        Op::CodeHost(CodeHostOp::Changes),
+        Op::CodeHost(CodeHostOp::Conversation),
+        Op::CodeHost(CodeHostOp::Reviews),
+        Op::CodeHost(CodeHostOp::ReviewComments),
+        Op::CodeHost(CodeHostOp::MayWrite),
+    ]
+}
+
+/// The reads of the ports, from a faulty site holding `world`: each named
+/// op answers unreachable. A case that expects no read proves it by running:
+/// a read the case forbids would fail the site, and the start would say so.
+fn reads_faulty_ops(
+    t: &mut World,
+    world: &tehas_ports::fake::World,
+    ops: &[tehas_ports::fake::Op],
+) {
+    let mut faulty = tehas_ports::fake::Faulty::new(tehas_ports::fake::FakeSite::new(world));
+    for op in ops {
+        faulty = faulty.on(*op, tehas_ports::fake::Fault::Unreachable);
+    }
     let writes = t.w.ports.take().unwrap().writes;
     t.w.ports = Some(Handles {
         writes,
@@ -2245,14 +2280,27 @@ fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
 #[test]
 fn the_approval_names_no_link_of_a_comment_and_reads_no_comment() {
     let mut t = world();
-    let comments = r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
-        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#;
-    fs::write(t.dir.join("comments"), comments).unwrap();
-    t.apply(json!([start_of(7, "approved")]));
+    // The comment holds a file link and is there to be read: were the
+    // approval to read comments, the read would fail the site and the
+    // start would say so.
+    let w = open_issues().ticket(7, |i| {
+        i.note(
+            1,
+            "alice",
+            fake_at("2026-10-26T09:00:00Z"),
+            "see https://github.com/user-attachments/assets/2",
+        )
+    });
+    reads_faulty_ops(&mut t, &w, &comment_reads());
+    let r = t.apply(json!([start_of(7, "approved")]));
+    assert!(
+        !r.log.iter().any(|l| l.contains("could not be read")),
+        "an approval read a comment: {:?}",
+        r.log
+    );
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
     assert!(input.get("comment_links").is_none(), "{input}");
-    assert!(!t.calls().iter().any(|c| c.contains("issues/7/comments")));
 }
 
 #[test]
@@ -2420,11 +2468,6 @@ fn input_of(t: &World) -> Value {
     serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap()
 }
 
-fn said(id: u64, who: &str, at: &str, body: &str) -> Value {
-    json!({"id": id, "body": body, "user": {"login": who}, "created_at": at, "updated_at": at,
-        "html_url": format!("https://github.com/example-owner/example-product/issues/7#issuecomment-{id}")})
-}
-
 /// The tick of the comments retry, at 10:00, with the park asked at 09:00.
 fn comments_retry() -> Value {
     let mut a = start_of(7, "reply");
@@ -2435,105 +2478,107 @@ fn comments_retry() -> Value {
 #[test]
 fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
     let mut t = world();
-    fs::write(
-        t.dir.join("prs"),
-        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""},
-        {"number": 31, "headRefName": "feature/issue-71", "body": "Closes #71"},
-        {"number": 32, "headRefName": "other", "body": "Fixes #7."}]"#,
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("comments-7"),
-        json!([said(
-            1,
-            "alice",
-            "2026-10-25T08:00:00Z",
-            "on the issue\r\nplease"
-        )])
-        .to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("comments-30"),
-        json!([
-            said(2, "alice", "2026-10-26T08:00:00Z", "before the park"),
-            said(
+    // The bot's own changes: one whose head names the issue, one that
+    // closes another issue, and one whose body closes this one. A change
+    // by another author, and #31 with its comment of its own, are read but
+    // must reach no record.
+    let w = open_issues()
+        .ticket(7, |i| {
+            i.note(
+                1,
+                "alice",
+                fake_at("2026-10-25T08:00:00Z"),
+                "on the issue\r\nplease",
+            )
+        })
+        .change(30, "feature/issue-7-x", |c| {
+            c.talk(
+                2,
+                "alice",
+                fake_at("2026-10-26T08:00:00Z"),
+                "before the park",
+            )
+            .talk(
                 3,
                 "alice",
-                "2026-10-26T09:30:00Z",
-                "see https://github.com/user-attachments/assets/9"
+                fake_at("2026-10-26T09:30:00Z"),
+                "see https://github.com/user-attachments/assets/9",
             )
-        ])
-        .to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("comments-32"),
-        json!([said(4, "alice", "2026-10-26T09:40:00Z", &"x".repeat(5000))]).to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("comments-31"),
-        json!([said(5, "alice", "2026-10-26T09:40:00Z", "not this issue's")]).to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("reviews-30"),
-        json!([
-            {"id": 6, "body": "the review", "user": {"login": "alice"}, "submitted_at": "2026-10-26T08:30:00Z", "html_url": "u6"},
-            {"id": 7, "body": "", "user": {"login": "alice"}, "submitted_at": "2026-10-26T08:31:00Z", "html_url": "u7"},
-            {"id": 8, "body": "pending", "user": {"login": "alice"}, "html_url": "u8"}
-        ])
-        .to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("inline-30"),
-        json!([{"id": 9, "body": "this line", "path": "src/x.rs", "line": 88, "user": {"login": "alice"},
-            "created_at": "2026-10-26T08:40:00Z", "updated_at": "2026-10-26T08:40:00Z", "html_url": "u9"}])
-        .to_string(),
-    )
-    .unwrap();
+            .review(6, "alice", fake_at("2026-10-26T08:30:00Z"), "the review")
+            .review(7, "alice", fake_at("2026-10-26T08:31:00Z"), "")
+            .note(
+                9,
+                "alice",
+                fake_at("2026-10-26T08:40:00Z"),
+                "this line",
+                "src/x.rs",
+                88,
+            )
+        })
+        .change(31, "feature/issue-71", |c| {
+            c.body("Closes #71").talk(
+                5,
+                "alice",
+                fake_at("2026-10-26T09:40:00Z"),
+                "not this issue's",
+            )
+        })
+        .change(32, "other", |c| {
+            c.body("Fixes #7.").talk(
+                4,
+                "alice",
+                fake_at("2026-10-26T09:40:00Z"),
+                &"x".repeat(5000),
+            )
+        })
+        .with_account(
+            "alice",
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Write,
+        );
+    reads_from(&mut t, &w);
     // The tick is the opt-in.
     t.apply(json!([comments_retry()]));
-    assert!(!t.calls().iter().any(|c| c.contains("issues/31/comments")));
     let input = input_of(&t);
     let ctx = input["retry_context"].as_array().unwrap();
     let ids: Vec<u64> = ctx.iter().map(|c| c["id"].as_u64().unwrap()).collect();
+    // The comment of #31, which closes no issue of this one, reaches no
+    // record: id 5 is not among these.
     assert_eq!(ids, [1, 2, 6, 9, 3, 4]);
     assert_eq!(
         ctx[0],
         json!({"source": "issue-comment", "id": 1, "by": "alice", "at": "2026-10-25T08:00:00Z",
-            "url": "https://github.com/example-owner/example-product/issues/7#issuecomment-1", "text": "on the issue\nplease"})
+            "url": "https://fake.test/fake/project/n/1", "text": "on the issue\nplease"})
     );
     assert_eq!(ctx[1]["source"], "pr-comment");
     assert_eq!(ctx[1]["pr"], 30);
     assert_eq!(
         ctx[2],
-        json!({"source": "review", "id": 6, "pr": 30, "by": "alice", "at": "2026-10-26T08:30:00Z", "url": "u6", "text": "the review"})
+        json!({"source": "review", "id": 6, "pr": 30, "by": "alice", "at": "2026-10-26T08:30:00Z",
+            "url": "https://fake.test/fake/project/c/30/reviews/6", "text": "the review"})
     );
     assert_eq!(
         ctx[3],
         json!({"source": "review-comment", "id": 9, "pr": 30, "path": "src/x.rs", "line": 88, "by": "alice",
-            "at": "2026-10-26T08:40:00Z", "url": "u9", "text": "this line"})
+            "at": "2026-10-26T08:40:00Z", "url": "https://fake.test/fake/project/c/30/notes/9", "text": "this line"})
     );
     assert_eq!(ctx[5]["text"].as_str().unwrap().len(), 4000);
     assert_eq!(ctx[5]["pr"], 32);
     // No record names the links of comments.
     assert!(input.get("comment_links").is_none());
     // A list that cannot be read starts nothing.
-    for fail in ["pr list", "pulls/30/reviews", "pulls/30/comments"] {
+    for op in [
+        tehas_ports::fake::CodeHostOp::Changes,
+        tehas_ports::fake::CodeHostOp::Reviews,
+        tehas_ports::fake::CodeHostOp::ReviewComments,
+    ] {
         let mut t = world();
-        fs::write(
-            t.dir.join("prs"),
-            r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
-        )
-        .unwrap();
-        t.fail("gh", fail);
+        let w = open_issues().change(30, "feature/issue-7-x", |c| c.body(""));
+        reads_faulty_ops(&mut t, &w, &[tehas_ports::fake::Op::CodeHost(op)]);
         let r = t.apply(json!([comments_retry()]));
         assert_eq!(
             r.log[1], "ERROR: the comments on the pull request of #7 could not be read",
-            "{fail}"
+            "{op:?}"
         );
     }
 }
@@ -2541,22 +2586,21 @@ fn a_comments_retry_records_the_text_of_the_issue_and_its_pull_requests() {
 #[test]
 fn a_comments_retry_names_no_link_of_its_pull_request() {
     let mut t = world();
-    fs::write(
-        t.dir.join("prs"),
-        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("comments-30"),
-        json!([said(
-            3,
+    let w = open_issues()
+        .change(30, "feature/issue-7-x", |c| {
+            c.talk(
+                3,
+                "alice",
+                fake_at("2026-10-26T09:30:00Z"),
+                "see https://github.com/user-attachments/assets/9",
+            )
+        })
+        .with_account(
             "alice",
-            "2026-10-26T09:30:00Z",
-            "see https://github.com/user-attachments/assets/9"
-        )])
-        .to_string(),
-    )
-    .unwrap();
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Write,
+        );
+    reads_from(&mut t, &w);
     t.apply(json!([comments_retry()]));
     let input = input_of(&t);
     assert!(input.get("comment_links").is_none(), "{input}");
@@ -2571,63 +2615,52 @@ fn a_comments_retry_names_no_link_of_its_pull_request() {
 fn a_comments_retry_leaves_out_what_does_not_count() {
     let mut t = world();
     t.w.host.allowed = vec!["alice".into(), "carol".into(), "tehas-bot".into()];
-    fs::write(
-        t.dir.join("prs"),
-        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
-    )
-    .unwrap();
-    let mut edited = said(2, "alice", "2026-10-26T09:10:00Z", "edited after the tick");
-    edited["updated_at"] = json!("2026-10-26T10:05:00Z");
-    fs::write(
-        t.dir.join("comments-7"),
-        json!([
-            said(1, "alice", "2026-10-26T09:05:00Z", "counts"),
-            edited,
-            said(
-                3,
-                "tehas-bot",
-                "2026-10-26T09:00:00Z",
-                "Tehas cycle stopped."
-            ),
-            said(4, "mallory", "2026-10-26T09:20:00Z", "not listed"),
-            said(5, "carol", "2026-10-26T09:30:00Z", "listed, may not write"),
-            said(6, "alice", "2026-10-26T10:01:00Z", "after the tick"),
-        ])
-        .to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("comments-30"),
-        json!([said(
-            7,
-            "tehas-bot[bot]",
-            "2026-10-26T09:00:00Z",
-            "the bot's"
-        )])
-        .to_string(),
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("perm-carol"),
-        r#"{"permission": "read", "role_name": "triage"}"#,
-    )
-    .unwrap();
-    t.apply(json!([comments_retry()]));
+    let w = open_issues()
+        .ticket(7, |i| {
+            i.note(1, "alice", fake_at("2026-10-26T09:05:00Z"), "counts")
+                .note_edited(
+                    2,
+                    "alice",
+                    fake_at("2026-10-26T09:10:00Z"),
+                    fake_at("2026-10-26T10:05:00Z"),
+                    "edited after the tick",
+                )
+                .note(3, "tehas-bot", fake_at("2026-10-26T09:00:00Z"), "Tehas cycle stopped.")
+                .note(4, "mallory", fake_at("2026-10-26T09:20:00Z"), "not listed")
+                .note(5, "carol", fake_at("2026-10-26T09:30:00Z"), "listed, may not write")
+                .note(6, "alice", fake_at("2026-10-26T10:01:00Z"), "after the tick")
+        })
+        .change(30, "feature/issue-7-x", |c| {
+            c.talk(
+                7,
+                "tehas-bot[bot]",
+                fake_at("2026-10-26T09:00:00Z"),
+                "the bot's",
+            )
+        })
+        .with_account(
+            "alice",
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Write,
+        )
+        .with_account(
+            "carol",
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Read,
+        );
+    reads_from(&mut t, &w);
+    let r = t.apply(json!([comments_retry()]));
     let ctx = input_of(&t)["retry_context"].clone();
     assert_eq!(ctx.as_array().unwrap().len(), 1, "{ctx}");
     assert_eq!(ctx[0]["text"], "counts");
-    // Asked once per author, and never for one who does not count anyway.
-    let asked: Vec<String> = t
-        .calls()
-        .into_iter()
-        .filter(|c| c.contains("/permission"))
-        .collect();
-    assert_eq!(
-        asked,
-        [
-            "gh api repos/example-owner/example-product/collaborators/alice/permission",
-            "gh api repos/example-owner/example-product/collaborators/carol/permission"
-        ]
+    // Never asked for one who does not count anyway: the site knows no
+    // tehas-bot or mallory, and being asked of them would leave a word in
+    // the log. Alice counts and may write, and is kept; carol is listed
+    // but may not write, and is left out without a word.
+    assert!(
+        !r.log.iter().any(|l| l.contains("tehas-bot") || l.contains("mallory")),
+        "{:?}",
+        r.log
     );
 }
 
@@ -2635,16 +2668,19 @@ fn a_comments_retry_leaves_out_what_does_not_count() {
 fn a_permission_that_cannot_be_read_leaves_that_author_out_and_says_so() {
     let mut t = world();
     t.w.host.allowed = vec!["alice".into(), "carol".into()];
-    fs::write(
-        t.dir.join("comments-7"),
-        json!([
-            said(1, "alice", "2026-10-26T09:05:00Z", "counts"),
-            said(2, "carol", "2026-10-26T09:06:00Z", "unread permission"),
-        ])
-        .to_string(),
-    )
-    .unwrap();
-    t.fail("gh", "collaborators/carol/permission");
+    // The site has no answer for carol: her permission cannot be read, as
+    // it could not when the call of gh failed.
+    let w = open_issues()
+        .ticket(7, |i| {
+            i.note(1, "alice", fake_at("2026-10-26T09:05:00Z"), "counts")
+                .note(2, "carol", fake_at("2026-10-26T09:06:00Z"), "unread permission")
+        })
+        .with_account(
+            "alice",
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Write,
+        );
+    reads_from(&mut t, &w);
     let r = t.apply(json!([comments_retry()]));
     assert_eq!(r.exit, None);
     let ctx = input_of(&t)["retry_context"].clone();
@@ -2667,17 +2703,22 @@ fn a_permission_that_cannot_be_read_leaves_that_author_out_and_says_so() {
 #[test]
 fn a_comments_retry_over_the_record_bound_keeps_the_newest() {
     let mut t = world();
-    let many: Vec<Value> = (1..=200)
-        .map(|i| {
-            said(
-                i,
-                "alice",
-                &format!("2026-10-26T09:{:02}:{:02}Z", i / 60, i % 60),
-                &"y".repeat(4000),
-            )
-        })
-        .collect();
-    fs::write(t.dir.join("comments-7"), Value::Array(many).to_string()).unwrap();
+    let many = (1..=200).fold(tehas_ports::fake::TicketSpec::default(), |s, i| {
+        s.note(
+            i,
+            "alice",
+            fake_at(&format!("2026-10-26T09:{:02}:{:02}Z", i / 60, i % 60)),
+            &"y".repeat(4000),
+        )
+    });
+    let w = open_issues()
+        .ticket(7, |_| many)
+        .with_account(
+            "alice",
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Write,
+        );
+    reads_from(&mut t, &w);
     let r = t.apply(json!([comments_retry()]));
     let ctx = input_of(&t)["retry_context"].as_array().unwrap().clone();
     assert_eq!(ctx.len(), 131);
@@ -2695,35 +2736,47 @@ fn a_comments_retry_over_the_record_bound_keeps_the_newest() {
 /// The tick of `Retry with the issue text only`: the start names no comment
 /// of the issue or of its pull request, so it asks for neither and its record holds neither. Were the guard dropped, this start
 /// would read both, and these are the two calls that say it did.
+fn alone_world() -> tehas_ports::fake::World {
+    open_issues()
+        .ticket(7, |i| {
+            i.note(
+                1,
+                "alice",
+                fake_at("2026-10-26T09:00:00Z"),
+                "see https://github.com/user-attachments/assets/2",
+            )
+        })
+        .change(30, "feature/issue-7-x", |c| {
+            c.talk(
+                2,
+                "alice",
+                fake_at("2026-10-26T09:10:00Z"),
+                "on the pull request",
+            )
+        })
+        .with_account(
+            "alice",
+            tehas_ports::AccountKind::Person,
+            tehas_ports::Standing::Write,
+        )
+}
+
 #[test]
 fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request() {
     let mut t = world();
-    // Both reads would answer if they were asked for: the issue's comments
-    // link one file, the pull request's would go into retry_context.
-    fs::write(
-        t.dir.join("comments"),
-        r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
-            "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("prs"),
-        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
-    )
-    .unwrap();
+    // Both reads would answer if they were asked for: the issue's comment
+    // links one file, the pull request's would go into retry_context.
+    // Here they fail the site, so a read the guard forbids says so.
+    reads_faulty_ops(&mut t, &alone_world(), &comment_reads());
     let mut a = start_of(7, "reply");
     a["issue_alone"] = json!(true);
     a["since"] = json!("2026-10-26T09:00:00Z");
     let r = t.apply(json!([a]));
     assert_eq!(r.exit, None);
-    let w = t.calls();
     assert!(
-        !w.iter().any(|c| c.starts_with("gh pr list")),
-        "an alone start asked for the pull requests: {w:?}"
-    );
-    assert!(
-        !w.iter().any(|c| c.contains("issues/7/comments")),
-        "an alone start read the comments of the issue: {w:?}"
+        !r.log.iter().any(|l| l.contains("could not be read")),
+        "an alone start read a comment: {:?}",
+        r.log
     );
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
@@ -2731,29 +2784,23 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
         input,
         json!({"links": ["https://github.com/user-attachments/assets/1"]})
     );
-    // A tick of the comments retry under the same host asks for both, so the two
-    // cases above really are the guard and not a world that reads nothing.
+    // A tick of the comments retry under the same host reads both, so the
+    // case above really is the guard and not a world that reads nothing.
     let mut t = world();
-    fs::write(
-        t.dir.join("comments"),
-        r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
-            "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
-    )
-    .unwrap();
-    fs::write(
-        t.dir.join("prs"),
-        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
-    )
-    .unwrap();
+    reads_from(&mut t, &alone_world());
     let mut a = start_of(7, "reply");
     a["since"] = json!("2026-10-26T09:00:00Z");
     t.apply(json!([a]));
-    let w = t.calls();
-    assert!(w.iter().any(|c| c.starts_with("gh pr list")));
-    assert!(w.iter().any(|c| c.contains("issues/7/comments")));
     let input: Value =
         serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
-    assert!(input.get("retry_context").is_some());
+    let ctx = input["retry_context"].as_array().unwrap();
+    let ids: Vec<u64> = ctx.iter().map(|c| c["id"].as_u64().unwrap()).collect();
+    // Both reads came through: the issue's own comment and the comment of
+    // the pull request, read through the change list of the code host.
+    assert_eq!(ids, [1, 2]);
+    assert_eq!(ctx[0]["source"], "issue-comment");
+    assert_eq!(ctx[1]["source"], "pr-comment");
+    assert_eq!(ctx[1]["pr"], 30);
 }
 
 /// The flag is a bool or nothing: a value that is neither is said in the log
@@ -2762,12 +2809,7 @@ fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request(
 fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
     for v in [json!("true"), json!(1), json!("yes")] {
         let mut t = world();
-        fs::write(
-            t.dir.join("comments"),
-            r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
-                "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
-        )
-        .unwrap();
+        reads_from(&mut t, &alone_world());
         let mut a = start_of(7, "reply");
         a["issue_alone"] = v.clone();
         a["since"] = json!("2026-10-26T09:00:00Z");
@@ -2780,7 +2822,13 @@ fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
             "nothing was said of {v}: {:?}",
             r.log
         );
-        assert!(t.calls().iter().any(|c| c.contains("issues/7/comments")));
+        // The read it is not made to look like was really made: the
+        // issue's comment stands in the record.
+        let ctx = input_of(&t)["retry_context"].clone();
+        assert!(
+            ctx.as_array().unwrap().iter().any(|c| c["id"] == 1),
+            "of {v}: {ctx}"
+        );
     }
 }
 

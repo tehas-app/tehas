@@ -273,8 +273,9 @@ case "$1 $2" in
   "api repos/acme/widget/issues/"*/parent)
     n=${2#repos/acme/widget/issues/}
     cat "$T/fx/parent-${n%%/*}.json" 2>/dev/null || not_found ;;
-  # The reviews and inline comments of a pull request, as REST lists them.
-  "api repos/acme/widget/pulls/"*"/reviews?per_page=100" | "api repos/acme/widget/pulls/"*"/comments?per_page=100")
+  # The reviews and inline comments of a pull request, as REST lists them,
+  # page by page as the code host's adapter asks.
+  "api repos/acme/widget/pulls/"*"/reviews?per_page=100*" | "api repos/acme/widget/pulls/"*"/comments?per_page=100*")
     n=${2#repos/acme/widget/pulls/}
     case "$2" in */reviews*) f=reviews ;; *) f=inline ;; esac
     cat "$T/fx/$f-${n%%/*}.json" 2>/dev/null || echo "[]" ;;
@@ -297,6 +298,8 @@ case "$1 $2" in
   "api repos/acme/widget/issues/"*"/comments?per_page=100&page="*)
     # The adapter's pages of a ticket's notes: the case's answer stands in
     # either shape it wrote, and the page holds what GitHub's pages hold.
+    # $fx/icomments-fails makes this read fail as it fails the plain one.
+    [ ! -e "$T/fx/icomments-fails" ] || exit 1
     n=${2#repos/acme/widget/issues/}
     n=${n%%/*}
     n=${n%%\?*}
@@ -435,7 +438,10 @@ case "$1 $2" in
       *"filterBy:"*) "$T/closed-stub" || exit 1 ;;
       # The open pull requests of the repository, with their bodies, as the
       # code host's list of changes asks: what the hold of rule 6 reads.
-      *"pullRequests(first: 100"*) "$T/pulls-stub" || exit 1 ;;
+      # $fx/pulls-fails makes the retry's list of them unreadable: it fails
+      # only the code host's read of the bot's changes, the question that
+      # names all three states, and not the queue's open list.
+      *"pullRequests(first: 100"*) case "$*" in *"states: [OPEN, CLOSED, MERGED]"*) [ ! -e "$T/fx/pulls-fails" ] || exit 1 ;; esac; "$T/pulls-stub" || exit 1 ;;
       # The repository's marks with their node ids.
       *"labels(first: 100, after"* ) if [ -r "$T/fx/labels.json" ]; then
           jq -c . "$T/fx/labels.json" | page_of labels
@@ -840,6 +846,7 @@ const RESET_FX: &[&str] = &[
     "prs.json",
     "prlist.json",
     "pr-fails",
+    "pulls-fails",
     "issue-*",
     "work-*",
     "post-fails",
