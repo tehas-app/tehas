@@ -192,6 +192,8 @@ pub enum CodeHostOp {
     Reviews,
     /// `CodeHost::review_comments`.
     ReviewComments,
+    /// `CodeHost::conversation`.
+    Conversation,
     /// `CodeHost::may_write`.
     MayWrite,
     /// `CodeHost::checks`.
@@ -1439,6 +1441,11 @@ impl<H: CodeHost + ?Sized> CodeHost for Wrap<H> {
     fn review_comments(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ReviewComment>> {
         self.call(Op::CodeHost(C::ReviewComments), Err, |h| {
             h.review_comments(no, bound)
+        })
+    }
+    fn conversation(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<Comment>> {
+        self.call(Op::CodeHost(C::Conversation), Err, |h| {
+            h.conversation(no, bound)
         })
     }
     fn may_write(&mut self, who: &Login) -> Got<bool> {

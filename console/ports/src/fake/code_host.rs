@@ -13,12 +13,12 @@ use super::tickets::{close_item, page, since, token};
 use crate::{
     Access, Actor, Applied, Blobs, Branch, Change, ChangeDelta, ChangeDigest, ChangeEvent,
     ChangeFilter, ChangeHappened, ChangeNo, ChangeReview, ChangeState, ChangeStates, ChangeToken,
-    ChangedFile, Checks, CloseReason, Closer, CodeHost, CodeHostWrites, CommentId, CommitId,
-    Compared, Cursor, Did, Facts, FileName, GitCredential, GitRemote, Got, Login, Lost, Mark,
-    Marker, MarkerEdit, MergeHow, Mergeable, NewChange, NewRelease, Outcome, Overall, Pool, Posted,
-    Proposal, ProposalPart, Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId, Remote,
-    RepoPath, Rev, ReviewComment, Secret, Status, Sum, Tag, TagName, Takeover, Token, Took, Unread,
-    WebLink, Whole, Window, Write,
+    ChangedFile, Checks, CloseReason, Closer, CodeHost, CodeHostWrites, Comment, CommentId,
+    CommitId, Compared, Cursor, Did, Facts, FileName, GitCredential, GitRemote, Got, Login, Lost,
+    Mark, Marker, MarkerEdit, MergeHow, Mergeable, NewChange, NewRelease, Outcome, Overall, Pool,
+    Posted, Proposal, ProposalPart, Proposed, Ref, Refusal, Release, ReleaseFile, ReleaseId,
+    Remote, RepoPath, Rev, ReviewComment, Secret, Status, Sum, Tag, TagName, Takeover, Token, Took,
+    Unread, WebLink, Whole, Window, Write,
 };
 use crate::{Author, Bound, Check, CheckStatus, Conclusion, StatusState};
 
@@ -311,6 +311,14 @@ impl CodeHost for Handle {
                 })
                 .collect();
             whole(items, bound)
+        })
+    }
+
+    /// The change's conversation, in the order the world holds it.
+    fn conversation(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<Comment>> {
+        self.run(Pool::Calls, |s, _| {
+            let c = &s.changes[at_change(s, no)?];
+            whole(comments_of(s, &c.comments, false), bound)
         })
     }
 

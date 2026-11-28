@@ -1166,6 +1166,21 @@ pub mod code_host {
         )
     }
 
+    /// `conversation` gives the change's conversation comments, whole, the
+    /// same list `change` gives for them. The fixture's change `no` has
+    /// comments.
+    pub fn conversation_is_the_changes_conversation(
+        h: &mut dyn crate::CodeHost,
+        no: crate::ChangeNo,
+    ) -> Law {
+        const LAW: &str = "code_host::conversation_is_the_changes_conversation";
+        let whole = got(LAW, "the conversation", h.conversation(no, ALL_MAX))?.into_items();
+        let change = got(LAW, "the change", h.change(no, ALL_MAX))?;
+        hold(whole == change.comments, LAW, || {
+            "the conversation and the change's comments disagree".to_string()
+        })
+    }
+
     /// `may_write` answers a name the site knows, true or false; a name
     /// it does not know is a failure, never false: not knowing is not
     /// saying no. The fixture knows `known` and holds no account named

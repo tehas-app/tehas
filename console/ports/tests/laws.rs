@@ -1220,6 +1220,24 @@ fn code_host_a_change_without_reviews_gives_none() {
 }
 
 #[test]
+fn code_host_conversation_is_the_changes_conversation() {
+    for w in both() {
+        let n = first_change(&w);
+        let w = w.change(n, "work", |c| {
+            c.title("work")
+                .comment("alice", "go on")
+                .comment("bob", "wait")
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::conversation_is_the_changes_conversation(
+            h.as_mut(),
+            cn(n),
+        ));
+    }
+}
+
+#[test]
 fn code_host_may_write_never_guesses_a_name_it_does_not_know() {
     for w in both() {
         let w = w.with_account("alice", AccountKind::Person, Standing::Write);

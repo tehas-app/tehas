@@ -1270,6 +1270,10 @@ fn a_stub_that_overrides_nothing_refuses_the_reads_added_2026_11_28() {
         Err(Outcome::Refused(Refusal::Unsupported))
     );
     assert_eq!(
+        h.conversation(no, ALL_MAX),
+        Err(Outcome::Refused(Refusal::Unsupported))
+    );
+    assert_eq!(
         h.may_write(&Login::new("alice")),
         Err(Outcome::Refused(Refusal::Unsupported))
     );

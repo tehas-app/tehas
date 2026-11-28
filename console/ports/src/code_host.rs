@@ -942,6 +942,15 @@ pub trait CodeHost: Reports + Cites {
         let _ = (no, bound);
         Err(Outcome::Refused(Refusal::Unsupported))
     }
+    /// The conversation of a change: the comments its participants wrote
+    /// on the change itself, oldest first, none of them a review's note
+    /// on a file (`review_comments`) or a review body (`reviews`). A host
+    /// with no such discussion refuses `Refused(Unsupported)`. Added
+    /// 2026-11-28, with this default.
+    fn conversation(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<Comment>> {
+        let _ = (no, bound);
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
     /// Whether `who` may write to the project: true where the site says
     /// they hold a role that writes. A host that cannot tell refuses
     /// `Refused(Unsupported)`; it does not answer false for what it does
