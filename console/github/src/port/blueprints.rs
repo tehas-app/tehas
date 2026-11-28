@@ -25,7 +25,8 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 mod edits;
 
-use super::blueprint_writes::{comment_revision, ends_with_folded, read_issue, revision};
+use super::blueprint_writes::{comment_revision, read_issue, revision};
+use super::named::Named;
 use super::unsupported;
 use crate::graphql::priced;
 use crate::ticket::CUT_TEXT;
@@ -191,7 +192,12 @@ impl Blueprints for GitHub {
         let mut page = 1;
         while kept.len() <= want {
             let out = self.search_page(&q, page)?;
-            let read = read_page(&out, &self.repo)?;
+            let mut read = read_page(&out, Named::As(&self.repo))?;
+            if read.hits.iter().any(|hit| !hit.here) {
+                if let Some(name) = self.renamed() {
+                    read = read_page(&out, Named::As(&name))?;
+                }
+            }
             if *total.get_or_insert(read.total) != read.total {
                 return Err(Outcome::Unread(Unread::Inconsistent));
             }
@@ -302,7 +308,7 @@ impl GitHub {
 
     /// [`GitHub::issue`] of an answer read already.
     fn issue_of(&mut self, no: BlueprintNo, out: &str) -> Got<(Blueprint, Stamp)> {
-        let issue = read_issue(out, &self.repo)?;
+        let issue = self.as_here(|repo| read_issue(out, repo))?;
         if issue.no != no {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
@@ -421,7 +427,9 @@ impl GitHub {
         for page in first..=last {
             let out = self.comments_page(no, page)?;
             let held = (count - (page - 1) * COMMENTS_PER_PAGE).min(COMMENTS_PER_PAGE);
-            let (mut comments, touched) = read_comments(&out, &self.repo, no, self.bot.as_ref())?;
+            let bot = self.bot.clone();
+            let (mut comments, touched) =
+                self.as_here(|repo| read_comments(&out, repo, no, bot.as_ref()))?;
             if comments.len() != held {
                 return Err(inconsistent);
             }
@@ -678,7 +686,7 @@ fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<tehas_ports::Account
 /// `Unread(Inconsistent)`.
 fn read_comments(
     out: &str,
-    repo: &str,
+    repo: Named,
     no: BlueprintNo,
     bot: Option<&Bot>,
 ) -> Got<(Vec<Comment>, Vec<Touched>)> {
@@ -691,10 +699,7 @@ fn read_comments(
     for c in items {
         let id = c.id.ok_or(malformed.clone())?;
         let url = c.html_url.as_deref().ok_or(malformed.clone())?;
-        if !ends_with_folded(
-            url,
-            &format!("/{repo}/issues/{}#issuecomment-{id}", no.get()),
-        ) {
+        if !repo.ends(url, "", &format!("/issues/{}#issuecomment-{id}", no.get())) {
             return Err(Outcome::Unread(Unread::Inconsistent));
         }
         let link = tehas_ports::WebLink::new(url).map_err(|_| malformed.clone())?;
@@ -792,7 +797,7 @@ struct Hit {
 /// A page of gh's answer. An answer that does not parse, or lacks a field
 /// every page or item has, is `Unread(Malformed)`; an item with no number,
 /// or a search GitHub says it did not finish, is `Unread(Inconsistent)`.
-fn read_page(out: &str, repo: &str) -> Got<Page> {
+fn read_page(out: &str, repo: Named) -> Got<Page> {
     let malformed = Outcome::Unread(Unread::Malformed);
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| malformed.clone())?;
     if v.get("incomplete_results").and_then(Value::as_bool) != Some(false) {
@@ -809,7 +814,6 @@ fn read_page(out: &str, repo: &str) -> Got<Page> {
         .get("items")
         .and_then(Value::as_array)
         .ok_or(malformed.clone())?;
-    let ours = format!("/repos/{repo}").to_ascii_lowercase();
     let mut hits = Vec::with_capacity(items.len());
     for item in items {
         let text = |k: &str| item.get(k).and_then(Value::as_str);
@@ -823,10 +827,11 @@ fn read_page(out: &str, repo: &str) -> Got<Page> {
             Some("closed") => false,
             _ => return Err(malformed),
         };
-        let here = text("repository_url")
-            .ok_or(malformed.clone())?
-            .to_ascii_lowercase()
-            .ends_with(&ours);
+        let here = repo.ends(
+            text("repository_url").ok_or(malformed.clone())?,
+            "/repos",
+            "",
+        );
         let body = match item.get("body") {
             None | Some(Value::Null) => String::new(),
             Some(Value::String(s)) => s.clone(),

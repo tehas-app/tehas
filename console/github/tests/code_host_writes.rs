@@ -130,6 +130,30 @@ fn taken(calls: &Calls) -> Vec<Call> {
     calls.lock().unwrap().clone()
 }
 
+/// The question of this project's name as the adapter asks it, once, when
+/// an answer names another repository.
+const NAME_QUESTION: [&str; 8] = [
+    "api",
+    "graphql",
+    "-f",
+    "owner=acme",
+    "-f",
+    "name=widget",
+    "-f",
+    "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId nameWithOwner } }",
+];
+
+/// Each call as `name` where it is exactly that question, else `call`.
+fn kinds(calls: &[Call]) -> Vec<&'static str> {
+    calls
+        .iter()
+        .map(|c| match c.input.is_none() && c.args == NAME_QUESTION {
+            true => "name",
+            false => "call",
+        })
+        .collect()
+}
+
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -347,6 +371,33 @@ fn a_comment_sends_a_200_kib_body_on_standard_input_and_answers_its_id_and_link(
     assert_eq!(sent, Input { body });
 }
 
+/// An instance that still names the project's old name comments on its
+/// pull request as here, by the name GitHub gives with the repository's id.
+#[test]
+fn a_renamed_project_still_gets_its_comment_on_a_change_by_its_repository_id() {
+    let renamed = r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
+    let (mut gh, calls) = adapter_of(
+        "acme/widget-before",
+        vec![
+            Ok(sample("pull-8-open.json")),
+            Ok(renamed.into()),
+            Ok(sample("comment-8-created.json")),
+        ],
+    );
+    let posted = gh.comment_change(no(8), "b", &[]).unwrap();
+    assert_eq!(posted.id.as_str(), "2502345678");
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
+    let other = sample("pull-8-open.json").replace("acme/widget/pull/8", "acme/other/pull/8");
+    let (mut gh, calls) = adapter_of("acme/widget-before", vec![Ok(other), Ok(renamed.into())]);
+    assert_eq!(
+        gh.comment_change(no(8), "b", &[]),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(taken(&calls).len(), 2, "nothing posted");
+}
+
 #[test]
 fn a_comment_on_a_closed_or_merged_change_is_posted() {
     let (mut gh, calls) = adapter(vec![
@@ -430,7 +481,7 @@ fn each_failure_of_a_comments_post_is_its_outcome_and_it_is_never_sent_again() {
         let body = "The refresh is done; a body this test alone holds.";
         let (mut gh, calls) = adapter(vec![Ok(sample("pull-8-open.json")), Err(why)]);
         assert_eq!(gh.comment_change(no(8), body, &[]), Err(want), "{name}");
-        assert_eq!(taken(&calls).len(), 2, "{name}");
+        assert_eq!(kinds(&taken(&calls)), ["call", "call"], "{name}");
     }
 }
 
@@ -467,7 +518,11 @@ fn each_failure_of_the_read_before_a_comment_sends_nothing() {
             Err(want),
             "{name}"
         );
-        assert_eq!(taken(&calls).len(), 1, "{name}");
+        let want: &[&str] = match name {
+            "another project" => &["call", "name"],
+            _ => &["call"],
+        };
+        assert_eq!(kinds(&taken(&calls)), want, "{name}");
     }
 }
 
@@ -501,7 +556,11 @@ fn a_comments_answer_that_does_not_read_is_unread() {
             Err(want),
             "{name}"
         );
-        assert_eq!(taken(&calls).len(), 2, "{name}");
+        let want: &[&str] = match name {
+            "another project" => &["call", "call", "name"],
+            _ => &["call", "call"],
+        };
+        assert_eq!(kinds(&taken(&calls)), want, "{name}");
     }
 }
 
@@ -697,7 +756,11 @@ fn each_failure_of_the_read_before_a_mark_sends_nothing() {
                 gh.mark_change(no(8), &refreshing())
             };
             assert_eq!(got, Err(want.clone()), "{name}, unmark {unmark}");
-            assert_eq!(taken(&calls).len(), 1, "{name}, unmark {unmark}");
+            let asked: &[&str] = match name {
+                "another project" => &["call", "name"],
+                _ => &["call"],
+            };
+            assert_eq!(kinds(&taken(&calls)), asked, "{name}, unmark {unmark}");
         }
     }
 }

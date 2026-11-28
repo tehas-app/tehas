@@ -142,6 +142,30 @@ fn sent_body(c: &Call) -> String {
         .body
 }
 
+/// The question of this project's name as the adapter asks it, once, when
+/// an answer names another repository.
+const NAME_QUESTION: [&str; 8] = [
+    "api",
+    "graphql",
+    "-f",
+    "owner=acme",
+    "-f",
+    "name=widget",
+    "-f",
+    "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { databaseId nameWithOwner } }",
+];
+
+/// Each call as `name` where it is exactly that question, else `call`.
+fn kinds(calls: &[Call]) -> Vec<&'static str> {
+    calls
+        .iter()
+        .map(|c| match c.input.is_none() && c.args == NAME_QUESTION {
+            true => "name",
+            false => "call",
+        })
+        .collect()
+}
+
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| w.to_string()).collect()
 }
@@ -387,12 +411,13 @@ fn an_answer_for_another_repository_or_issue_is_inconsistent() {
         assert_eq!(got, Err(Outcome::Unread(Unread::Inconsistent)), "{to}");
     }
     // The read answered another repository's issue, or another number.
-    for (from, to) in [
+    for (from, to, asked) in [
         (
             "github.com/acme/widget/issues/7",
             "github.com/acme/other/issues/7",
+            &["call", "name"][..],
         ),
-        ("\"number\":7", "\"number\":9"),
+        ("\"number\":7", "\"number\":9", &["call"][..]),
     ] {
         let read = sample("issue-7.json").replace(from, to);
         let (mut gh, calls) = adapter(vec![Ok(read)]);
@@ -401,11 +426,118 @@ fn an_answer_for_another_repository_or_issue_is_inconsistent() {
             Err(Outcome::Unread(Unread::Inconsistent)),
             "{to}"
         );
-        assert_eq!(taken(&calls).len(), 1, "nothing posted");
+        assert_eq!(kinds(&taken(&calls)), asked, "nothing posted: {to}");
     }
     // A project named in another case is the same project.
     let answer = sample("comment-posted.json").replace("acme/widget", "Acme/Widget");
     assert!(note_against(Ok(answer)).0.is_ok());
+}
+
+/// GitHub's answer for the repository the configured name resolves to:
+/// its database id and the name it has now.
+const RENAMED: &str =
+    r#"{"data":{"repository":{"databaseId":7001,"nameWithOwner":"acme/widget"}}}"#;
+
+/// An instance that still names the project's old name writes it as here:
+/// the name is asked once, with the repository's id, and every link after
+/// is read against it.
+#[test]
+fn a_renamed_project_is_still_written_as_here_by_its_repository_id() {
+    let (mut gh, calls) = adapter_of(
+        "acme/widget-before",
+        vec![
+            Ok(sample("issue-7.json")),
+            Ok(RENAMED.into()),
+            Ok(sample("comment-posted.json")),
+        ],
+    );
+    let got = gh.note(&key(7), "b", &[]).unwrap();
+    assert_eq!(got.id, CommentId::new("2507654321"));
+    let calls = taken(&calls);
+    assert_eq!(calls.len(), 3, "the name is asked once");
+    assert_eq!(calls[1].args[..2], args(&["api", "graphql"]));
+    assert!(calls[1].args.contains(&"owner=acme".to_string()));
+    assert!(calls[1].args.contains(&"name=widget-before".to_string()));
+    assert!(calls[2].input.is_some(), "then the note is posted");
+}
+
+/// A link to another repository is not here, whatever name was learned;
+/// with no name learned, the answer stays unread.
+#[test]
+fn another_repositorys_link_is_not_here_for_a_renamed_project() {
+    let read = sample("issue-7.json").replace(
+        "github.com/acme/widget/issues/7",
+        "github.com/acme/other/issues/7",
+    );
+    let (mut gh, calls) = adapter_of("acme/widget-before", vec![Ok(read), Ok(RENAMED.into())]);
+    assert_eq!(
+        gh.note(&key(7), "b", &[]),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert!(
+        taken(&calls).iter().all(|c| c.input.is_none()),
+        "nothing posted"
+    );
+    let no_name = RENAMED.replace(r#","nameWithOwner":"acme/widget""#, "");
+    for name in [Ok(no_name), Err("no answer".to_string())] {
+        let (mut gh, calls) =
+            adapter_of("acme/widget-before", vec![Ok(sample("issue-7.json")), name]);
+        assert_eq!(
+            gh.note(&key(7), "b", &[]),
+            Err(Outcome::Unread(Unread::Inconsistent))
+        );
+        assert_eq!(taken(&calls).len(), 2, "nothing posted");
+    }
+}
+
+/// A handle whose question of the name failed does not ask it again: the
+/// next answer that names another repository stays unread.
+#[test]
+fn the_name_is_asked_once_a_handle_even_where_the_question_failed() {
+    let (mut gh, calls) = adapter_of(
+        "acme/widget-before",
+        vec![
+            Ok(sample("issue-7.json")),
+            Err("no answer".to_string()),
+            Ok(sample("issue-7.json")),
+        ],
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            gh.note(&key(7), "b", &[]),
+            Err(Outcome::Unread(Unread::Inconsistent))
+        );
+    }
+    assert_eq!(taken(&calls).len(), 3);
+    assert_eq!(taken(&calls)[1].args[..2], args(&["api", "graphql"]));
+}
+
+/// A repository moved to another owner is not here, even where GitHub
+/// gives its new name with this project's id and every link names it: the
+/// account that now owns it is not the configured one.
+#[test]
+fn a_project_transferred_to_another_owner_is_not_here() {
+    let moved = |s: String| s.replace("acme/widget", "mallory/widget");
+    let (mut gh, calls) = adapter(vec![
+        Ok(moved(sample("issue-7.json"))),
+        Ok(moved(RENAMED.into())),
+        Ok(moved(sample("comment-posted.json"))),
+    ]);
+    assert_eq!(
+        gh.note(&key(7), "b", &[]),
+        Err(Outcome::Unread(Unread::Inconsistent))
+    );
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"], "nothing posted");
+    // A rename within the owner, named in another case, is still here.
+    let (mut gh, _) = adapter_of(
+        "ACME/widget-before",
+        vec![
+            Ok(sample("issue-7.json")),
+            Ok(RENAMED.into()),
+            Ok(sample("comment-posted.json")),
+        ],
+    );
+    assert!(gh.note(&key(7), "b", &[]).is_ok());
 }
 
 /// A runner of the trait's default, which takes no input.
@@ -1672,5 +1804,5 @@ fn a_parent_of_another_repository_is_another_parent() {
         gh.add_part(&key(12), &key(13)),
         Err(Outcome::Refused(Refusal::Invalid))
     );
-    assert_eq!(taken(&calls).len(), 1);
+    assert_eq!(kinds(&taken(&calls)), ["call", "name"]);
 }
