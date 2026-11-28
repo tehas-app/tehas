@@ -508,6 +508,8 @@ impl World {
                 closes: spec.closes.clone(),
                 files: spec.files.clone(),
                 reviews: Vec::new(),
+                given_reviews: spec.reviews.clone(),
+                given_notes: spec.notes.clone(),
                 comments: Vec::new(),
                 events: Vec::new(),
                 created: now,
@@ -524,6 +526,17 @@ impl World {
             for (login, body) in &spec.comments {
                 let author = Some(s.account(login, Realm::CodeHost));
                 let id = s.new_comment(author, body, Vec::new(), Some(body.to_string()), now);
+                s.changes[at].comments.push(id);
+            }
+            for (id, login, created, body) in &spec.talks {
+                let author = Some(s.account(login, Realm::CodeHost));
+                let id = s.new_comment_at(
+                    author,
+                    crate::CommentId::new(id.to_string()),
+                    body,
+                    *created,
+                    None,
+                );
                 s.changes[at].comments.push(id);
             }
             for (login, what) in &spec.events {

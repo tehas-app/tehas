@@ -1,0 +1,14 @@
+[
+  {"id": 11, "user": {"login": "alice", "id": 1, "type": "User"}, "state": "COMMENTED",
+   "body": "looks well done", "submitted_at": "2026-10-26T09:20:00Z",
+   "html_url": "https://github.com/acme/widget/pull/7#pullrequestreview-11",
+   "pull_request_url": "https://api.github.com/repos/acme/widget/pulls/7"},
+  {"id": 12, "user": {"login": "carol", "id": 2, "type": "User"}, "state": "PENDING",
+   "body": null, "submitted_at": null,
+   "html_url": "https://github.com/acme/widget/pull/7#pullrequestreview-12",
+   "pull_request_url": "https://api.github.com/repos/acme/widget/pulls/7"},
+  {"id": 13, "user": {"login": "bob", "id": 3, "type": "User"}, "state": "APPROVED",
+   "body": "one thing to fix", "submitted_at": "2026-10-26T09:40:00Z",
+   "html_url": "https://github.com/acme/widget/pull/7#pullrequestreview-13",
+   "pull_request_url": "https://api.github.com/repos/acme/widget/pulls/7"}
+]

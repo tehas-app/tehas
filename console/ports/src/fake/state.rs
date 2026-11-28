@@ -83,6 +83,18 @@ pub(crate) struct CommentRec {
     pub link: WebLink,
 }
 
+/// A note on a file of a change, as a test gave it.
+#[derive(Debug, Clone)]
+pub(crate) struct NoteRec {
+    pub id: u64,
+    pub login: String,
+    pub at: At,
+    pub edited: Option<At>,
+    pub body: String,
+    pub path: Option<RepoPath>,
+    pub line: Option<u32>,
+}
+
 /// A change.
 #[derive(Debug, Clone)]
 pub(crate) struct ChangeRec {
@@ -102,6 +114,10 @@ pub(crate) struct ChangeRec {
     pub closes: Vec<BlueprintNo>,
     pub files: Vec<ChangedFile>,
     pub reviews: Vec<Review>,
+    /// Reviews a test gave the world: id, login, time and text.
+    pub given_reviews: Vec<(u64, String, At, String)>,
+    /// Notes a test gave the world, as their reviewer left them on files.
+    pub given_notes: Vec<NoteRec>,
     pub comments: Vec<CommentId>,
     pub events: Vec<ChangeEvent>,
     pub created: At,
@@ -720,6 +736,44 @@ impl State {
             link,
         });
         id
+    }
+
+    /// A comment with a number and a time a test gave it.
+    pub fn new_comment_at(
+        &mut self,
+        author: Option<Account>,
+        id: CommentId,
+        body: &str,
+        created: At,
+        edited: Option<At>,
+    ) -> CommentId {
+        let seq = self.bump();
+        let link = self.comment_link(&id);
+        self.comments.push(CommentRec {
+            id: id.clone(),
+            author,
+            editor: None,
+            created,
+            edited,
+            body: body.to_string(),
+            markers: Vec::new(),
+            raw: Some(body.to_string()),
+            revision: 1,
+            seq,
+            edits: Vec::new(),
+            gone: false,
+            link,
+        });
+        id
+    }
+
+    /// Whether a login may write to the project, as its standing here
+    /// says; None for a name the site does not know.
+    pub fn may_write(&self, login: &str) -> Option<bool> {
+        self.accounts
+            .iter()
+            .find(|a| a.login == login)
+            .map(|a| a.standing >= crate::Standing::Write)
     }
 
     /// The item changed: a new revision, seen by the next delta.

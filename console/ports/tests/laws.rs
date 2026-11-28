@@ -1177,6 +1177,83 @@ fn code_host_carrying_takes_changes_with_every_mark() {
 }
 
 #[test]
+fn code_host_a_change_gives_its_reviews_and_notes() {
+    for w in both() {
+        let n = first_change(&w);
+        let at = At::new(900_000);
+        let w = w.change(n, "work", |c| {
+            c.title("work")
+                .review(11, "alice", at, "looks well done")
+                .review(12, "bob", at, "one thing to fix")
+                .note(21, "alice", at, "use the port here", "src/main.rs", 7)
+                .note(22, "bob", at, "and name it once", "src/lib.rs", 3)
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::a_change_gives_its_reviews_and_notes(
+            h.as_mut(),
+            cn(n),
+            &[
+                (11, "alice", at, "looks well done"),
+                (12, "bob", at, "one thing to fix"),
+            ],
+            &[
+                (21, "alice", at, "use the port here", "src/main.rs", 7),
+                (22, "bob", at, "and name it once", "src/lib.rs", 3),
+            ],
+        ));
+    }
+}
+
+#[test]
+fn code_host_a_change_without_reviews_gives_none() {
+    for w in both() {
+        let n = first_change(&w);
+        let w = w.change(n, "work", |c| c.title("work"));
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::a_change_without_reviews_gives_none(
+            h.as_mut(),
+            cn(n),
+        ));
+    }
+}
+
+#[test]
+fn code_host_conversation_is_the_changes_conversation() {
+    for w in both() {
+        let n = first_change(&w);
+        let w = w.change(n, "work", |c| {
+            c.title("work")
+                .comment("alice", "go on")
+                .comment("bob", "wait")
+        });
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(laws::code_host::conversation_is_the_changes_conversation(
+            h.as_mut(),
+            cn(n),
+        ));
+    }
+}
+
+#[test]
+fn code_host_may_write_never_guesses_a_name_it_does_not_know() {
+    for w in both() {
+        let w = w.with_account("alice", AccountKind::Person, Standing::Write);
+        let site = FakeSite::new(&w);
+        let mut h = site.code_host(&full(), C).unwrap();
+        ok(
+            laws::code_host::may_write_never_guesses_a_name_it_does_not_know(
+                h.as_mut(),
+                &Login::new("alice"),
+                &Login::new("nobody-here"),
+            ),
+        );
+    }
+}
+
+#[test]
 fn a_change_records_its_base_commit_and_what_its_text_closes() {
     for w in both() {
         let n = first_change(&w);

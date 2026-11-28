@@ -276,6 +276,7 @@ fn the_record_names_no_comment_and_none_are_read() {
     title_world(&w);
     assert_eq!(w.approval(r#"has("comment_links")"#, 7), "false");
     lacks(&w.gh(), "comments?per_page=100 --paginate");
+    lacks(&w.gh(), "comments?per_page=100&page=1");
 }
 
 /// An instance that still sets TEHAS_WORK_COMMENTS: alice's two comments
@@ -345,6 +346,7 @@ fn an_instance_that_still_sets_comments_records_no_link_of_a_comment() {
         json!([[format!("{A}/1111")], false])
     );
     lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
+    lacks(&w.gh(), "issues/7/comments?per_page=100&page=1");
 }
 
 #[test]
@@ -368,35 +370,40 @@ fn retry_world(w: &World, off: bool, boxes: &[&str]) {
     w.comments(7, &park_body(boxes), "alice", json!([]));
 }
 
+/// A parked retry whose issue got, after the question, one comment per
+/// entry of `after`: who wrote it, when, and its text.
+fn retry_parked_after(w: &World, boxes: &[&str], after: &[(&str, &str, &str)]) {
+    w.parked("failed", "alice");
+    instance(w, IMAGES);
+    let nodes = after
+        .iter()
+        .map(|(who, at, body)| {
+            json!({"author": {"login": who, "databaseId": uid(who)},
+                "body": body, "createdAt": at})
+        })
+        .collect();
+    w.comments(7, &park_body(boxes), "alice", Value::Array(nodes));
+}
+
 #[test]
 fn a_retry_ticks_record_takes_the_comments_written_before_the_tick() {
     let w = World::new("ap-retry");
-    retry_world(&w, false, &["x", " "]);
-    issue_comments(
+    retry_parked_after(
         &w,
-        7,
+        &["x", " "],
         &[
-            icomment(
-                61,
-                "alice",
-                "2026-01-01T00:30:00Z",
-                "2026-01-01T00:30:00Z",
-                &format!("![r]({A}/9191)"),
-            ),
-            icomment(
-                62,
-                "alice",
-                "2026-01-01T01:00:01Z",
-                "2026-01-01T01:00:01Z",
-                &format!("![s]({A}/9292)"),
-            ),
+            ("alice", "2026-01-01T00:30:00Z", &format!("![r]({A}/9191)")),
+            ("alice", "2026-01-01T01:00:01Z", &format!("![s]({A}/9292)")),
         ],
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
+    // The read numbers the comments: 4002 is alice's before the tick and
+    // 4003 the reply that ticked, itself written at the tick and so within
+    // the window. The comment of 01:00:01 is after it and stays out.
     assert_eq!(
         w.at_mark(r#"[.how, (.retry_context | map(.id)), has("comment_links")]"#),
-        r#"["reply",[61],false]"#
+        r#"["reply",[4002,4003],false]"#
     );
 }
 
@@ -407,9 +414,10 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     let w = World::new("ap-retry-alone");
     retry_world(&w, false, &[" ", "x", " "]);
     issue_comments(&w, 7, &[]);
-    w.fx(
-        "prlist.json",
-        r#"[{"number":30,"headRefName":"feature/issue-7-search","body":""}]"#,
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
     );
     issue_comments(
         &w,
@@ -435,16 +443,36 @@ fn a_retry_tick_of_the_issue_alone_reads_no_comment() {
     );
     lacks(&w.gh(), "pr list");
     lacks(&w.gh(), "issues/7/comments?per_page=100 --paginate");
+    // The port read of the bot's changes, too, is not asked for: the box
+    // of the issue alone names neither list. The notes are read, as ever,
+    // for the tick itself.
+    lacks(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
 }
+
+/// The code host's id of the instance bot, the viewer of a read of its own
+/// changes: the sum of the characters of its login, the id these worlds
+/// record for it.
+const BOT: u64 = 903;
 
 /// A retry tick, the cycle's pull request #30 commented on
 /// by alice, mallory and bob, another issue's #31 and a second of #7's, #32.
 fn pr_world(w: &World) -> Run {
     retry_world(w, false, &["x", " "]);
     issue_comments(w, 7, &[]);
-    w.fx(
-        "prlist.json",
-        r#"[{"number":30,"headRefName":"feature/issue-7-search","body":""},{"number":31,"headRefName":"feature/issue-8-other","body":""},{"number":32,"headRefName":"x","body":"Fixes #7"}]"#,
+    // The bot's changes the retry lists: #30 whose head names the issue,
+    // #31 of another issue, and #32 whose body closes this one.
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}},
+            {"number": 31, "headRefName": "feature/issue-8-other", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}},
+            // #32 closes the issue with its body. The poll's own list of
+            // open pull requests reads it too, so a case of it says what
+            // the hold on an open one would have made a person do first:
+            // it is closed, and its comment is still the conversation.
+            {"number": 32, "headRefName": "x", "body": "Fixes #7", "state": "CLOSED",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
     );
     issue_comments(
         w,
@@ -512,8 +540,8 @@ fn pr_world(w: &World) -> Run {
 fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_to_the_tick() {
     let w = World::new("ap-retry-pr");
     let r = pr_world(&w);
-    assert_eq!(r.rc, 0, "{}", r.out);
-    assert_eq!(w.started(), "7 ");
+    assert_eq!(r.rc, 0, "{}\nGH:\n{}", r.out, w.gh());
+    assert_eq!(w.started(), "7 ", "{}", r.out);
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
     assert_eq!(
         val(&w.at_mark(".retry_context | map([.source, .id, .pr, .by, .text])")),
@@ -532,13 +560,14 @@ fn a_retry_tick_takes_what_allowed_accounts_wrote_on_the_cycles_pull_request_up_
                 "alice",
                 format!("The button goes here: ![shot]({A}/7171)")
             ],
-            ["pr-comment", 91, 32, "bob", "second PR"]
+            ["pr-comment", 91, 32, "bob", "second PR"],
+            // The reply that ticked the box is a comment of the issue by
+            // an allowed account, written at the tick: the read of the
+            // notes gives it with the rest, as the issue has it.
+            ["issue-comment", 4002, null, "alice", "retry"]
         ])
     );
-    has(
-        &w.gh(),
-        "pr list --repo acme/widget --author tehas-bot[bot] --state all",
-    );
+    has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
 }
 
 #[test]
@@ -568,27 +597,26 @@ fn a_start_by_label_reads_no_pull_request() {
 #[test]
 fn with_images_off_a_retry_tick_still_takes_the_comments_text_and_no_link() {
     let w = World::new("ap-retry-off");
-    retry_world(&w, true, &["x", " "]);
-    issue_comments(
-        &w,
+    w.parked("failed", "alice");
+    w.comments(
         7,
-        &[icomment(
-            61,
-            "alice",
-            "2026-01-01T00:30:00Z",
-            "2026-01-01T00:30:00Z",
-            &format!("said ![r]({A}/9191)"),
-        )],
+        &park_body(&["x", " "]),
+        "alice",
+        json!([{"author": {"login": "alice", "databaseId": uid("alice")},
+            "body": format!("said ![r]({A}/9191)"),
+            "createdAt": "2026-01-01T00:30:00Z"}]),
     );
     let r = w.poll();
     assert_eq!(r.rc, 0, "{}", r.out);
-    has(&w.gh(), "pr list");
+    has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
+    // alice's comment and the reply that ticked the box, both before or at
+    // the tick: the text is taken and no link of a comment is named.
     assert_eq!(
         w.approval(
             r#"[has("comment_links"), (.retry_context | map(.source))]"#,
             7
         ),
-        r#"[false,["issue-comment"]]"#
+        r#"[false,["issue-comment","issue-comment"]]"#
     );
 }
 
@@ -598,6 +626,7 @@ fn pull_requests_that_cannot_be_listed_start_no_retry_and_change_no_label_exit_1
     retry_world(&w, false, &["x", " "]);
     issue_comments(&w, 7, &[]);
     w.touch("pr-fails");
+    w.touch("pulls-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
     has(
@@ -616,19 +645,34 @@ fn comments_that_cannot_be_read_start_nothing_and_change_no_label_exit_1() {
     w.touch("icomments-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
-    has(&r.out, "ERROR: the comments of #7 could not be read");
+    // The poll reads the issue's comments once, for the tick and the retry
+    // alike, so a site failure is said where the read is asked for.
     has(
         &r.out,
-        "ERROR: could not write the approval record of #7, not starting a cycle",
+        "unreadable comments of #7: the site failed; it may have been sent",
     );
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.marks(None), 0);
     assert_eq!(w.started(), "");
-    w.fx("icomments-7.json", r#"{"not": "a list"}"#);
+    // The tick stays unasked, so the same poll can be asked again with a
+    // pull request of the bot's whose conversation the site answers in no
+    // shape a read takes: the retry says so and starts nothing.
+    std::fs::remove_file(w.fx.join("icomments-fails")).unwrap();
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
+    );
+    w.fx("icomments-30.json", r#"{"not": "a list"}"#);
     let r = w.poll();
     assert_eq!(r.rc, 1, "{}", r.out);
+    has(
+        &r.out,
+        "ERROR: the comments on the pull request of #7 could not be read",
+    );
     lacks(&w.gh(), "issue edit");
     assert_eq!(w.marks(None), 0);
+    assert_eq!(w.started(), "");
 }
 
 #[test]

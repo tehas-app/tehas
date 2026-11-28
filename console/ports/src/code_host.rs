@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use crate::mark::unknown_tag;
 use crate::{
     unknown, Account, AccountId, Applied, At, Blobs, BlueprintNo, Body, Bound, Branch, ChangeNo,
-    ChangeToken, Cites, Comment, CommentId, CommitId, Cursor, Did, FileName, GitRemote, Got, Mark,
-    Marker, MarkerEdit, Posted, ProjectName, Ref, Relation, ReleaseId, RepoPath, Reports, Rev,
-    Secret, Sum, TagName, Token, Took, WebLink, Whole, Window,
+    ChangeToken, Cites, Comment, CommentId, CommitId, Cursor, Did, FileName, GitRemote, Got, Login,
+    Mark, Marker, MarkerEdit, Outcome, Posted, ProjectName, Ref, Refusal, Relation, ReleaseId,
+    RepoPath, Reports, Rev, Secret, Sum, TagName, Token, Took, WebLink, Whole, Window,
 };
 
 /// What the code host says of the project. `tracker_on`: the code host's
@@ -302,6 +302,71 @@ pub struct ReviewNote {
     /// Its text.
     pub body: String,
 }
+
+/// The body of a review of a change: what its reviewer said and when they
+/// submitted it. A review is written once, so it has no edit; the notes its
+/// reviewer left on files are `review_comments`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ChangeReview {
+    /// The review's own number on the change.
+    pub id: u64,
+    /// Who submitted it; None where the site names nobody.
+    pub by: Option<Account>,
+    /// When it was submitted.
+    pub at: At,
+    /// Its text, as the site wrote it, never cut.
+    pub body: String,
+    /// Where a person opens it.
+    pub link: WebLink,
+}
+
+new!(
+    ChangeReview {
+        id: u64,
+        at: At,
+        body: String,
+        link: WebLink
+    },
+    by
+);
+
+/// A comment on one review of a change: the note a review left on a file.
+/// Written at `at`, and editable after it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct ReviewComment {
+    /// The comment's own number on the change.
+    pub id: u64,
+    /// Who wrote it; None where the site names nobody.
+    pub by: Option<Account>,
+    /// When it was written.
+    pub at: At,
+    /// When it was last edited; None when unedited.
+    pub edited: Option<At>,
+    /// Its text, as the site wrote it, never cut.
+    pub body: String,
+    /// The file it is on, where the site says one.
+    pub path: Option<RepoPath>,
+    /// The line it names: where the file moved since, the line the comment
+    /// stood on when it was written. None where the site says none.
+    pub line: Option<u32>,
+    /// Where a person opens it.
+    pub link: WebLink,
+}
+
+new!(
+    ReviewComment {
+        id: u64,
+        at: At,
+        body: String,
+        link: WebLink
+    },
+    by,
+    edited,
+    path,
+    line
+);
 
 /// One event of a change.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -860,6 +925,40 @@ pub trait CodeHost: Reports + Cites {
     /// does not order them; `more` may be true where only items the
     /// adapter leaves out remain (Decided 126).
     fn activity(&mut self, no: ChangeNo, window: Window) -> Got<Took<ChangeEvent>>;
+    /// The reviews of a change, whole, oldest first: what each reviewer
+    /// said, never the notes they left on files, which are
+    /// `review_comments`. Where the site holds a review as not yet
+    /// submitted, the adapter leaves it out; a review needs no account.
+    /// A host that does not know reviews refuses `Refused(Unsupported)`.
+    /// Added 2026-11-28, with this default.
+    fn reviews(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ChangeReview>> {
+        let _ = (no, bound);
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    /// The notes reviewers left on files of a change, whole, oldest first.
+    /// A host that does not know them refuses `Refused(Unsupported)`.
+    /// Added 2026-11-28, with this default.
+    fn review_comments(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<ReviewComment>> {
+        let _ = (no, bound);
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    /// The conversation of a change: the comments its participants wrote
+    /// on the change itself, oldest first, none of them a review's note
+    /// on a file (`review_comments`) or a review body (`reviews`). A host
+    /// with no such discussion refuses `Refused(Unsupported)`. Added
+    /// 2026-11-28, with this default.
+    fn conversation(&mut self, no: ChangeNo, bound: Bound) -> Got<Whole<Comment>> {
+        let _ = (no, bound);
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
+    /// Whether `who` may write to the project: true where the site says
+    /// they hold a role that writes. A host that cannot tell refuses
+    /// `Refused(Unsupported)`; it does not answer false for what it does
+    /// not know. Added 2026-11-28, with this default.
+    fn may_write(&mut self, who: &Login) -> Got<bool> {
+        let _ = who;
+        Err(Outcome::Refused(Refusal::Unsupported))
+    }
     /// The checks on a commit, or those of this name: its check runs, the
     /// newest of each App and name, so an old failure beside a passing
     /// re-run is not read, and its status contexts, each one's newest state

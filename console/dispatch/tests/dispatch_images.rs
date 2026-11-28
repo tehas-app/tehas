@@ -14,6 +14,11 @@ use tehas_core::home::{Home, Live};
 const A: &str = "https://github.com/user-attachments/assets";
 const MODELS: &str = r#"{"data":[{"id":"test-model"}]}"#;
 
+/// The code host's id of the instance bot, the viewer of a read of its own
+/// changes: the sum of the characters of its login, the id these worlds
+/// record for it.
+const BOT: u64 = 903;
+
 fn world(name: &str) -> World {
     let w = World::new(name);
     w.mesh_curl();
@@ -115,9 +120,10 @@ fn commented(w: &World) {
 /// and the instance that reads comments and takes images. `ticked` is
 /// clean, alone or old (the two boxes a cycle posted before).
 fn reviewed(w: &World, ticked: &str, login: &str) {
-    w.fx(
-        "prlist.json",
-        r#"[{"number":30,"headRefName":"feature/issue-7-search","body":""}]"#,
+    w.fx_json(
+        "pulls.json",
+        &json!([{"number": 30, "headRefName": "feature/issue-7-search", "body": "",
+            "author": {"login": "tehas-bot[bot]", "databaseId": BOT}}]),
     );
     w.fx_json(
         "icomments-30.json",
@@ -129,7 +135,6 @@ fn reviewed(w: &World, ticked: &str, login: &str) {
             &format!("The button goes here: ![shot]({A}/7171)")
         )]),
     );
-    w.fx("icomments-7.json", "[]");
     let body = match ticked {
         "clean" => park(&["x", " ", " "]),
         "alone" => park(&[" ", "x", " "]),
@@ -356,23 +361,22 @@ fn a_retry_held_on_its_image_holds_that_issue_not_the_poll_the_next_ready_issue_
     has(&r.out, "hold #7: its text links an attachment");
 }
 
-// The comments of the issue itself are the park's question, so the REST list
-// the poll reads for a clean start is named and empty: only the pull
-// request's comments go into the record.
+// The comments of the issue itself are the park's question and the reply
+// that ticked its box: the question is the bot's and goes no further than
+// the reply, so the record holds the reply and the pull request's comment.
 #[test]
 fn a_start_by_the_clean_start_box_carries_the_comment_an_allowed_account_wrote_after_the_park() {
     let w = world("images-clean");
     commented(&w);
     w.parked("failed", "alice");
     reviewed(&w, "clean", "alice");
-    assert_eq!(w.poll().rc, 0);
-    assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "pr list --repo acme/widget --author tehas-bot[bot] --state all",
-    );
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}\nGH:\n{}", r.out, w.gh());
+    assert_eq!(started(&w), "7", "{}", r.out);
+    has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
-    assert_eq!(w.at_mark(".retry_context | length"), "1");
+    // The pull request's comment and the reply that ticked the box.
+    assert_eq!(w.at_mark(".retry_context | length"), "2");
     has(&w.at_mark(".retry_context[0].text"), "The button goes here");
 }
 
@@ -388,8 +392,8 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
     list[0]["user"]["id"] = json!(99);
     w.fx_json("icomments-30.json", &list);
     let r = w.poll();
-    assert_eq!(r.rc, 0);
-    assert_eq!(started(&w), "7");
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "7", "{}", r.out);
     has(
         &r.out,
         &format!(
@@ -398,7 +402,13 @@ fn a_comment_by_a_listed_login_with_another_user_id_is_not_carried() {
         ),
     );
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
-    assert_eq!(w.at_mark(".retry_context | length"), "0");
+    // The pull request comment of the doubtful id is not carried; only the
+    // reply that ticked the box, of alice's own recorded id, is.
+    assert_eq!(w.at_mark(".retry_context | length"), "1");
+    lacks(
+        &w.at_mark(".retry_context | map(.text) | tostring"),
+        "The button goes here",
+    );
 }
 
 #[test]
@@ -411,6 +421,7 @@ fn a_start_by_the_issue_alone_box_names_no_comment_link_and_no_retry_context() {
     assert_eq!(started(&w), "7");
     assert_eq!(w.at_mark(".how"), "reply");
     lacks(&w.gh(), "pr list");
+    lacks(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(
         w.at_mark(r#"[has("comment_links"), has("retry_context")]"#),
         "[false,false]"
@@ -424,8 +435,9 @@ fn both_retries_give_the_cycle_the_image_the_issues_own_body_links() {
         commented(&w);
         w.parked("failed", "alice");
         reviewed(&w, ticked, "alice");
-        w.poll();
-        assert_eq!(started(&w), "7", "{ticked}");
+        let r = w.poll();
+        assert_eq!(r.rc, 0, "{ticked} {}", r.out);
+        assert_eq!(started(&w), "7", "{ticked} {}", r.out);
         assert_eq!(
             mark(&w, ".links"),
             json!([format!("{A}/0f3e-41")]),
@@ -441,6 +453,7 @@ fn an_issue_alone_tick_whose_pull_request_cannot_be_listed_still_starts_nothing_
     w.parked("failed", "alice");
     reviewed(&w, "alone", "alice");
     w.touch("pr-fails");
+    w.touch("pulls-fails");
     let r = w.poll();
     assert_eq!(r.rc, 0);
     assert_eq!(started(&w), "7");
@@ -454,6 +467,7 @@ fn a_clean_start_tick_whose_pull_request_cannot_be_listed_starts_nothing_as_it_d
     w.parked("failed", "alice");
     reviewed(&w, "clean", "alice");
     w.touch("pr-fails");
+    w.touch("pulls-fails");
     let r = w.poll();
     assert_eq!(r.rc, 1);
     assert_eq!(started(&w), "");
@@ -469,14 +483,13 @@ fn a_park_of_the_old_two_boxes_still_gives_the_clean_start_its_pull_requests_com
     commented(&w);
     w.parked("failed", "alice");
     reviewed(&w, "old", "alice");
-    assert_eq!(w.poll().rc, 0);
-    assert_eq!(started(&w), "7");
-    has(
-        &w.gh(),
-        "pr list --repo acme/widget --author tehas-bot[bot] --state all",
-    );
+    let r = w.poll();
+    assert_eq!(r.rc, 0, "{}", r.out);
+    assert_eq!(started(&w), "7", "{}", r.out);
+    has(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(w.at_mark(r#"has("comment_links")"#), "false");
-    assert_eq!(w.at_mark(".retry_context | length"), "1");
+    // The pull request's comment and the reply that ticked the box.
+    assert_eq!(w.at_mark(".retry_context | length"), "2");
 }
 
 #[test]
@@ -489,6 +502,7 @@ fn under_the_issue_alone_box_a_start_reads_neither_the_issues_comments_nor_the_p
     assert_eq!(w.poll().rc, 0);
     assert_eq!(started(&w), "7");
     lacks(&w.gh(), "pr list");
+    lacks(&w.gh(), "states: [OPEN, CLOSED, MERGED]");
     assert_eq!(
         w.at_mark(r#"[has("comment_links"), has("retry_context")]"#),
         "[false,false]"

@@ -46,7 +46,7 @@ use tehas_ports::{
 };
 
 /// What one page of a REST list asks for, the most GitHub gives.
-const PER_PAGE: usize = 100;
+pub(super) const PER_PAGE: usize = 100;
 
 /// The most files GitHub lists of a pull request: past them the list is
 /// not whole, `Unread(Cut)`, with no page read.
@@ -375,7 +375,13 @@ impl GitHub {
 
     /// gh's answer to one page of a REST list of the pull request's, or its
     /// outcome.
-    fn page(&mut self, no: ChangeNo, list: &str, page: usize, call: &str) -> Got<String> {
+    pub(super) fn page(
+        &mut self,
+        no: ChangeNo,
+        list: &str,
+        page: usize,
+        call: &str,
+    ) -> Got<String> {
         let path = format!(
             "repos/{}/pulls/{}/{list}?per_page={PER_PAGE}&page={page}",
             self.repo,
@@ -451,7 +457,7 @@ struct Label {
 
 /// The account GitHub's REST names as a `user`.
 #[derive(Deserialize)]
-struct User {
+pub(super) struct User {
     login: Option<String>,
     id: Option<u64>,
     #[serde(rename = "type")]
@@ -860,7 +866,7 @@ pub(super) fn answer<T: serde::de::DeserializeOwned>(out: &str, now: i64) -> Got
 }
 
 /// A REST answer, its logins vouched, or `Unread(Malformed)`.
-fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
+pub(super) fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
     let mut v: Value = serde_json::from_str(out.trim()).map_err(|_| MALFORMED)?;
     tehas_core::accounts::vouch(&mut v);
     serde_json::from_value(v).map_err(|_| MALFORMED)
@@ -869,7 +875,7 @@ fn parse<T: serde::de::DeserializeOwned>(out: &str) -> Got<T> {
 /// A review's or a review comment's pull request, held to be `no` of
 /// this project: a missing link is `Unread(Malformed)`, another pull
 /// request's `Unread(Inconsistent)`.
-fn on_pull(url: Option<&str>, repo: Named, no: ChangeNo) -> Got<()> {
+pub(super) fn on_pull(url: Option<&str>, repo: Named, no: ChangeNo) -> Got<()> {
     let url = url.ok_or(MALFORMED)?;
     match repo.ends(url, "/repos", &format!("/pulls/{}", no.get())) {
         true => Ok(()),
@@ -895,7 +901,7 @@ pub(super) fn relation(word: &str) -> Relation {
 }
 
 /// A time of GitHub's, or `Unread(Malformed)`.
-fn time(iso: Option<&str>) -> Got<At> {
+pub(super) fn time(iso: Option<&str>) -> Got<At> {
     iso.and_then(tehas_core::time::from_iso)
         .map(At::new)
         .ok_or(MALFORMED)
@@ -913,7 +919,7 @@ fn small(n: Option<u64>) -> Got<u32> {
 
 /// The account of a `user`, None where it names nobody: a deleted
 /// account's is `null`.
-fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<Account> {
+pub(super) fn author(user: Option<&User>, bot: Option<&Bot>) -> Option<Account> {
     let u = user?;
     let facts = gh::Facts {
         id: u.id,

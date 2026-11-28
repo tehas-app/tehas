@@ -76,5 +76,16 @@ pub fn as_reply(
         .unwrap_or(later.len());
     let mut later = later;
     later.insert(k, reply);
+    // GitHub numbers comments in the order they were posted, and a read
+    // that answers with itself must agree: the reply takes the first free
+    // number after its neighbours, and a case that named a number below
+    // one already used is moved up with them.
+    let mut prev = 4001u64;
+    for node in later.iter_mut() {
+        let want = node["databaseId"].as_u64().unwrap_or(prev + 1);
+        let id = if want > prev { want } else { prev + 1 };
+        node["databaseId"] = json!(id);
+        prev = id;
+    }
     (unticked, later, true)
 }
