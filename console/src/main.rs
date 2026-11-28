@@ -523,8 +523,76 @@ mod wiring {
             return Err(Outcome::Refused(Refusal::Unsupported));
         };
         let ledger = std::sync::Arc::new(tehas_core::ledger::FileLedger::new(&home));
-        site.with_anonymous_curl(curl(), ledger)
+        site.with_anonymous_curl(curl(), ledger, std::sync::Arc::new(JournalNotices))
             .code_host(by, caller)
+    }
+
+    /// The `Notices` of the anonymous reads: each is written to stderr in
+    /// plain words, where the unit's journal keeps it. The anonymous
+    /// reader's health notices have no other home on a host yet.
+    struct JournalNotices;
+
+    impl tehas_ports::Notices for JournalNotices {
+        fn notice(&self, n: tehas_ports::Notice) {
+            use std::io::Write;
+            let _ = writeln!(std::io::stderr(), "tehas: {}", notice_words(&n));
+        }
+    }
+
+    /// One notice as one plain line, in the order its fields read: the
+    /// host, the realm that saw it, who it is about, what changed, and
+    /// when it was seen. No debug shapes: a person reads this line in the
+    /// unit's journal.
+    fn notice_words(n: &tehas_ports::Notice) -> String {
+        use tehas_ports::{Health, Passing, Pool, Realm, Whose};
+        let realm = match n.realm {
+            Realm::CodeHost => "code host",
+            Realm::Tickets => "tickets",
+        };
+        let whose = match &n.whose {
+            Whose::Host => "the host".to_string(),
+            Whose::Holder(_) => "a holder".to_string(),
+            Whose::Pool(_, pool) => format!(
+                "the {} pool",
+                match pool {
+                    Pool::Calls => "calls",
+                    Pool::Priced => "priced",
+                    Pool::Search => "search",
+                    Pool::Writes => "writes",
+                    _ => "unknown",
+                }
+            ),
+        };
+        let state = match &n.what {
+            Health::Unavailable(why) => format!(
+                "is out ({})",
+                match why {
+                    Passing::Timeout => "it took too long",
+                    Passing::Unreachable => "it could not be reached",
+                    Passing::Server => "the site failed",
+                    Passing::Broken => "a check run failed",
+                }
+            ),
+            Health::Spent { until, .. } => {
+                format!("is spent until {}", until.secs())
+            }
+            Health::SignedOut => "is signed out".to_string(),
+            Health::Recovered => "is healthy again".to_string(),
+            Health::LedgerDown => {
+                "cannot be checked: the ledger is down, so a change may be told twice".to_string()
+            }
+            Health::TokenNotDropped => {
+                "keeps a refused token: it could not be dropped, so it may be read until it expires"
+                    .to_string()
+            }
+            _ => "reports a state this copy does not know".to_string(),
+        };
+        format!(
+            "{} ({}): {whose} {state}, seen at {}",
+            n.host.as_str(),
+            realm,
+            n.at.secs()
+        )
     }
 
     /// curl as the operator's PATH finds it, as gh is found, else as the
@@ -542,6 +610,101 @@ mod wiring {
     /// words, or a project's own mark. None for a name no mark can have.
     pub(crate) fn mark_of(label: &str) -> Option<Mark> {
         tehas_github::table::word(label).or_else(|| MarkName::new(label).ok().map(Mark::Project))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::notice_words;
+        use tehas_ports::{
+            At, Health, Holder, HolderId, HostId, Notice, Passing, Pool, Realm, Whose,
+        };
+
+        fn notice(whose: Whose, what: Health) -> Notice {
+            Notice::new(
+                HostId::new("github.com"),
+                whose,
+                Realm::CodeHost,
+                what,
+                At::new(1795530000),
+            )
+        }
+
+        fn caller() -> Holder {
+            Holder::Anonymous(HolderId::new("caller"))
+        }
+
+        /// One line per state, in plain words: the journal is read by a
+        /// person, not a debugger.
+        #[test]
+        fn notices_are_written_in_plain_words() {
+            let host = Whose::Host;
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::Unavailable(Passing::Server))),
+                "github.com (code host): the host is out (the site failed), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::Unavailable(Passing::Timeout))),
+                "github.com (code host): the host is out (it took too long), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Pool(caller(), Pool::Calls),
+                    Health::Spent {
+                        pool: Pool::Calls,
+                        until: At::new(1795531000),
+                    },
+                )),
+                "github.com (code host): the calls pool is spent until 1795531000, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::Recovered)),
+                "github.com (code host): the host is healthy again, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(host.clone(), Health::LedgerDown)),
+                "github.com (code host): the host cannot be checked: the ledger is down, so a change may be told twice, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(Holder::Ours(HolderId::new("ours"))),
+                    Health::SignedOut
+                )),
+                "github.com (code host): a holder is signed out, seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::Unavailable(Passing::Unreachable)
+                )),
+                "github.com (code host): a holder is out (it could not be reached), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::Unavailable(Passing::Broken)
+                )),
+                "github.com (code host): a holder is out (a check run failed), seen at 1795530000"
+            );
+            assert_eq!(
+                notice_words(&notice(
+                    Whose::Holder(caller()),
+                    Health::TokenNotDropped
+                )),
+                "github.com (code host): a holder keeps a refused token: it could not be dropped, so it may be read until it expires, seen at 1795530000"
+            );
+            for state in [
+                Health::Unavailable(Passing::Timeout),
+                Health::Unavailable(Passing::Server),
+                Health::SignedOut,
+                Health::Recovered,
+                Health::LedgerDown,
+                Health::TokenNotDropped,
+                Health::Unknown(tehas_ports::Word::Health),
+            ] {
+                let line = notice_words(&notice(Whose::Holder(caller()), state));
+                assert!(!line.contains('{') && !line.contains('"'), "{line}");
+            }
+        }
     }
 }
 

@@ -2922,6 +2922,23 @@ fn health_held_calls_raise_no_recovered() {
 }
 
 #[test]
+fn health_a_held_read_raises_no_recovered() {
+    let wired = Wired::new(World::new());
+    let faulty = wired.faulty();
+    let actor = Actor::Ours(Scope::Read);
+    let mut h = faulty.code_host(&actor, C).unwrap();
+    let holder = wired.watch(None).holder(&actor);
+    ok(laws::health::a_held_read_raises_no_recovered(
+        h.as_mut(),
+        wired.wiring(&|| faulty.requests()),
+        &holder,
+        Op::CodeHost(CodeHostOp::Releases).pool(),
+        wired.world.now(),
+    ));
+    assert_eq!(faulty.requests(), 0, "a held read sends nothing");
+}
+
+#[test]
 fn health_past_the_deadline_raises_no_unavailable() {
     let wired = Wired::new(World::new().ticket(1, |t| t.title("a")));
     let now = wired.world.now();

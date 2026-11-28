@@ -14,10 +14,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use tehas_core::testdir::TestDir;
 use tehas_github::{Curl, GitHubSite, MakeRunner, CURL_ENV};
-use tehas_ports::fake::MemoryLedger;
+use tehas_ports::fake::{MemoryLedger, NoticeLog};
 use tehas_ports::{
-    Actor, At, Caller, CommitId, HealthState, Holder, HolderId, HostId, Ledger, Outcome, Pool,
-    Refusal, Site, TagName, Unread, Whose, ALL_MAX,
+    Actor, At, Budget, Caller, CommitId, Failure, Health, HealthState, Holder, HolderId, HostId,
+    Ledger, LedgerDown, Outcome, Passing, Pool, Refusal, Sent, Site, TagName, Unread, Whose,
+    ALL_MAX,
 };
 
 const CALLER: Caller = Caller::new("test.anonymous");
@@ -115,9 +116,25 @@ fn no_gh() -> MakeRunner {
 }
 
 fn site(repo: &str, stub: &Stub, ledger: Arc<MemoryLedger>) -> GitHubSite {
+    site_told(repo, stub, ledger, Arc::new(NoticeLog::new()))
+}
+
+/// The same, with the sink the health notices are told to kept by the
+/// test, so a case can assert one report.
+fn site_told(
+    repo: &str,
+    stub: &Stub,
+    ledger: Arc<dyn Ledger>,
+    notices: Arc<NoticeLog>,
+) -> GitHubSite {
     GitHubSite::new(repo, "tehas-app[bot]", Some(900), no_gh())
-        .with_anonymous_curl(Curl::at(stub.program()), ledger)
+        .with_anonymous_curl(Curl::at(stub.program()), ledger, notices)
         .on_clock(|| 1_795_530_000)
+}
+
+/// Each notice told, as (whose, what).
+fn told(log: &NoticeLog) -> Vec<(Whose, Health)> {
+    log.all().into_iter().map(|n| (n.whose, n.what)).collect()
 }
 
 fn tag(name: &str) -> TagName {
@@ -526,6 +543,7 @@ fn an_answer_past_the_cap_is_too_large() {
         .with_anonymous_curl(
             Curl::at(stub.program()).capped(64),
             Arc::new(MemoryLedger::new()),
+            Arc::new(NoticeLog::new()),
         )
         .on_clock(|| 1_795_530_000);
     let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
@@ -533,6 +551,178 @@ fn an_answer_past_the_cap_is_too_large() {
         h.latest_release().err(),
         Some(Outcome::Unread(tehas_ports::Unread::TooLarge))
     );
+}
+
+/// A 500 cannot be asked of GitHub on demand, so the case is synthetic:
+/// the live releases answer with only its status line changed. The host is
+/// the state a passing failure fails, so the answer raises the host's
+/// notice once; the holder and the pool see no change of theirs. A healing
+/// answer raises the host's `Recovered`: `latest` is not in the synthetic
+/// case, so it reads the live recording.
+#[test]
+fn a_failing_answer_raises_the_host_once_and_a_healing_one_raises_recovered() {
+    let stub = Stub::synthetic("github-anonymous-server", "server-error");
+    let log = Arc::new(NoticeLog::new());
+    let site = site_told(REPO, &stub, Arc::new(MemoryLedger::new()), Arc::clone(&log));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    let out = Outcome::Unavailable {
+        why: Passing::Server,
+        sent: Sent::Maybe,
+    };
+    assert_eq!(h.releases(ALL_MAX).err(), Some(out.clone()));
+    assert_eq!(
+        told(&log),
+        [(Whose::Host, Health::Unavailable(Passing::Server))]
+    );
+    assert_eq!(h.releases(ALL_MAX).err(), Some(out));
+    assert_eq!(log.all().len(), 1, "a standing failure raises nothing");
+    assert!(h.latest_release().is_ok());
+    assert_eq!(
+        told(&log),
+        [
+            (Whose::Host, Health::Unavailable(Passing::Server)),
+            (Whose::Host, Health::Recovered),
+        ],
+        "the healing answer tells the host healthy again"
+    );
+}
+
+/// A ledger that cannot be read or written fails toward reporting: the
+/// answer still goes to the caller, each state's change is told from the
+/// healthy base, and the ledger-down notice is told once per handle.
+#[test]
+fn a_ledger_that_fails_fails_toward_reporting() {
+    struct Down;
+
+    impl Ledger for Down {
+        fn budget(&self, _: &HostId, _: &Holder, _: Pool) -> Result<Option<Budget>, LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn put_budget(&self, _: &HostId, _: &Holder, _: Pool, _: Budget) -> Result<(), LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn health(&self, _: &HostId, _: &Whose) -> Result<HealthState, LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn swap_health(
+            &self,
+            _: &HostId,
+            _: &Whose,
+            _: &HealthState,
+            _: &HealthState,
+        ) -> Result<bool, LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn failed(&self, _: &HostId, _: Failure, _: u32) -> Result<(), LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn failures(&self, _: &HostId, _: At) -> Result<Vec<Failure>, LedgerDown> {
+            Err(LedgerDown)
+        }
+    }
+
+    let stub = Stub::synthetic("github-anonymous-ledger", "server-error");
+    let log = Arc::new(NoticeLog::new());
+    let site = site_told(REPO, &stub, Arc::new(Down), Arc::clone(&log));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    let out = Outcome::Unavailable {
+        why: Passing::Server,
+        sent: Sent::Maybe,
+    };
+    assert_eq!(h.releases(ALL_MAX).err(), Some(out.clone()));
+    assert_eq!(
+        told(&log),
+        [
+            (Whose::Host, Health::LedgerDown),
+            (Whose::Host, Health::Unavailable(Passing::Server)),
+        ],
+        "the spent check fails first, then the host's own change is told"
+    );
+    assert_eq!(h.releases(ALL_MAX).err(), Some(out));
+    assert_eq!(
+        told(&log)[2..],
+        [(Whose::Host, Health::Unavailable(Passing::Server))],
+        "the ledger is told down once per handle"
+    );
+}
+
+/// A budget that cannot be kept fails toward reporting on its own arm:
+/// the answer still goes to the caller, no health change is due (the call
+/// was answered), and the ledger is told down once per handle.
+#[test]
+fn a_budget_that_cannot_be_kept_fails_toward_reporting() {
+    struct BadBudget;
+
+    impl Ledger for BadBudget {
+        fn budget(&self, _: &HostId, _: &Holder, _: Pool) -> Result<Option<Budget>, LedgerDown> {
+            Ok(None)
+        }
+        fn put_budget(&self, _: &HostId, _: &Holder, _: Pool, _: Budget) -> Result<(), LedgerDown> {
+            Err(LedgerDown)
+        }
+        fn health(&self, _: &HostId, _: &Whose) -> Result<HealthState, LedgerDown> {
+            Ok(HealthState::Healthy)
+        }
+        fn swap_health(
+            &self,
+            _: &HostId,
+            _: &Whose,
+            _: &HealthState,
+            _: &HealthState,
+        ) -> Result<bool, LedgerDown> {
+            Ok(true)
+        }
+        fn failed(&self, _: &HostId, _: Failure, _: u32) -> Result<(), LedgerDown> {
+            Ok(())
+        }
+        fn failures(&self, _: &HostId, _: At) -> Result<Vec<Failure>, LedgerDown> {
+            Ok(Vec::new())
+        }
+    }
+
+    let stub = Stub::new("github-anonymous-budget-down");
+    let log = Arc::new(NoticeLog::new());
+    let site = site_told(REPO, &stub, Arc::new(BadBudget), Arc::clone(&log));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    assert!(
+        h.releases(ALL_MAX).is_ok(),
+        "the answer still goes to the caller"
+    );
+    assert!(h.releases(ALL_MAX).is_ok());
+    assert_eq!(
+        told(&log),
+        [(Whose::Host, Health::LedgerDown)],
+        "the ledger is told down once per handle, and the good answer changes no health"
+    );
+}
+
+/// The law of a held read runs on the adapter's handle too, not only on
+/// the fake: the ledger, the sink and the request count are the ones the
+/// handle was wired with.
+#[test]
+fn a_held_anonymous_read_raises_no_recovered_on_the_law() {
+    let stub = Stub::new("github-anonymous-held-law");
+    let ledger: Arc<dyn Ledger> = Arc::new(MemoryLedger::new());
+    let log = Arc::new(NoticeLog::new());
+    let site = site_told(REPO, &stub, Arc::clone(&ledger), Arc::clone(&log));
+    let mut h = site.code_host(&Actor::Anonymous, CALLER).unwrap();
+    let host = HostId::new("github.com");
+    let requests = || stub.asked().len() as u32;
+    let wiring = tehas_ports::laws::health::Wiring {
+        ledger: &*ledger,
+        sink: log.as_ref(),
+        host: &host,
+        requests: &requests,
+    };
+    tehas_ports::laws::health::a_held_read_raises_no_recovered(
+        h.as_mut(),
+        wiring,
+        &anonymous(),
+        Pool::Calls,
+        At::new(1_795_530_000),
+    )
+    .unwrap();
+    assert!(stub.asked().is_empty(), "a held read sends nothing");
 }
 
 /// curl's arguments, whole: GET only, `https` only, no redirect followed
