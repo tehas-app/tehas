@@ -16,7 +16,7 @@ mod change;
 mod checks;
 pub(super) mod download;
 mod numbers;
-mod releases;
+pub(super) mod releases;
 mod remote;
 pub use checks::WORKFLOW_RUNS_FORBIDDEN;
 pub(super) use remote::parts;
